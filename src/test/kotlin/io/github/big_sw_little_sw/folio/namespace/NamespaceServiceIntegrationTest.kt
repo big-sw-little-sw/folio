@@ -1,12 +1,16 @@
 package io.github.big_sw_little_sw.folio.namespace
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.authenticateAs
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.simple.JdbcClient
+import org.springframework.security.core.context.SecurityContextHolder
 import java.util.UUID
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
@@ -22,10 +26,16 @@ class NamespaceServiceIntegrationTest(
     @Autowired private val service: NamespaceService,
     @Autowired private val jdbc: JdbcClient,
 ) {
+    // Authorization has its own tests; the tree rules run as a bootstrap admin, who may do everything.
     @BeforeEach
-    fun deleteAllNamespaces() {
-        jdbc.sql("delete from namespace_closure").update()
-        jdbc.sql("delete from namespace").update()
+    fun authenticateAsBootstrapAdmin() {
+        authenticateAs(BOOTSTRAP_ADMIN)
+        deleteAllNamespaces()
+    }
+
+    @AfterEach
+    fun clearAuthentication() {
+        SecurityContextHolder.clearContext()
     }
 
     @Test
@@ -264,6 +274,7 @@ class NamespaceServiceIntegrationTest(
                     listOf(a to b, b to a)
                         .map { (moved, parent) ->
                             executor.submit<Result<Namespace>> {
+                                authenticateAs(BOOTSTRAP_ADMIN)
                                 barrier.await()
                                 runCatching { service.move(moved.id, parent.id) }
                             }
@@ -274,6 +285,11 @@ class NamespaceServiceIntegrationTest(
             assertIs<NamespaceMoveIntoOwnSubtreeException>(results.single { it.isFailure }.exceptionOrNull())
             assertClosureMatchesParents()
         }
+    }
+
+    private fun deleteAllNamespaces() {
+        jdbc.sql("delete from namespace_closure").update()
+        jdbc.sql("delete from namespace").update()
     }
 
     private fun create(
