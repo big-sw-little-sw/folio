@@ -15,17 +15,17 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Flyway migration for namespaces and the closure table; `JdbcClient` repositories.
   - Create, rename, move and delete rules, with closure rows kept consistent on move.
   - Moving a namespace into its own subtree is rejected.
-  - Delete of a non-empty namespace: behaviour decided and recorded as an ADR (the docs do not define it).
+  - Deleting a namespace that has child namespaces or ConfigSets is rejected (ADR 0001).
   - Unit tests for the rules; integration tests for closure-table ancestor queries.
 
 - [ ] **2. Security and policy**
   - JWT validation through the OAuth2 resource server; claims mapped to `ApplicationPrincipal`
-    (user, groups, application ID).
+    (user, groups, application ID) (ADR 0002).
   - Action-based grant rules on namespaces and ConfigSets; subjects: public, any authenticated, user,
     group, application.
   - Nearest-rule resolution with default deny, enforced in application services.
   - Decision explanation endpoint for administrators.
-  - Bootstrap admins from `folio.bootstrap.admins` hold every action at the root.
+  - Bootstrap admins from `folio.bootstrap.admins` hold every action at the root (ADR 0002).
   - Namespace admin API (create, rename, move, delete) behind policy checks.
 
 - [ ] **3. ConfigSets**
@@ -51,6 +51,7 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - File listing and reads at latest or an exact commit, beneath the ConfigSet root path.
   - Path normalisation rejects absolute paths and traversal segments.
   - Onboarding check with `ls-remote`: credential reaches the repository; ref and root path exist.
+  - Integration tests run against an SSH Git server in Testcontainers (ADR 0004).
 
 - [ ] **6. Sync**
   - Polling scheduler requests sync for due ConfigSets; fetches run on a bounded executor.
