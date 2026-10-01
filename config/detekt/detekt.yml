@@ -1,0 +1,37 @@
+# Overrides on top of detekt's default config (buildUponDefaultConfig = true).
+# The build fails on any finding; there is no baseline. See failOnSeverity in build.gradle.kts.
+
+complexity:
+  LongMethod:
+    allowedLines: 30
+  CyclomaticComplexMethod:
+    allowedComplexity: 10
+  NestedBlockDepth:
+    allowedDepth: 3
+  LongParameterList:
+    allowedFunctionParameters: 5
+    allowedConstructorParameters: 8
+  LargeClass:
+    allowedLines: 300
+  ComplexCondition:
+    allowedConditions: 3
+  TooManyFunctions:
+    allowedFunctionsPerFile: 15
+    allowedFunctionsPerClass: 15
+
+naming:
+  PackageNaming:
+    # The root package io.github.big_sw_little_sw.folio contains underscores.
+    packagePattern: '[a-z]+(\.[a-z][A-Za-z0-9_]*)*'
+
+style:
+  ForbiddenComment:
+    comments:
+      - reason: 'Resolve TODOs before merging, or track them in docs/plan.md.'
+        value: 'TODO'
+      - reason: 'Fix the problem before merging.'
+        value: 'FIXME'
+      - reason: 'Address the problem before merging.'
+        value: 'STOPSHIP'
+  ReturnCount:
+    max: 3
