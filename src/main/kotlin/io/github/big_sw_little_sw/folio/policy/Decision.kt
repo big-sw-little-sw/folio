@@ -1,7 +1,6 @@
 package io.github.big_sw_little_sw.folio.policy
 
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
-import java.util.UUID
 
 /** The outcome of an authorization check and why (design 9.5). */
 sealed interface Decision {
@@ -14,39 +13,39 @@ sealed interface Decision {
         override val allowed get() = true
     }
 
-    /** The nearest rule, on [namespaceId], grants to [subject]. */
+    /** The nearest rule, on [source], grants to [subject]. */
     data class Granted(
-        val namespaceId: UUID,
+        val source: ResourceRef,
         val subject: Subject,
     ) : Decision {
         override val allowed get() = true
     }
 
-    /** The nearest rule, on [namespaceId], has no subject that matches; farther rules do not count. */
+    /** The nearest rule, on [source], has no subject that matches; farther rules do not count. */
     data class NotGranted(
-        val namespaceId: UUID,
+        val source: ResourceRef,
     ) : Decision {
         override val allowed get() = false
     }
 
-    /** No namespace on the path has a rule for the action: default deny. */
+    /** No resource on the path has a rule for the action: default deny. */
     data object NoRule : Decision {
         override val allowed get() = false
     }
 }
 
 /**
- * Nearest-rule resolution (design 9.3). [namespacePath] runs from a root namespace to the target and is
- * empty for the root itself. [rules] holds the subjects of each namespace that has a rule for the action.
+ * Nearest-rule resolution (design 9.3). [path] runs from a root namespace to the target and is empty for
+ * the root itself. [rules] holds the subjects of each resource that has a rule for the action.
  */
 internal fun decide(
     principal: ApplicationPrincipal,
-    namespacePath: List<UUID>,
-    rules: Map<UUID, List<Subject>>,
+    path: List<ResourceRef>,
+    rules: Map<ResourceRef, List<Subject>>,
     bootstrapAdmins: Set<Subject>,
 ): Decision {
     bootstrapAdmins.firstOrNull { it.matches(principal) }?.let { return Decision.BootstrapAdmin(it) }
-    val nearest = namespacePath.lastOrNull { it in rules } ?: return Decision.NoRule
+    val nearest = path.lastOrNull { it in rules } ?: return Decision.NoRule
     val subject = rules.getValue(nearest).firstOrNull { it.matches(principal) }
     return if (subject == null) Decision.NotGranted(nearest) else Decision.Granted(nearest, subject)
 }

@@ -288,6 +288,7 @@ class NamespaceServiceIntegrationTest(
     }
 
     private fun deleteAllNamespaces() {
+        jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from namespace_closure").update()
         jdbc.sql("delete from namespace").update()
     }

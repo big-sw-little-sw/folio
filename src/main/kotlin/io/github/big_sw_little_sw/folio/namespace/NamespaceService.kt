@@ -4,19 +4,20 @@ import io.github.big_sw_little_sw.folio.namespace.internal.NamespaceClosureRepos
 import io.github.big_sw_little_sw.folio.namespace.internal.NamespaceRepository
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.policy.PolicyService
+import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.UUID
 
 /**
  * Expected failures are thrown as [NamespaceException] subtypes (ADR 0006), and denials as policy exceptions.
  * A missing namespace fails before authorization, so it gives not found rather than denied (ADR 0010).
- * Every write takes the tree lock first; see [NamespaceClosureRepository.lockTree].
+ * Every write takes the tree lock first; see [NamespaceTree.lock].
  */
 @Service
 class NamespaceService(
     private val namespaces: NamespaceRepository,
     private val closure: NamespaceClosureRepository,
+    private val tree: NamespaceTree,
     private val policy: PolicyService,
 ) {
     /** Creates a namespace under [parentId], or at the root if it is null. Requires create on the parent. */
@@ -25,7 +26,7 @@ class NamespaceService(
         parentId: NamespaceId?,
         slug: Slug,
     ): Namespace {
-        closure.lockTree()
+        tree.lock()
         policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(parentId))
         val namespace = namespaces.insert(parentId, slug)
         closure.insertPathsForLeaf(namespace.id, parentId)
@@ -37,7 +38,7 @@ class NamespaceService(
         id: NamespaceId,
         slug: Slug,
     ): Namespace {
-        closure.lockTree()
+        tree.lock()
         val renamed = existing(id).copy(slug = slug)
         policy.requireAllowed(Action.NAMESPACE_RENAME, path(id))
         namespaces.update(renamed)
@@ -53,7 +54,7 @@ class NamespaceService(
         id: NamespaceId,
         newParentId: NamespaceId?,
     ): Namespace {
-        closure.lockTree()
+        tree.lock()
         val moved = existing(id).copy(parentId = newParentId)
         policy.requireAllowed(Action.NAMESPACE_MOVE, path(id))
         policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(newParentId))
@@ -65,10 +66,13 @@ class NamespaceService(
         return moved
     }
 
-    /** Deletes an empty namespace and its rules; there is no cascading delete of contents (ADR 0001). */
+    /**
+     * Deletes a namespace and its rules if it holds no namespaces or ConfigSets; there is no cascading delete
+     * of contents (ADR 0001).
+     */
     @Transactional
     fun delete(id: NamespaceId) {
-        closure.lockTree()
+        tree.lock()
         policy.requireAllowed(Action.NAMESPACE_DELETE, path(id))
         if (namespaces.hasChildren(id)) throw NamespaceNotEmptyException(id)
         closure.deletePathsForLeaf(id)
@@ -88,7 +92,7 @@ class NamespaceService(
         val parentPath = pathOrRoot(parentId)
         return namespaces
             .findChildren(parentId)
-            .filter { policy.isAllowed(Action.NAMESPACE_VIEW, parentPath + it.id.value) }
+            .filter { policy.isAllowed(Action.NAMESPACE_VIEW, parentPath + ResourceRef.NamespaceRef(it.id.value)) }
     }
 
     /**
@@ -103,8 +107,8 @@ class NamespaceService(
 
     private fun existing(id: NamespaceId): Namespace = namespaces.findById(id) ?: throw NamespaceNotFoundException(id)
 
-    private fun path(id: NamespaceId): List<UUID> = closure.findPath(id).map { it.value }
+    private fun path(id: NamespaceId): List<ResourceRef> = tree.policyPath(id)
 
     /** The policy path of [id], or of the root if it is null. */
-    private fun pathOrRoot(id: NamespaceId?): List<UUID> = id?.let(::path) ?: emptyList()
+    private fun pathOrRoot(id: NamespaceId?): List<ResourceRef> = id?.let(::path) ?: emptyList()
 }

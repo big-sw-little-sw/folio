@@ -1,13 +1,14 @@
-package io.github.big_sw_little_sw.folio.namespace.web
+package io.github.big_sw_little_sw.folio.configset.web
 
+import io.github.big_sw_little_sw.folio.configset.ConfigSetId
+import io.github.big_sw_little_sw.folio.configset.ConfigSetPolicyService
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
-import io.github.big_sw_little_sw.folio.namespace.NamespacePolicyService
 import io.github.big_sw_little_sw.folio.namespace.toApiId
-import io.github.big_sw_little_sw.folio.namespace.toNamespaceId
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.policy.DecisionResponse
 import io.github.big_sw_little_sw.folio.policy.ExplainRequest
 import io.github.big_sw_little_sw.folio.policy.PutRuleRequest
+import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.policy.RuleResponse
 import io.github.big_sw_little_sw.folio.policy.toResponse
 import org.springframework.http.HttpStatus
@@ -22,23 +23,23 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@RequestMapping("/api/v1/admin/namespaces")
-class NamespacePolicyController(
-    private val policies: NamespacePolicyService,
+@RequestMapping("/api/v1/admin/configsets")
+class ConfigSetPolicyController(
+    private val policies: ConfigSetPolicyService,
 ) {
-    /** Rules on the namespace itself, not inherited ones. */
+    /** Rules on the ConfigSet itself, not inherited ones. */
     @GetMapping("/{id}/rules")
     fun rules(
         @PathVariable id: String,
-    ): List<RuleResponse> = policies.rules(id.toNamespaceId()).map { it.toResponse() }
+    ): List<RuleResponse> = policies.rules(id.toConfigSetId()).map { it.toResponse() }
 
-    /** Adds the rule for [action], replacing the namespace's existing rule for it. */
+    /** Adds the rule for [action], replacing the ConfigSet's existing rule for it. */
     @PutMapping("/{id}/rules/{action}")
     fun putRule(
         @PathVariable id: String,
         @PathVariable action: Action,
         @RequestBody request: PutRuleRequest,
-    ): RuleResponse = policies.putRule(id.toNamespaceId(), request.toRule(action)).toResponse()
+    ): RuleResponse = policies.putRule(id.toConfigSetId(), request.toRule(action)).toResponse()
 
     @DeleteMapping("/{id}/rules/{action}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -46,7 +47,7 @@ class NamespacePolicyController(
         @PathVariable id: String,
         @PathVariable action: Action,
     ) {
-        policies.deleteRule(id.toNamespaceId(), action)
+        policies.deleteRule(id.toConfigSetId(), action)
     }
 
     @PostMapping("/{id}:explain")
@@ -55,7 +56,12 @@ class NamespacePolicyController(
         @RequestBody request: ExplainRequest,
     ): DecisionResponse =
         policies
-            .explain(id.toNamespaceId(), request.toPrincipal(), request.action)
-            // A namespace's path holds only namespaces, so every policy source is one.
-            .toResponse(request.action, id) { NamespaceId(it.id).toApiId() }
+            .explain(id.toConfigSetId(), request.toPrincipal(), request.action)
+            .toResponse(request.action, id, ::apiId)
+
+    private fun apiId(source: ResourceRef) =
+        when (source) {
+            is ResourceRef.NamespaceRef -> NamespaceId(source.id).toApiId()
+            is ResourceRef.ConfigSetRef -> ConfigSetId(source.id).toApiId()
+        }
 }

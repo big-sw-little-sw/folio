@@ -6,12 +6,12 @@ import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 import io.github.big_sw_little_sw.folio.security.CurrentPrincipal
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.UUID
 
 /**
- * Authorizes the current principal and manages rules. This module does not know the namespace tree, so
- * callers pass the target's `namespacePath`: namespace IDs from a root namespace down to the target,
- * or an empty list for the root above all namespaces. Expected failures are [PolicyException] subtypes.
+ * Authorizes the current principal and manages rules. This module does not know the resource tree, so
+ * callers pass the target's `path`: the namespaces from a root namespace down, then the ConfigSet if the
+ * target is one, or an empty list for the root above all namespaces. Expected failures are
+ * [PolicyException] subtypes.
  */
 @Service
 class PolicyService(
@@ -22,17 +22,17 @@ class PolicyService(
     @Transactional(readOnly = true)
     fun isAllowed(
         action: Action,
-        namespacePath: List<UUID>,
-    ): Boolean = decision(currentPrincipal.get(), action, namespacePath).allowed
+        path: List<ResourceRef>,
+    ): Boolean = decision(currentPrincipal.get(), action, path).allowed
 
     /** Throws [NotAuthenticatedException] for anonymous callers and [PermissionDeniedException] for others. */
     @Transactional(readOnly = true)
     fun requireAllowed(
         action: Action,
-        namespacePath: List<UUID>,
+        path: List<ResourceRef>,
     ) {
         val principal = currentPrincipal.get()
-        if (decision(principal, action, namespacePath).allowed) return
+        if (decision(principal, action, path).allowed) return
         throw when (principal) {
             ApplicationPrincipal.Anonymous -> NotAuthenticatedException(action)
             is ApplicationPrincipal.Authenticated -> PermissionDeniedException(action)
@@ -44,54 +44,53 @@ class PolicyService(
     fun explain(
         principal: ApplicationPrincipal,
         action: Action,
-        namespacePath: List<UUID>,
+        path: List<ResourceRef>,
     ): Decision {
-        requireAllowed(Action.POLICY_VIEW, namespacePath)
-        return decision(principal, action, namespacePath)
+        requireAllowed(Action.POLICY_VIEW, path)
+        return decision(principal, action, path)
     }
 
-    /** The rules on the target namespace itself, not inherited ones. Requires [Action.POLICY_VIEW]. */
+    /** The rules on the target itself, not inherited ones. Requires [Action.POLICY_VIEW]. */
     @Transactional(readOnly = true)
-    fun rules(namespacePath: List<UUID>): List<Rule> {
-        val namespaceId = ruleTarget(namespacePath)
-        requireAllowed(Action.POLICY_VIEW, namespacePath)
-        return repository.findByNamespace(namespaceId)
+    fun rules(path: List<ResourceRef>): List<Rule> {
+        val target = ruleTarget(path)
+        requireAllowed(Action.POLICY_VIEW, path)
+        return repository.findByResource(target)
     }
 
-    /** Adds the rule to the target namespace, replacing its rule for the same action. */
+    /** Adds the rule to the target, replacing its rule for the same action. */
     @Transactional
     fun putRule(
-        namespacePath: List<UUID>,
+        path: List<ResourceRef>,
         rule: Rule,
     ): Rule {
-        val namespaceId = ruleTarget(namespacePath)
-        requireAllowed(Action.POLICY_UPDATE, namespacePath)
+        val target = ruleTarget(path)
+        requireAllowed(Action.POLICY_UPDATE, path)
         if (rule.subjects.isEmpty()) throw RuleWithoutSubjectsException(rule.action)
-        repository.put(namespaceId, rule)
+        repository.put(target, rule)
         return rule
     }
 
-    /** Removes the target namespace's rule for [action], if any, so the action inherits again. */
+    /** Removes the target's rule for [action], if any, so the action inherits again. */
     @Transactional
     fun deleteRule(
-        namespacePath: List<UUID>,
+        path: List<ResourceRef>,
         action: Action,
     ) {
-        val namespaceId = ruleTarget(namespacePath)
-        requireAllowed(Action.POLICY_UPDATE, namespacePath)
-        repository.delete(namespaceId, action)
+        val target = ruleTarget(path)
+        requireAllowed(Action.POLICY_UPDATE, path)
+        repository.delete(target, action)
     }
 
-    /** The namespace a rule operation acts on. */
-    private fun ruleTarget(namespacePath: List<UUID>): UUID {
-        require(namespacePath.isNotEmpty()) { "Rules attach to namespaces; the root holds none (ADR 0012)" }
-        return namespacePath.last()
+    /** The resource a rule operation acts on. */
+    private fun ruleTarget(path: List<ResourceRef>): ResourceRef {
+        require(path.isNotEmpty()) { "Rules attach to namespaces and ConfigSets; the root holds none (ADR 0012)" }
+        return path.last()
     }
 
     private fun decision(
         principal: ApplicationPrincipal,
         action: Action,
-        namespacePath: List<UUID>,
-    ): Decision =
-        decide(principal, namespacePath, repository.findSubjects(action, namespacePath), bootstrap.adminSubjects)
+        path: List<ResourceRef>,
+    ): Decision = decide(principal, path, repository.findSubjects(action, path), bootstrap.adminSubjects)
 }

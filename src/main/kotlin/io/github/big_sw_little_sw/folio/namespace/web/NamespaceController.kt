@@ -3,6 +3,8 @@ package io.github.big_sw_little_sw.folio.namespace.web
 import io.github.big_sw_little_sw.folio.namespace.Namespace
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
 import io.github.big_sw_little_sw.folio.namespace.Slug
+import io.github.big_sw_little_sw.folio.namespace.toApiId
+import io.github.big_sw_little_sw.folio.namespace.toNamespaceId
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping

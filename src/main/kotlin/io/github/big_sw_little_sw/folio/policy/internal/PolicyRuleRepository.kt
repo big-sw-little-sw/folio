@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio.policy.internal
 
 import io.github.big_sw_little_sw.folio.policy.Action
+import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.policy.Rule
 import io.github.big_sw_little_sw.folio.policy.Subject
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -8,60 +9,66 @@ import org.springframework.stereotype.Repository
 import java.sql.ResultSet
 import java.util.UUID
 
-/** Rows of `policy_rule` and `policy_subject`. A rule always has at least one subject. */
+/**
+ * Rows of `policy_rule` and `policy_subject`. A rule always has at least one subject and belongs to exactly one
+ * namespace or ConfigSet, held in `namespace_id` or `config_set_id`.
+ */
 @Repository
 class PolicyRuleRepository(
     private val jdbc: JdbcClient,
 ) {
-    /** Subjects of the rules for [action] on any of [namespaceIds], keyed by namespace. */
+    /** Subjects of the rules for [action] on any resource in [path], keyed by resource. */
     fun findSubjects(
         action: Action,
-        namespaceIds: List<UUID>,
-    ): Map<UUID, List<Subject>> {
-        if (namespaceIds.isEmpty()) return emptyMap()
+        path: List<ResourceRef>,
+    ): Map<ResourceRef, List<Subject>> {
+        if (path.isEmpty()) return emptyMap()
+        // One ID list for both columns keeps the query simple. A row typed differently from its path entry
+        // would only add an unused map key: callers look rules up by typed reference.
         return jdbc
             .sql(
                 """
-                select r.namespace_id, s.subject_type, s.external_id
+                select r.namespace_id, r.config_set_id, s.subject_type, s.external_id
                 from policy_rule r
                 join policy_subject s on s.policy_rule_id = r.id
-                where r.action = :action and r.namespace_id in (:namespaceIds)
+                where r.action = :action and (r.namespace_id in (:ids) or r.config_set_id in (:ids))
                 order by s.subject_type, s.external_id
                 """.trimIndent(),
             ).param("action", action.name)
-            .param("namespaceIds", namespaceIds)
-            .query { rs, _ -> rs.getObject("namespace_id", UUID::class.java) to rs.toSubject() }
+            .param("ids", path.map { it.id })
+            .query { rs, _ -> rs.toResourceRef() to rs.toSubject() }
             .list()
             .groupBy({ it.first }, { it.second })
     }
 
-    /** Rules on [namespaceId], ordered by action name. */
-    fun findByNamespace(namespaceId: UUID): List<Rule> =
+    /** Rules on [resource], ordered by action name. */
+    fun findByResource(resource: ResourceRef): List<Rule> =
         jdbc
             .sql(
                 """
                 select r.action, s.subject_type, s.external_id
                 from policy_rule r
                 join policy_subject s on s.policy_rule_id = r.id
-                where r.namespace_id = :namespaceId
+                where r.${resource.column()} = :resourceId
                 order by r.action, s.subject_type, s.external_id
                 """.trimIndent(),
-            ).param("namespaceId", namespaceId)
+            ).param("resourceId", resource.id)
             .query { rs, _ -> Action.valueOf(rs.getString("action")) to rs.toSubject() }
             .list()
             .groupBy({ it.first }, { it.second })
             .map { (action, subjects) -> Rule(action, subjects.toSet()) }
 
-    /** Replaces the rule for the same action on [namespaceId], if any. */
+    /** Replaces the rule for the same action on [resource], if any. */
     fun put(
-        namespaceId: UUID,
+        resource: ResourceRef,
         rule: Rule,
     ) {
-        delete(namespaceId, rule.action)
+        delete(resource, rule.action)
         val ruleId =
             jdbc
-                .sql("insert into policy_rule (namespace_id, action) values (:namespaceId, :action) returning id")
-                .param("namespaceId", namespaceId)
+                .sql(
+                    "insert into policy_rule (${resource.column()}, action) values (:resourceId, :action) returning id",
+                ).param("resourceId", resource.id)
                 .param("action", rule.action.name)
                 .query(UUID::class.java)
                 .single()
@@ -81,15 +88,25 @@ class PolicyRuleRepository(
 
     /** Deletes the rule and, by cascade, its subjects. */
     fun delete(
-        namespaceId: UUID,
+        resource: ResourceRef,
         action: Action,
     ) {
         jdbc
-            .sql("delete from policy_rule where namespace_id = :namespaceId and action = :action")
-            .param("namespaceId", namespaceId)
+            .sql("delete from policy_rule where ${resource.column()} = :resourceId and action = :action")
+            .param("resourceId", resource.id)
             .param("action", action.name)
             .update()
     }
+
+    private fun ResourceRef.column() =
+        when (this) {
+            is ResourceRef.NamespaceRef -> "namespace_id"
+            is ResourceRef.ConfigSetRef -> "config_set_id"
+        }
+
+    private fun ResultSet.toResourceRef(): ResourceRef =
+        getObject("namespace_id", UUID::class.java)?.let(ResourceRef::NamespaceRef)
+            ?: ResourceRef.ConfigSetRef(getObject("config_set_id", UUID::class.java))
 
     private fun Subject.type() =
         when (this) {

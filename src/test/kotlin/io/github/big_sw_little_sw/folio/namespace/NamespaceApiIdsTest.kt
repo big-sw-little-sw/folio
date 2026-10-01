@@ -1,7 +1,5 @@
-package io.github.big_sw_little_sw.folio.namespace.web
+package io.github.big_sw_little_sw.folio.namespace
 
-import io.github.big_sw_little_sw.folio.namespace.InvalidNamespaceIdException
-import io.github.big_sw_little_sw.folio.namespace.NamespaceId
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.util.UUID

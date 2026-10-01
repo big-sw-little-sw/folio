@@ -32,15 +32,16 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Only `NAMESPACE_*` and `POLICY_*` actions exist; slices 3 to 7 add the actions of the features they
     build (ADR 0012).
 
-- [ ] **3. ConfigSets**
-  - Create, move and delete ConfigSets; each maps to exactly one Git source.
+- [x] **3. ConfigSets**
+  - Create, rename, move and delete ConfigSets. They have no source yet; slice 5 adds it.
   - ConfigSet IDs stay stable across renames and moves of the ConfigSet and its ancestors.
-  - Deleting a namespace that contains ConfigSets is rejected (ADR 0001).
-  - ConfigSet writes that require their namespace to exist take the namespace tree lock, so a concurrent
-    namespace delete fails with NamespaceNotEmptyException rather than a foreign-key error.
-  - `GET /api/v1/configsets:resolve?path=…` resolves a path to a ConfigSet.
+  - Deleting a namespace that contains ConfigSets is rejected (ADR 0001, ADR 0015).
+  - ConfigSet writes take the namespace tree lock, so a concurrent namespace delete fails with
+    NamespaceNotEmptyException rather than a foreign-key error (ADR 0015).
+  - `GET /api/v1/configsets:resolve?path=…` resolves a path to a ConfigSet; the last segment is the
+    ConfigSet (ADR 0013).
   - Policy rules attach to ConfigSets as well as namespaces; a ConfigSet's own rule is nearest, then its
-    namespace path (`policy_rule.config_set_id`, design 19.4).
+    namespace path (`policy_rule.config_set_id`, design 19.4, ADR 0014).
   - Admin API behind policy checks; API IDs are prefixed strings (`ns_…`, `cfg_…`).
 
 - [ ] **4. Credentials and crypto**
@@ -55,6 +56,7 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Startup fails clearly if a row references an unconfigured master-key version.
 
 - [ ] **5. Git source**
+  - Each ConfigSet maps to exactly one Git source; the source becomes required on ConfigSets.
   - JGit SSH transport with mandatory host-key verification against `folio.git.known-hosts`.
   - Disposable local bare-repository cache per source.
   - File listing and reads at latest or an exact commit, beneath the ConfigSet root path.
@@ -76,6 +78,9 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - `X-Config-Revision` and `X-Config-Validation-Status` headers.
   - Validation status for YAML, JSON and properties files; malformed files are still served raw.
   - Reads enforce policy.
+  - Consumption routes, including `configsets:resolve` from slice 3, accept anonymous callers so that
+    `public` rules apply; until then every route needs a token. For anonymous callers too, resolve must
+    answer a missing path and a path they may not view identically (ADR 0013).
 
 - [ ] **8. Audit and metrics**
   - Audit events table for namespace, ConfigSet, policy, credential, key and crypto operations,

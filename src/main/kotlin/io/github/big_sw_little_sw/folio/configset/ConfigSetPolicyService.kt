@@ -1,5 +1,7 @@
-package io.github.big_sw_little_sw.folio.namespace
+package io.github.big_sw_little_sw.folio.configset
 
+import io.github.big_sw_little_sw.folio.configset.internal.ConfigSetRepository
+import io.github.big_sw_little_sw.folio.namespace.NamespaceTree
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.policy.Decision
 import io.github.big_sw_little_sw.folio.policy.PolicyService
@@ -10,24 +12,25 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 /**
- * Rules on namespaces. The policy module owns rules but not the tree, so this service supplies each
- * namespace's path. [PolicyService] authorizes every call.
+ * Rules on ConfigSets. The policy module owns rules but not the tree, so this service supplies each
+ * ConfigSet's path. [PolicyService] authorizes every call.
  */
 @Service
-class NamespacePolicyService(
+class ConfigSetPolicyService(
+    private val configSets: ConfigSetRepository,
     private val tree: NamespaceTree,
     private val policy: PolicyService,
 ) {
     @Transactional(readOnly = true)
-    fun rules(id: NamespaceId): List<Rule> = policy.rules(path(id))
+    fun rules(id: ConfigSetId): List<Rule> = policy.rules(path(id))
 
     /**
-     * Rule writes take the tree lock like namespace writes, so a concurrent move cannot change the path
-     * being authorized and a concurrent delete cannot remove the namespace the rule references.
+     * Rule writes take the tree lock like ConfigSet writes, so a concurrent move cannot change the path
+     * being authorized and a concurrent delete cannot remove the ConfigSet the rule references.
      */
     @Transactional
     fun putRule(
-        id: NamespaceId,
+        id: ConfigSetId,
         rule: Rule,
     ): Rule {
         tree.lock()
@@ -36,7 +39,7 @@ class NamespacePolicyService(
 
     @Transactional
     fun deleteRule(
-        id: NamespaceId,
+        id: ConfigSetId,
         action: Action,
     ) {
         tree.lock()
@@ -45,10 +48,13 @@ class NamespacePolicyService(
 
     @Transactional(readOnly = true)
     fun explain(
-        id: NamespaceId,
+        id: ConfigSetId,
         principal: ApplicationPrincipal,
         action: Action,
     ): Decision = policy.explain(principal, action, path(id))
 
-    private fun path(id: NamespaceId): List<ResourceRef> = tree.policyPath(id)
+    private fun path(id: ConfigSetId): List<ResourceRef> {
+        val configSet = configSets.findById(id) ?: throw ConfigSetNotFoundException(id)
+        return tree.policyPath(configSet.namespaceId) + ResourceRef.ConfigSetRef(id.value)
+    }
 }

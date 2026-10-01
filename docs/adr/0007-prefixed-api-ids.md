@@ -1,6 +1,6 @@
 # 0007. Prefixed API IDs
 
-Status: Accepted (2026-09-30)
+Status: Accepted (2026-09-30). Amended by ADR 0015: other modules' HTTP layers may use the `ns_` conversion.
 
 ## Context
 
