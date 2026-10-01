@@ -12,3 +12,13 @@ folio:
   bootstrap:
     admins:
       - user:bootstrap-admin
+  crypto:
+    # Test-only secrets. Version 1 lets tests create keys under an older version and re-encrypt them.
+    master-keys:
+      1: GcMeb3J13AAREi3DzgyshZL/FL08vOuyK77HkB095U4=
+      2: uv8GMrwyjtZpqi4eruxcrHoo+hdO74ZX+uLGen3rDio=
+    active-key-version: 2
+  git:
+    instances:
+      example:
+        host: git.example.test
