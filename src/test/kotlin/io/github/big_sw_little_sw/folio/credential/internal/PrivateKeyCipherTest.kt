@@ -38,6 +38,38 @@ class PrivateKeyCipherTest {
     }
 
     @Test
+    fun `decrypts a known-answer vector, which pins the derivation, label and encodings`() {
+        // Computed outside the JDK: HKDF-SHA256 (RFC 5869) in Python's hmac module, checked against `openssl kdf`,
+        // then AES-256-GCM through OpenSSL's libcrypto with the 36-byte associated data. Secret = bytes 0..31,
+        // salt = bytes 32..63, nonce = bytes 64..75, version 7.
+        val hex = HexFormat.of()
+        val knownAnswer =
+            PrivateKeyCipher(
+                CryptoProperties(mapOf(7 to Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })), 7),
+            )
+        val encrypted =
+            EncryptedKey(
+                ciphertext =
+                    hex.parseHex(
+                        "74ff9ad671800a292ca18f335fc34eaa9a7cea9b928b231780effca71a56ea57ce86cede3f4bb0bbcc537137",
+                    ),
+                nonce = ByteArray(12) { (64 + it).toByte() },
+                salt = ByteArray(32) { (32 + it).toByte() },
+                masterKeyVersion = 7,
+                algorithm = "HKDF-SHA256/AES-256-GCM",
+            )
+
+        val plaintext =
+            knownAnswer.decrypt(
+                encrypted,
+                CredentialId(UUID.fromString("00010203-0405-0607-0809-0a0b0c0d0e0f")),
+                KeyId(UUID.fromString("10111213-1415-1617-1819-1a1b1c1d1e1f")),
+            )
+
+        assertEquals("folio known-answer plaintext", String(plaintext))
+    }
+
+    @Test
     fun `uses a fresh salt and nonce for every encryption`() {
         val first = cipher.encrypt(plaintext, credentialId, keyId)
         val second = cipher.encrypt(plaintext, credentialId, keyId)

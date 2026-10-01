@@ -31,6 +31,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Master-key rotation and the startup check against a real database. The test ring has versions 1 and 2. */
@@ -102,18 +103,46 @@ class CryptoIntegrationTest(
         val executor = Executors.newFixedThreadPool(threads)
 
         val usages =
-            (1..threads)
-                .map {
-                    executor.submit<MasterKeyUsage> {
-                        authenticateAs(BOOTSTRAP_ADMIN)
-                        barrier.await()
-                        crypto.reencrypt()
-                    }
-                }.map { it.get(1, TimeUnit.MINUTES) }
-        executor.shutdown()
+            try {
+                (1..threads)
+                    .map {
+                        executor.submit<MasterKeyUsage> {
+                            authenticateAs(BOOTSTRAP_ADMIN)
+                            barrier.await()
+                            crypto.reencrypt()
+                        }
+                    }.map { it.get(1, TimeUnit.MINUTES) }
+            } finally {
+                executor.shutdown()
+            }
 
         usages.forEach { assertEquals(MasterKeyUsage(2, mapOf(1 to 0, 2 to 5)), it) }
         ids.forEach { assertTrue(signsWith(it, keyPairs.active(it).public)) }
+    }
+
+    @Test
+    fun `re-encryption cannot bring back a key retired after it was read`() {
+        val created = credentials.create("example")
+        encryptAllUnderVersion1()
+        val stored = repository.findNotUnder(2).single()
+        val plaintext = previousCipher.decrypt(stored.encrypted, stored.credentialId, stored.id)
+
+        credentials.replace(created.id)
+
+        val reencrypted = cipher.encrypt(plaintext, stored.credentialId, stored.id)
+        plaintext.fill(0)
+        assertFalse(repository.replaceEncryption(stored.id, stored.encrypted.masterKeyVersion, reencrypted))
+        val wiped =
+            jdbc
+                .sql(
+                    """
+                    select num_nulls(algorithm, master_key_version, salt, nonce, ciphertext)
+                    from credential_key where id = :id
+                    """.trimIndent(),
+                ).param("id", stored.id.value)
+                .query(Int::class.java)
+                .single()
+        assertEquals(5, wiped)
     }
 
     @Test

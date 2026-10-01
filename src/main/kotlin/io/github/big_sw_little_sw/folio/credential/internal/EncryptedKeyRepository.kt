@@ -1,8 +1,8 @@
 package io.github.big_sw_little_sw.folio.credential.internal
 
 import io.github.big_sw_little_sw.folio.credential.CredentialId
+import io.github.big_sw_little_sw.folio.credential.CredentialStatus
 import io.github.big_sw_little_sw.folio.credential.KeyId
-import io.github.big_sw_little_sw.folio.credential.KeyStatus
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import java.sql.ResultSet
@@ -15,21 +15,41 @@ class StoredKey(
     val encrypted: EncryptedKey,
 )
 
+/** A credential's active key with the credential's status and the key's public key, as one consistent read. */
+class ActiveKey(
+    val credentialStatus: CredentialStatus,
+    val publicKey: String,
+    val stored: StoredKey,
+)
+
 /** The encryption columns of `credential_key`: reads of encrypted private keys and their re-encryption. */
 @Repository
 class EncryptedKeyRepository(
     private val jdbc: JdbcClient,
 ) {
-    fun find(
-        credentialId: CredentialId,
-        status: KeyStatus,
-    ): StoredKey? =
+    /**
+     * The credential's active key, or null if the credential does not exist; an existing credential always has
+     * one. A single statement reads from one snapshot, so a concurrent activation or replacement cannot pair
+     * the status, public key and ciphertext of different moments.
+     */
+    fun findActive(credentialId: CredentialId): ActiveKey? =
         jdbc
-            .sql("select $COLUMNS from credential_key where credential_id = :credentialId and status = :status")
-            .param("credentialId", credentialId.value)
-            .param("status", status.name)
-            .query { rs, _ -> rs.toStoredKey() }
-            .optional()
+            .sql(
+                """
+                select c.status as credential_status, k.public_key,
+                       k.id, k.credential_id, k.algorithm, k.master_key_version, k.salt, k.nonce, k.ciphertext
+                from credential c
+                join credential_key k on k.credential_id = c.id and k.status = 'ACTIVE'
+                where c.id = :credentialId
+                """.trimIndent(),
+            ).param("credentialId", credentialId.value)
+            .query { rs, _ ->
+                ActiveKey(
+                    CredentialStatus.valueOf(rs.getString("credential_status")),
+                    rs.getString("public_key"),
+                    rs.toStoredKey(),
+                )
+            }.optional()
             .orElse(null)
 
     /** Keys whose private key is encrypted under any master-key version other than [version]. */
