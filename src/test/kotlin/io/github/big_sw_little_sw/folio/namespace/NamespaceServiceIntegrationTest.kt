@@ -179,6 +179,39 @@ class NamespaceServiceIntegrationTest(
     }
 
     @Test
+    fun `moving under the current parent changes nothing`() {
+        val engineering = create(null, "engineering")
+        val ai = create(engineering, "ai")
+        create(ai, "hive")
+        val before = closureRows()
+
+        assertEquals(ai, service.move(ai.id, engineering.id))
+        assertEquals(before, closureRows())
+    }
+
+    @Test
+    fun `moving a root namespace to the root changes nothing`() {
+        val engineering = create(null, "engineering")
+        create(engineering, "ai")
+        val before = closureRows()
+
+        assertEquals(engineering, service.move(engineering.id, null))
+        assertEquals(before, closureRows())
+    }
+
+    @Test
+    fun `rejects a move to the root that duplicates a root slug and leaves the tree unchanged`() {
+        create(null, "ai")
+        val engineering = create(null, "engineering")
+        val nestedAi = create(engineering, "ai")
+        val before = closureRows()
+
+        assertFailsWith<DuplicateSlugException> { service.move(nestedAi.id, null) }
+        assertEquals(engineering.id, service.get(nestedAi.id).parentId)
+        assertEquals(before, closureRows())
+    }
+
+    @Test
     fun `rejects moving to a missing parent`() {
         val ai = create(null, "ai")
 
@@ -265,12 +298,13 @@ class NamespaceServiceIntegrationTest(
                     """.trimIndent(),
                 ).query { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getInt(3)) }
                 .set()
-        val actual =
-            jdbc
-                .sql("select ancestor_id, descendant_id, depth from namespace_closure")
-                .query { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getInt(3)) }
-                .set()
 
-        assertEquals(expected, actual)
+        assertEquals(expected, closureRows())
     }
+
+    private fun closureRows(): Set<Triple<String, String, Int>> =
+        jdbc
+            .sql("select ancestor_id, descendant_id, depth from namespace_closure")
+            .query { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getInt(3)) }
+            .set()
 }
