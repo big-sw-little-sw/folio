@@ -24,16 +24,18 @@ how a path is written, or which slug rules ConfigSets follow.
   correctly for both. An invalid path fails with `InvalidConfigSetPathException` instead, so the client sees
   the whole path.
 - Seeing a ConfigSet includes seeing its path, as for namespaces (ADR 0010).
-- Resolve looks the path up first: a path that leads nowhere gives 404 and an existing ConfigSet the caller
-  may not view gives 403 (ADR 0010).
+- Resolve gives 404 with the same body for a path that leads nowhere and for an existing ConfigSet the caller
+  may not view. Unlike IDs, paths can be guessed, so a 403 would confirm that a guessed path exists. This is
+  an exception to ADR 0010 for path lookups only; lookups by ID keep 403.
 
 ## Consequences
 
 - Renaming or moving a namespace changes the paths of the ConfigSets below it; their IDs do not change, and
   their old paths stop resolving.
 - Accepting a leading slash later is additive.
-- Unlike IDs, paths can be guessed. A caller with a token can confirm that a guessed path names a ConfigSet,
-  because it gets 403 rather than 404. Its contents stay hidden. Switching resolve to 404 for denied callers
-  is a change in `ConfigSetService.resolve` only.
+- A caller who expects to see a ConfigSet and gets 404 cannot tell a typo from a missing grant. Explain
+  by ID helps administrators find the cause.
+- When slice 7 lets anonymous callers resolve paths, a missing and a denied path must still give them the
+  same response.
 - If ConfigSet slugs ever need different rules, `Slug` moves or splits; the column already allows 100
   characters like namespaces.

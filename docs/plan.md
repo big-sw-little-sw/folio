@@ -79,7 +79,8 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Validation status for YAML, JSON and properties files; malformed files are still served raw.
   - Reads enforce policy.
   - Consumption routes, including `configsets:resolve` from slice 3, accept anonymous callers so that
-    `public` rules apply; until then every route needs a token.
+    `public` rules apply; until then every route needs a token. For anonymous callers too, resolve must
+    answer a missing path and a path they may not view identically (ADR 0013).
 
 - [ ] **8. Audit and metrics**
   - Audit events table for namespace, ConfigSet, policy, credential, key and crypto operations,
