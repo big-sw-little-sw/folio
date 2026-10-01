@@ -27,6 +27,13 @@ references an unconfigured version.
 
 ## Consequences
 
-- Rotation is: add the new version, make it active, redeploy, re-encrypt, check the counts, remove the old
-  version, redeploy. SSH keys and Git services are unaffected.
+- Rotation takes separate deploys, because during a rolling or multi-instance deployment old and new
+  instances run side by side, and an instance cannot decrypt a key encrypted under a version it lacks:
+  1. Add the new version to `folio.crypto.master-keys` on every instance; keep the old one active.
+  2. Once every instance has it, switch `folio.crypto.active-key-version` to the new version.
+  3. Run `POST /api/v1/admin/crypto:reencrypt`.
+  4. When `GET /api/v1/admin/crypto` shows zero keys under the old version, remove it from configuration.
+
+  Switching the active version in the same deploy that adds it lets an updated instance encrypt a new key
+  that instances not yet updated cannot use. SSH keys and Git services are unaffected throughout.
 - The check makes removing a version that still has keys fail at startup instead of at the next sync.

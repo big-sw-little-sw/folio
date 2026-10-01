@@ -40,4 +40,8 @@ the byte encodings, the label, the version format or the column layout.
   arrays.
 - Changing the label or any encoding makes stored keys undecryptable. A new format needs a new `algorithm`
   value and a re-encryption.
-- The decoded master secrets stay in memory for the life of the process.
+- The decoded master secrets stay in memory for the life of the process, and so do their base64 strings in
+  the Spring `Environment`, which Folio cannot clear. Actuator's `env` and `configprops` endpoints are not
+  exposed over HTTP; exposing them would need value sanitizing for `folio.crypto.*`.
+- A known-answer test decrypts a vector computed outside the JDK (Python's `hmac` for HKDF, checked against
+  `openssl kdf`, and OpenSSL's AES-GCM), so a change to the label, key length or any encoding fails the build.
