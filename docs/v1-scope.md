@@ -138,6 +138,4 @@ where v1 has a real implementation behind them.
 
 ## Open questions
 
-- **Deploy keys or bot accounts:** server-side key generation assumes each Git instance accepts
-  public keys registered by an administrator, as repository deploy keys or on a bot account.
-  If keys must be issued centrally, importing existing private keys moves into v1.
+None. The deploy-key question is resolved by [ADR 0003](adr/0003-ssh-key-registration.md).
