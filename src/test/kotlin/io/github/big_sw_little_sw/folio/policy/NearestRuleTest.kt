@@ -7,9 +7,9 @@ import kotlin.test.assertEquals
 
 /** Nearest-rule resolution, design 9.3. */
 class NearestRuleTest {
-    private val engineering = UUID.randomUUID()
-    private val ai = UUID.randomUUID()
-    private val search = UUID.randomUUID()
+    private val engineering: ResourceRef = ResourceRef.NamespaceRef(UUID.randomUUID())
+    private val ai: ResourceRef = ResourceRef.NamespaceRef(UUID.randomUUID())
+    private val search: ResourceRef = ResourceRef.NamespaceRef(UUID.randomUUID())
     private val path = listOf(engineering, ai, search)
 
     private val alice = ApplicationPrincipal.Authenticated("alice", setOf("editors"), null)
@@ -38,6 +38,22 @@ class NearestRuleTest {
             )
 
         assertEquals(Decision.NotGranted(ai), decide(alice, path, rules, admins))
+    }
+
+    @Test
+    fun `a ConfigSet's own rule is nearer than its namespaces' rules`() {
+        val serviceA = ResourceRef.ConfigSetRef(UUID.randomUUID())
+        val rules = mapOf(search to listOf(Subject.Group("editors")), serviceA to listOf(Subject.User("bob")))
+
+        assertEquals(Decision.NotGranted(serviceA), decide(alice, path + serviceA, rules, admins))
+        assertEquals(Decision.Granted(search, Subject.Group("editors")), decide(alice, path, rules, admins))
+    }
+
+    @Test
+    fun `a rule on another resource with the same UUID does not apply`() {
+        val sameId = ResourceRef.ConfigSetRef(search.id)
+
+        assertEquals(Decision.NoRule, decide(alice, listOf(sameId), mapOf(search to listOf(Subject.Public)), admins))
     }
 
     @Test

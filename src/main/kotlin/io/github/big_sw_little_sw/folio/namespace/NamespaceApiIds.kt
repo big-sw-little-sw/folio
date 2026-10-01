@@ -1,10 +1,9 @@
-package io.github.big_sw_little_sw.folio.namespace.web
+package io.github.big_sw_little_sw.folio.namespace
 
-import io.github.big_sw_little_sw.folio.namespace.InvalidNamespaceIdException
-import io.github.big_sw_little_sw.folio.namespace.NamespaceId
 import java.util.UUID
 
-// API IDs are `ns_` plus the UUID as 32 lowercase hex characters (ADR 0007).
+// API IDs are `ns_` plus the UUID as 32 lowercase hex characters (ADR 0007). Public so that HTTP layers of
+// other modules, such as ConfigSets, can accept and return namespace IDs (ADR 0015).
 private const val PREFIX = "ns_"
 private const val HEX_LENGTH = 32
 private const val HALF = HEX_LENGTH / 2

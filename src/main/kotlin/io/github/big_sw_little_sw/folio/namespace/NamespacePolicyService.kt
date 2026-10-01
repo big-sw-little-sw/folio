@@ -1,14 +1,13 @@
 package io.github.big_sw_little_sw.folio.namespace
 
-import io.github.big_sw_little_sw.folio.namespace.internal.NamespaceClosureRepository
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.policy.Decision
 import io.github.big_sw_little_sw.folio.policy.PolicyService
+import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.policy.Rule
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.UUID
 
 /**
  * Rules on namespaces. The policy module owns rules but not the tree, so this service supplies each
@@ -16,7 +15,7 @@ import java.util.UUID
  */
 @Service
 class NamespacePolicyService(
-    private val closure: NamespaceClosureRepository,
+    private val tree: NamespaceTree,
     private val policy: PolicyService,
 ) {
     @Transactional(readOnly = true)
@@ -31,7 +30,7 @@ class NamespacePolicyService(
         id: NamespaceId,
         rule: Rule,
     ): Rule {
-        closure.lockTree()
+        tree.lock()
         return policy.putRule(path(id), rule)
     }
 
@@ -40,7 +39,7 @@ class NamespacePolicyService(
         id: NamespaceId,
         action: Action,
     ) {
-        closure.lockTree()
+        tree.lock()
         policy.deleteRule(path(id), action)
     }
 
@@ -51,5 +50,5 @@ class NamespacePolicyService(
         action: Action,
     ): Decision = policy.explain(principal, action, path(id))
 
-    private fun path(id: NamespaceId): List<UUID> = closure.findPath(id).map { it.value }
+    private fun path(id: NamespaceId): List<ResourceRef> = tree.policyPath(id)
 }
