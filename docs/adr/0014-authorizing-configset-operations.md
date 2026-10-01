@@ -27,6 +27,12 @@ modules that own resources (ADR 0011).
 
 ## Consequences
 
-- Any action can be granted on either resource type; a namespace action on a ConfigSet has no effect.
-- Moving a ConfigSet changes its inherited rules at once; its own rules move with it.
+- Any action can be granted on either resource type. Granting a namespace-only action on a ConfigSet has no
+  effect: `NAMESPACE_*` actions, and `CONFIG_SET_CREATE`, which is checked on the namespace that will hold
+  the ConfigSet.
+- Moving a ConfigSet changes its inherited rules at once. It keeps its own rules, which then sit nearer than
+  the target namespace's. A caller can therefore move a ConfigSet whose own `POLICY_*` rules lock out the
+  target namespace's policy administrators; only bootstrap admins (ADR 0008) still reach it. Moving a
+  namespace subtree behaves the same way. Requiring `POLICY_UPDATE` on the target when the moved resource
+  or subtree has its own rules is an open question.
 - Later ConfigSet actions (content reads, sync, sources) need no new rule storage.

@@ -15,10 +15,12 @@ rule and explain bodies as the namespace API.
 Dependencies point one way: `web` → `configset` → `namespace` → `policy` → `security`. This extends ADR 0011.
 
 - The foreign key `config_set_namespace_fk` (no cascade) stops a namespace delete while ConfigSets reference
-  it. `NamespaceRepository.delete` translates a violation of that constraint, recognized by its name, into
-  `NamespaceNotEmptyException`. No SQL in `namespace` reads `config_set`.
+  it. `NamespaceRepository.delete` translates a violation of that constraint, recognized by SQLState 23503
+  (foreign-key violation) and the constraint name, into `NamespaceNotEmptyException`. No SQL in `namespace`
+  reads `config_set`.
 - `NamespaceTree` is the namespace module's API for modules that place resources in namespaces. It takes
   the tree lock, returns a namespace's policy path and finds a namespace by slugs. It does not authorize.
+  Namespace services take the lock through it too, so there is one way to take it.
 - Every ConfigSet write, including rule writes, takes the tree lock first. A concurrent namespace delete then
   runs entirely before it (the write fails as namespace not found) or after it (the delete fails as not
   empty), never with a foreign-key error. The lock also keeps the authorized path current.
