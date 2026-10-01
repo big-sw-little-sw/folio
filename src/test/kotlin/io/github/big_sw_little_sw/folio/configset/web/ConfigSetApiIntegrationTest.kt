@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.request
 import org.springframework.test.web.servlet.request.RequestPostProcessor
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /** The ConfigSet admin API, its rules and path resolution end to end. */
 @Tag("integration")
@@ -191,7 +192,7 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
-    fun `without a rule every endpoint denies with 403`() {
+    fun `without a rule every endpoint by ID denies with 403`() {
         val production = namespace(null, "production")
         val target = namespace(null, "target")
         val serviceA = configSet(production, "service-a")
@@ -206,7 +207,6 @@ class ConfigSetApiIntegrationTest(
         send(PUT, "$item/rules/CONFIG_SET_VIEW", """{"subjects": ["public"]}""", alice).andExpectProblem(403)
         send(DELETE, "$item/rules/CONFIG_SET_VIEW", "", alice).andExpectProblem(403)
         send(POST, "$item:explain", """{"action": "CONFIG_SET_VIEW"}""", alice).andExpectProblem(403)
-        mvc.get("$RESOLVE?path=production/service-a") { with(alice) }.andExpectProblem(403)
         mvc.get("$CONFIG_SETS?namespaceId=$production") { with(alice) }.andExpect { jsonPath("$") { isEmpty() } }
     }
 
@@ -224,7 +224,7 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
-    fun `missing resources give 404 whoever asks, existing ones the caller may not view 403`() {
+    fun `missing resources give 404 whoever asks`() {
         val missingConfigSet = "cfg_${"0".repeat(32)}"
         val missingNamespace = "ns_${"0".repeat(32)}"
         configSet(namespace(null, "production"), "service-a")
@@ -234,7 +234,16 @@ class ConfigSetApiIntegrationTest(
         mvc.get("$CONFIG_SETS?namespaceId=$missingNamespace") { with(admin) }.andExpectProblem(404)
         send(POST, CONFIG_SETS, """{"namespaceId": "$missingNamespace", "slug": "a"}""").andExpectProblem(404)
         mvc.get("$RESOLVE?path=production/missing") { with(alice) }.andExpectProblem(404)
-        mvc.get("$RESOLVE?path=production/service-a") { with(alice) }.andExpectProblem(403)
+    }
+
+    @Test
+    fun `resolve answers a path the caller may not view exactly like a missing one`() {
+        configSet(namespace(null, "production"), "service-a")
+
+        val denied = resolveAs(alice, "production/service-a").andExpectProblem(404)
+        val missing = resolveAs(alice, "production/service-b").andExpectProblem(404)
+
+        assertEquals(missing.andReturn().response.contentAsString, denied.andReturn().response.contentAsString)
     }
 
     @Test
@@ -292,11 +301,15 @@ class ConfigSetApiIntegrationTest(
         body: String,
     ) = send(POST, "$CONFIG_SETS/$configSetId:explain", body)
 
-    private fun resolve(path: String) =
-        mvc.get(RESOLVE) {
-            with(admin)
-            param("path", path)
-        }
+    private fun resolve(path: String) = resolveAs(admin, path)
+
+    private fun resolveAs(
+        token: RequestPostProcessor,
+        path: String,
+    ) = mvc.get(RESOLVE) {
+        with(token)
+        param("path", path)
+    }
 
     private fun send(
         method: HttpMethod,

@@ -87,13 +87,17 @@ class ConfigSetService(
             .filter { policy.isAllowed(Action.CONFIG_SET_VIEW, namespacePath + ResourceRef.ConfigSetRef(it.id.value)) }
     }
 
-    /** The ConfigSet at [path]. Requires view on it, which includes seeing its path (ADR 0013). */
+    /**
+     * The ConfigSet at [path]. Requires view on it, which includes seeing its path. Paths can be guessed, so a
+     * ConfigSet the caller may not view is reported as not found, unlike lookups by ID (ADR 0013).
+     */
     @Transactional(readOnly = true)
     fun resolve(path: ConfigSetPath): ConfigSet {
-        val configSet =
-            tree.findByPath(path.namespacePath)?.let { configSets.findBySlug(it.id, path.slug) }
-                ?: throw ConfigSetPathNotFoundException(path)
-        policy.requireAllowed(Action.CONFIG_SET_VIEW, path(configSet))
+        val namespace = tree.findByPath(path.namespacePath) ?: throw ConfigSetPathNotFoundException(path)
+        val configSet = configSets.findBySlug(namespace.id, path.slug)
+        if (configSet == null || !policy.isAllowed(Action.CONFIG_SET_VIEW, path(configSet))) {
+            throw ConfigSetPathNotFoundException(path)
+        }
         return configSet
     }
 
