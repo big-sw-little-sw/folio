@@ -1,5 +1,11 @@
 package io.github.big_sw_little_sw.folio.web
 
+import io.github.big_sw_little_sw.folio.configset.ConfigSetException
+import io.github.big_sw_little_sw.folio.configset.ConfigSetNotFoundException
+import io.github.big_sw_little_sw.folio.configset.ConfigSetPathNotFoundException
+import io.github.big_sw_little_sw.folio.configset.DuplicateConfigSetSlugException
+import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetIdException
+import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetPathException
 import io.github.big_sw_little_sw.folio.namespace.DuplicateSlugException
 import io.github.big_sw_little_sw.folio.namespace.InvalidNamespaceIdException
 import io.github.big_sw_little_sw.folio.namespace.InvalidSlugException
@@ -46,6 +52,22 @@ class ProblemDetailsAdvice {
 
             is NamespaceNotEmptyException -> {
                 problem(HttpStatus.CONFLICT, "Namespace is not empty")
+            }
+        }
+
+    @ExceptionHandler
+    fun configSet(exception: ConfigSetException): ProblemDetail =
+        when (exception) {
+            is ConfigSetNotFoundException, is ConfigSetPathNotFoundException -> {
+                problem(HttpStatus.NOT_FOUND, "ConfigSet not found")
+            }
+
+            is InvalidConfigSetIdException, is InvalidConfigSetPathException -> {
+                problem(HttpStatus.BAD_REQUEST, exception.message)
+            }
+
+            is DuplicateConfigSetSlugException -> {
+                problem(HttpStatus.CONFLICT, exception.message)
             }
         }
 
