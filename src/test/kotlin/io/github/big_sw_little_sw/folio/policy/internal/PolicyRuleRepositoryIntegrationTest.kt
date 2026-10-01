@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.policy.internal
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.policy.Action
+import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.policy.Rule
 import io.github.big_sw_little_sw.folio.policy.Subject
 import org.junit.jupiter.api.BeforeEach
@@ -9,10 +10,12 @@ import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.simple.JdbcClient
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 @Tag("integration")
 @Import(TestcontainersConfiguration::class)
@@ -32,6 +35,7 @@ class PolicyRuleRepositoryIntegrationTest(
 
     @BeforeEach
     fun deleteAllNamespaces() {
+        jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from namespace_closure").update()
         jdbc.sql("delete from namespace").update()
     }
@@ -42,7 +46,7 @@ class PolicyRuleRepositoryIntegrationTest(
 
         repository.put(namespace, Rule(Action.NAMESPACE_VIEW, everySubjectType))
 
-        assertEquals(listOf(Rule(Action.NAMESPACE_VIEW, everySubjectType)), repository.findByNamespace(namespace))
+        assertEquals(listOf(Rule(Action.NAMESPACE_VIEW, everySubjectType)), repository.findByResource(namespace))
     }
 
     @Test
@@ -58,7 +62,7 @@ class PolicyRuleRepositoryIntegrationTest(
                 Rule(Action.NAMESPACE_DELETE, setOf(Subject.User("alice"))),
                 Rule(Action.NAMESPACE_VIEW, setOf(Subject.Group("editors"))),
             ),
-            repository.findByNamespace(namespace),
+            repository.findByResource(namespace),
         )
     }
 
@@ -69,7 +73,7 @@ class PolicyRuleRepositoryIntegrationTest(
 
         repository.delete(namespace, Action.NAMESPACE_VIEW)
 
-        assertEquals(emptyList(), repository.findByNamespace(namespace))
+        assertEquals(emptyList(), repository.findByResource(namespace))
         assertEquals(0, jdbc.sql("select count(*) from policy_subject").query(Int::class.java).single())
     }
 
@@ -84,7 +88,10 @@ class PolicyRuleRepositoryIntegrationTest(
         repository.put(c, Rule(Action.NAMESPACE_VIEW, setOf(Subject.Authenticated)))
 
         assertEquals(
-            mapOf(a to listOf(Subject.Public), b to listOf(Subject.Group("editors"), Subject.User("alice"))),
+            mapOf<ResourceRef, List<Subject>>(
+                a to listOf(Subject.Public),
+                b to listOf(Subject.Group("editors"), Subject.User("alice")),
+            ),
             repository.findSubjects(Action.NAMESPACE_VIEW, listOf(a, b)),
         )
         assertEquals(emptyMap(), repository.findSubjects(Action.NAMESPACE_VIEW, emptyList()))
@@ -95,17 +102,94 @@ class PolicyRuleRepositoryIntegrationTest(
         val namespace = insertNamespace("a")
         repository.put(namespace, Rule(Action.NAMESPACE_VIEW, everySubjectType))
 
-        jdbc.sql("delete from namespace where id = :id").param("id", namespace).update()
+        jdbc.sql("delete from namespace where id = :id").param("id", namespace.id).update()
 
         assertEquals(0, jdbc.sql("select count(*) from policy_rule").query(Int::class.java).single())
         assertEquals(0, jdbc.sql("select count(*) from policy_subject").query(Int::class.java).single())
     }
 
-    // Policy does not depend on the namespace module, so the test writes the row directly.
-    private fun insertNamespace(slug: String): UUID =
+    @Test
+    fun `finds ConfigSet rules alongside the rules of its namespaces`() {
+        val namespace = insertNamespace("a")
+        val configSet = insertConfigSet(namespace, "service-a")
+        repository.put(namespace, Rule(Action.CONFIG_SET_VIEW, setOf(Subject.Public)))
+        repository.put(configSet, Rule(Action.CONFIG_SET_VIEW, setOf(Subject.User("alice"))))
+
+        assertEquals(
+            mapOf<ResourceRef, List<Subject>>(
+                namespace to listOf(Subject.Public),
+                configSet to listOf(Subject.User("alice")),
+            ),
+            repository.findSubjects(Action.CONFIG_SET_VIEW, listOf(namespace, configSet)),
+        )
+        assertEquals(listOf(Rule(Action.CONFIG_SET_VIEW, setOf(Subject.Public))), repository.findByResource(namespace))
+    }
+
+    @Test
+    fun `put and delete on a ConfigSet leave the namespace's rule for the same action alone`() {
+        val namespace = insertNamespace("a")
+        val configSet = insertConfigSet(namespace, "service-a")
+        repository.put(namespace, Rule(Action.CONFIG_SET_VIEW, setOf(Subject.Public)))
+
+        repository.put(configSet, Rule(Action.CONFIG_SET_VIEW, setOf(Subject.User("alice"))))
+        repository.delete(configSet, Action.CONFIG_SET_VIEW)
+
+        assertEquals(emptyList(), repository.findByResource(configSet))
+        assertEquals(listOf(Rule(Action.CONFIG_SET_VIEW, setOf(Subject.Public))), repository.findByResource(namespace))
+    }
+
+    @Test
+    fun `deleting a ConfigSet cascades to its rules and subjects`() {
+        val configSet = insertConfigSet(insertNamespace("a"), "service-a")
+        repository.put(configSet, Rule(Action.CONFIG_SET_VIEW, everySubjectType))
+
+        jdbc.sql("delete from config_set where id = :id").param("id", configSet.id).update()
+
+        assertEquals(0, jdbc.sql("select count(*) from policy_rule").query(Int::class.java).single())
+        assertEquals(0, jdbc.sql("select count(*) from policy_subject").query(Int::class.java).single())
+    }
+
+    @Test
+    fun `a rule belongs to exactly one namespace or ConfigSet`() {
+        val namespace = insertNamespace("a")
+        val configSet = insertConfigSet(namespace, "service-a")
+        val insert = "insert into policy_rule (namespace_id, config_set_id, action) values (:ns, :cfg, 'POLICY_VIEW')"
+
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc
+                .sql(insert)
+                .param("ns", namespace.id)
+                .param("cfg", configSet.id)
+                .update()
+        }
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc
+                .sql(insert)
+                .param("ns", null)
+                .param("cfg", null)
+                .update()
+        }
+    }
+
+    // Policy does not depend on the namespace or ConfigSet modules, so the test writes the rows directly.
+    private fun insertNamespace(slug: String) =
+        ResourceRef.NamespaceRef(
+            jdbc
+                .sql("insert into namespace (slug) values (:slug) returning id")
+                .param("slug", slug)
+                .query(UUID::class.java)
+                .single(),
+        )
+
+    private fun insertConfigSet(
+        namespace: ResourceRef.NamespaceRef,
+        slug: String,
+    ) = ResourceRef.ConfigSetRef(
         jdbc
-            .sql("insert into namespace (slug) values (:slug) returning id")
+            .sql("insert into config_set (namespace_id, slug) values (:namespaceId, :slug) returning id")
+            .param("namespaceId", namespace.id)
             .param("slug", slug)
             .query(UUID::class.java)
-            .single()
+            .single(),
+    )
 }
