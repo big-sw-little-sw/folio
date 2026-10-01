@@ -7,5 +7,5 @@ import org.springframework.boot.runApplication
 class FolioApplication
 
 fun main(args: Array<String>) {
-	runApplication<FolioApplication>(*args)
+    runApplication<FolioApplication>(*args)
 }

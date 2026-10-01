@@ -1,0 +1,30 @@
+# Versions that Spring Boot's dependency management does not cover.
+# Boot-managed dependencies stay version-less in build.gradle.kts.
+
+[versions]
+kotlin = "2.3.21"
+spring-boot = "4.1.1"
+spring-dependency-management = "1.1.7"
+spring-modulith = "2.1.1"
+springdoc = "3.1.0"
+jgit = "7.8.0.202609011348-r"
+ktlintGradle = "14.2.0"
+ktlint = "1.8.0"
+# Pre-release: detekt 1.23.x does not support Kotlin 2.3. Move to 2.0.0 once it is final.
+detekt = "2.0.0-alpha.6"
+# Kotlin version detekt was compiled with (see the detekt-core POM). Update together with detekt.
+detektKotlin = "2.4.10"
+
+[libraries]
+spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
+springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
+jgit-ssh-apache = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintGradle" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
