@@ -1,5 +1,6 @@
 package io.github.big_sw_little_sw.folio.security.internal
 
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
@@ -17,7 +18,17 @@ import org.springframework.security.web.SecurityFilterChain
  * URL rules are a coarse first gate; application services authorize every operation through policy.
  */
 @Configuration(proxyBeanMethods = false)
-class SecurityConfiguration {
+class SecurityConfiguration(
+    resourceServer: OAuth2ResourceServerProperties,
+) {
+    init {
+        // Boot validates `aud` only when audiences are set. Without it, any token the issuer signed for
+        // another client or API would be accepted (ADR 0002).
+        require(resourceServer.jwt.audiences.any { it.isNotBlank() }) {
+            "spring.security.oauth2.resourceserver.jwt.audiences must name the audience of Folio's tokens"
+        }
+    }
+
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http {
@@ -43,11 +54,13 @@ class SecurityConfiguration {
     @Bean
     fun principalClaimsValidator(claimNames: ClaimNames): OAuth2TokenValidator<Jwt> =
         OAuth2TokenValidator { jwt ->
-            runCatching { claimNames.toPrincipal(jwt.claims) }.fold(
-                onSuccess = { OAuth2TokenValidatorResult.success() },
-                onFailure = {
-                    OAuth2TokenValidatorResult.failure(OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN, it.message, null))
-                },
-            )
+            try {
+                claimNames.toPrincipal(jwt.claims)
+                OAuth2TokenValidatorResult.success()
+            } catch (exception: IllegalArgumentException) {
+                OAuth2TokenValidatorResult.failure(
+                    OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN, exception.message, null),
+                )
+            }
         }
 }
