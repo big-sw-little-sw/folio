@@ -10,3 +10,8 @@ spring:
 # - spring.security.oauth2.resourceserver.jwt.audiences: required; startup fails without it. Tokens whose
 #   `aud` does not contain one of these values are rejected.
 # - folio.security.claims and folio.bootstrap.admins.
+# - folio.crypto.master-keys and folio.crypto.active-key-version: required; startup fails without them (ADR 0019).
+#   Each positive version maps to a base64 secret of at least 32 bytes, for example `openssl rand -base64 32`.
+#   Supply them through the deployment's secret mechanism, never in this file or the database.
+# - folio.git.instances: the Git service instances credentials belong to, by name (ADR 0016), for example
+#   `github: {host: github.com}`; the port defaults to 22.

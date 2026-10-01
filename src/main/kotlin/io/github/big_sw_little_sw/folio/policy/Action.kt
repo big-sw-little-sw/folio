@@ -22,4 +22,11 @@ enum class Action {
     /** Also allows explaining decisions on the resource. */
     POLICY_VIEW,
     POLICY_UPDATE,
+
+    // Checked at the root, where only bootstrap admins hold actions in v1 (ADR 0018).
+    CREDENTIAL_VIEW,
+    CREDENTIAL_MANAGE,
+
+    /** Master-key usage and re-encryption. */
+    CRYPTO_MANAGE,
 }
