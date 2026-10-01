@@ -1,3 +1,12 @@
 spring:
   application:
     name: folio
+  mvc:
+    # Framework errors (malformed JSON, type mismatches) get RFC 9457 bodies like ProblemDetailsAdvice gives.
+    problemdetails:
+      enabled: true
+# Deployments set (ADR 0002):
+# - spring.security.oauth2.resourceserver.jwt.issuer-uri: the one trusted issuer.
+# - spring.security.oauth2.resourceserver.jwt.audiences: required; startup fails without it. Tokens whose
+#   `aud` does not contain one of these values are rejected.
+# - folio.security.claims and folio.bootstrap.admins.

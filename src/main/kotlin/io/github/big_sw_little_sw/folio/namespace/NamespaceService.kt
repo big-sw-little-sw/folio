@@ -2,26 +2,31 @@ package io.github.big_sw_little_sw.folio.namespace
 
 import io.github.big_sw_little_sw.folio.namespace.internal.NamespaceClosureRepository
 import io.github.big_sw_little_sw.folio.namespace.internal.NamespaceRepository
+import io.github.big_sw_little_sw.folio.policy.Action
+import io.github.big_sw_little_sw.folio.policy.PolicyService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.util.UUID
 
 /**
- * Expected failures are thrown as [NamespaceException] subtypes (ADR 0006).
+ * Expected failures are thrown as [NamespaceException] subtypes (ADR 0006), and denials as policy exceptions.
+ * A missing namespace fails before authorization, so it gives not found rather than denied (ADR 0010).
  * Every write takes the tree lock first; see [NamespaceClosureRepository.lockTree].
  */
 @Service
 class NamespaceService(
     private val namespaces: NamespaceRepository,
     private val closure: NamespaceClosureRepository,
+    private val policy: PolicyService,
 ) {
-    /** Creates a namespace under [parentId], or at the root if it is null. */
+    /** Creates a namespace under [parentId], or at the root if it is null. Requires create on the parent. */
     @Transactional
     fun create(
         parentId: NamespaceId?,
         slug: Slug,
     ): Namespace {
         closure.lockTree()
-        parentId?.let(::existing)
+        policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(parentId))
         val namespace = namespaces.insert(parentId, slug)
         closure.insertPathsForLeaf(namespace.id, parentId)
         return namespace
@@ -34,11 +39,15 @@ class NamespaceService(
     ): Namespace {
         closure.lockTree()
         val renamed = existing(id).copy(slug = slug)
+        policy.requireAllowed(Action.NAMESPACE_RENAME, path(id))
         namespaces.update(renamed)
         return renamed
     }
 
-    /** Moves the namespace and its subtree under [newParentId], or to the root if it is null. */
+    /**
+     * Moves the namespace and its subtree under [newParentId], or to the root if it is null.
+     * Requires move on the namespace and create on the new parent, as if creating it there.
+     */
     @Transactional
     fun move(
         id: NamespaceId,
@@ -46,41 +55,56 @@ class NamespaceService(
     ): Namespace {
         closure.lockTree()
         val moved = existing(id).copy(parentId = newParentId)
-        if (newParentId != null) {
-            existing(newParentId)
-            if (closure.isAncestorOrSelf(id, newParentId)) throw NamespaceMoveIntoOwnSubtreeException(id, newParentId)
+        policy.requireAllowed(Action.NAMESPACE_MOVE, path(id))
+        policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(newParentId))
+        if (newParentId != null && closure.isAncestorOrSelf(id, newParentId)) {
+            throw NamespaceMoveIntoOwnSubtreeException(id, newParentId)
         }
         namespaces.update(moved)
         closure.moveSubtree(id, newParentId)
         return moved
     }
 
-    /** Deletes an empty namespace; there is no cascading delete (ADR 0001). */
+    /** Deletes an empty namespace and its rules; there is no cascading delete of contents (ADR 0001). */
     @Transactional
     fun delete(id: NamespaceId) {
         closure.lockTree()
-        existing(id)
+        policy.requireAllowed(Action.NAMESPACE_DELETE, path(id))
         if (namespaces.hasChildren(id)) throw NamespaceNotEmptyException(id)
         closure.deletePathsForLeaf(id)
         namespaces.delete(id)
     }
 
     @Transactional(readOnly = true)
-    fun get(id: NamespaceId): Namespace = existing(id)
-
-    /** Children of [parentId], or the root namespaces if it is null; ordered by slug. */
-    @Transactional(readOnly = true)
-    fun children(parentId: NamespaceId?): List<Namespace> {
-        parentId?.let(::existing)
-        return namespaces.findChildren(parentId)
+    fun get(id: NamespaceId): Namespace {
+        val namespace = existing(id)
+        policy.requireAllowed(Action.NAMESPACE_VIEW, path(id))
+        return namespace
     }
 
-    /** Ancestors of [id], root first, without the namespace itself. */
+    /** Children of [parentId], or the root namespaces if it is null, that the caller may view; ordered by slug. */
+    @Transactional(readOnly = true)
+    fun children(parentId: NamespaceId?): List<Namespace> {
+        val parentPath = pathOrRoot(parentId)
+        return namespaces
+            .findChildren(parentId)
+            .filter { policy.isAllowed(Action.NAMESPACE_VIEW, parentPath + it.id.value) }
+    }
+
+    /**
+     * Ancestors of [id], root first, without the namespace itself. Requires view on the namespace only:
+     * seeing a namespace includes seeing its path (ADR 0010).
+     */
     @Transactional(readOnly = true)
     fun ancestors(id: NamespaceId): List<Namespace> {
-        existing(id)
+        get(id)
         return namespaces.findAncestors(id)
     }
 
     private fun existing(id: NamespaceId): Namespace = namespaces.findById(id) ?: throw NamespaceNotFoundException(id)
+
+    private fun path(id: NamespaceId): List<UUID> = closure.findPath(id).map { it.value }
+
+    /** The policy path of [id], or of the root if it is null. */
+    private fun pathOrRoot(id: NamespaceId?): List<UUID> = id?.let(::path) ?: emptyList()
 }
