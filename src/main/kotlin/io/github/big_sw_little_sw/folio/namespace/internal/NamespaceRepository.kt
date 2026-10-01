@@ -3,7 +3,9 @@ package io.github.big_sw_little_sw.folio.namespace.internal
 import io.github.big_sw_little_sw.folio.namespace.DuplicateSlugException
 import io.github.big_sw_little_sw.folio.namespace.Namespace
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
+import io.github.big_sw_little_sw.folio.namespace.NamespaceNotEmptyException
 import io.github.big_sw_little_sw.folio.namespace.Slug
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
@@ -38,8 +40,19 @@ class NamespaceRepository(
         }
     }
 
+    /**
+     * Throws [NamespaceNotEmptyException] while ConfigSets reference the namespace (ADR 0001). This module may
+     * not read ConfigSets, so the foreign key from `config_set` decides (ADR 0015).
+     */
     fun delete(id: NamespaceId) {
-        jdbc.sql("delete from namespace where id = :id").param("id", id.value).update()
+        try {
+            jdbc.sql("delete from namespace where id = :id").param("id", id.value).update()
+        } catch (exception: DataIntegrityViolationException) {
+            // The PostgreSQL driver is a runtime dependency only, so the constraint name comes from the message.
+            val message = exception.mostSpecificCause.message.orEmpty()
+            if (CONFIG_SET_FOREIGN_KEY in message) throw NamespaceNotEmptyException(id)
+            throw exception
+        }
     }
 
     fun findById(id: NamespaceId): Namespace? =
@@ -57,6 +70,18 @@ class NamespaceRepository(
             .param("parentId", parentId?.value)
             .query { rs, _ -> rs.toNamespace() }
             .list()
+
+    fun findChild(
+        parentId: NamespaceId?,
+        slug: Slug,
+    ): Namespace? =
+        jdbc
+            .sql("select $COLUMNS from namespace where parent_id is not distinct from :parentId and slug = :slug")
+            .param("parentId", parentId?.value)
+            .param("slug", slug.value)
+            .query { rs, _ -> rs.toNamespace() }
+            .optional()
+            .orElse(null)
 
     fun hasChildren(id: NamespaceId): Boolean =
         jdbc
@@ -101,5 +126,8 @@ class NamespaceRepository(
 
     private companion object {
         const val COLUMNS = "id, parent_id, slug"
+
+        /** Declared in V3__config_sets.sql. */
+        const val CONFIG_SET_FOREIGN_KEY = "config_set_namespace_fk"
     }
 }

@@ -11,6 +11,14 @@ enum class Action {
     NAMESPACE_MOVE,
     NAMESPACE_DELETE,
 
+    CONFIG_SET_VIEW,
+
+    /** Checked on the namespace that will hold the ConfigSet (ADR 0014). */
+    CONFIG_SET_CREATE,
+    CONFIG_SET_RENAME,
+    CONFIG_SET_MOVE,
+    CONFIG_SET_DELETE,
+
     /** Also allows explaining decisions on the resource. */
     POLICY_VIEW,
     POLICY_UPDATE,
