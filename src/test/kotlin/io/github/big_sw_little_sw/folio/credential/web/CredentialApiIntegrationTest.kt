@@ -139,6 +139,7 @@ class CredentialApiIntegrationTest(
     @Test
     fun `a disabled credential refuses key changes`() {
         val id = credential()
+        val pendingKey = keyIds(send(POST, "$CREDENTIALS/$id:regenerate", "")).last()
 
         send(POST, "$CREDENTIALS/$id:disable", "").andExpect {
             status { isOk() }
@@ -147,6 +148,17 @@ class CredentialApiIntegrationTest(
         send(POST, "$CREDENTIALS/$id:disable", "").andExpect { status { isOk() } }
         send(POST, "$CREDENTIALS/$id:regenerate", "").andExpectProblem(409)
         send(POST, "$CREDENTIALS/$id:replace", "").andExpectProblem(409)
+        send(POST, "$CREDENTIALS/$id:activate", """{"keyId": "$pendingKey"}""").andExpectProblem(409)
+    }
+
+    @Test
+    fun `a non-admin gets 403 on a disabled credential, not 409`() {
+        val id = credential()
+        send(POST, "$CREDENTIALS/$id:disable", "").andExpect { status { isOk() } }
+
+        send(POST, "$CREDENTIALS/$id:regenerate", "", alice).andExpectProblem(403)
+        send(POST, "$CREDENTIALS/$id:replace", "", alice).andExpectProblem(403)
+        send(POST, "$CREDENTIALS/$id:disable", "", alice).andExpectProblem(403)
     }
 
     @Test

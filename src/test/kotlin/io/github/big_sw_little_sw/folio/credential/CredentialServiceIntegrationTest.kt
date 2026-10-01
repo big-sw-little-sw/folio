@@ -143,19 +143,40 @@ class CredentialServiceIntegrationTest(
         val executor = Executors.newFixedThreadPool(threads)
 
         val outcomes =
-            (1..threads)
-                .map {
-                    executor.submit<Result<Credential>> {
-                        authenticateAs(BOOTSTRAP_ADMIN)
-                        barrier.await()
-                        runCatching { service.regenerate(created.id) }
-                    }
-                }.map { it.get(1, TimeUnit.MINUTES) }
-        executor.shutdown()
+            try {
+                (1..threads)
+                    .map {
+                        executor.submit<Result<Credential>> {
+                            authenticateAs(BOOTSTRAP_ADMIN)
+                            barrier.await()
+                            runCatching { service.regenerate(created.id) }
+                        }
+                    }.map { it.get(1, TimeUnit.MINUTES) }
+            } finally {
+                executor.shutdown()
+            }
 
         assertEquals(1, outcomes.count { it.isSuccess })
         assertTrue(outcomes.filter { it.isFailure }.all { it.exceptionOrNull() is PendingKeyExistsException })
         assertEquals(1, service.get(created.id).keys.count { it.status == KeyStatus.PENDING })
+    }
+
+    @Test
+    fun `the active key pair stays consistent while the key is replaced concurrently`() {
+        val created = service.create("example")
+        val executor = Executors.newSingleThreadExecutor()
+
+        try {
+            val replacements =
+                executor.submit {
+                    authenticateAs(BOOTSTRAP_ADMIN)
+                    repeat(ROUNDS) { service.replace(created.id) }
+                }
+            repeat(ROUNDS) { assertTrue(signsFor(keyPairs.active(created.id))) }
+            replacements.get(1, TimeUnit.MINUTES)
+        } finally {
+            executor.shutdown()
+        }
     }
 
     @Test
@@ -166,6 +187,10 @@ class CredentialServiceIntegrationTest(
         assertFailsWith<PermissionDeniedException> { service.get(created.id) }
         assertFailsWith<PermissionDeniedException> { service.list() }
         assertFailsWith<PermissionDeniedException> { service.create("example") }
+    }
+
+    private companion object {
+        const val ROUNDS = 30
     }
 
     /** How many of the five encryption columns of [keyId] are null. */
