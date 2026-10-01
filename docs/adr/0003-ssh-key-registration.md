@@ -1,6 +1,6 @@
 # 0003. SSH key registration
 
-Status: Accepted (2026-10-01)
+Status: Accepted (2026-09-30)
 
 ## Context
 
