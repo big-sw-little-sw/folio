@@ -1,6 +1,6 @@
 # 0002. JWT claim mapping
 
-Status: Accepted (2026-10-01)
+Status: Accepted (2026-09-30)
 
 ## Context
 
