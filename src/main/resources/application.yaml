@@ -1,3 +1,9 @@
 spring:
   application:
     name: folio
+  mvc:
+    # Framework errors (malformed JSON, type mismatches) get RFC 9457 bodies like ProblemDetailsAdvice gives.
+    problemdetails:
+      enabled: true
+# Deployments set spring.security.oauth2.resourceserver.jwt.issuer-uri, folio.security.claims and
+# folio.bootstrap.admins (ADR 0002).

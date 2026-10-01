@@ -1,8 +1,10 @@
 package io.github.big_sw_little_sw.folio.namespace.internal
 
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
+import io.github.big_sw_little_sw.folio.namespace.NamespaceNotFoundException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
+import java.util.UUID
 
 /** Rows of `namespace_closure`: every (ancestor, descendant) pair, including each namespace with itself. */
 @Repository
@@ -39,6 +41,16 @@ class NamespaceClosureRepository(
             .param("parentId", parentId?.value)
             .update()
     }
+
+    /** IDs from the root namespace down to [id], including [id]. Fails if [id] does not exist. */
+    fun findPath(id: NamespaceId): List<NamespaceId> =
+        jdbc
+            .sql("select ancestor_id from namespace_closure where descendant_id = :id order by depth desc")
+            .param("id", id.value)
+            .query { rs, _ -> NamespaceId(rs.getObject("ancestor_id", UUID::class.java)) }
+            .list()
+            // Every namespace has a closure row for itself, so no rows means no namespace.
+            .ifEmpty { throw NamespaceNotFoundException(id) }
 
     fun isAncestorOrSelf(
         ancestorId: NamespaceId,
