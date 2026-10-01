@@ -1,6 +1,6 @@
 # 0015. ConfigSet module boundaries
 
-Status: Accepted (2026-09-30)
+Status: Accepted (2026-09-30). The shared ID helper it anticipated is ADR 0021.
 
 ## Context
 

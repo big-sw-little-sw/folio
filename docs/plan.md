@@ -44,24 +44,30 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
     namespace path (`policy_rule.config_set_id`, design 19.4, ADR 0014).
   - Admin API behind policy checks; API IDs are prefixed strings (`ns_…`, `cfg_…`).
 
-- [ ] **4. Credentials and crypto**
-  - Credentials scoped to a Git service instance and referenced by stable ID; disable a credential.
+- [x] **4. Credentials and crypto**
+  - Credentials scoped to a Git service instance from `folio.git.instances` and referenced by stable ID;
+    disable a credential (ADR 0016, ADR 0017).
   - Ed25519 key generation; only the OpenSSH public key is ever returned.
   - Private keys encrypted with AES-256-GCM under HKDF-SHA256 keys from the configured master-key ring;
-    fresh salt and nonce per encryption; associated data `credentialId | keyId | masterKeyVersion`.
-  - Two-step key regeneration (`PENDING` then activate, optional `ls-remote` check) and emergency replacement;
-    partial unique indexes allow one `ACTIVE` and one `PENDING` key; retired keys lose their ciphertext.
+    fresh salt and nonce per encryption; associated data `credentialId | keyId | masterKeyVersion` (ADR 0019).
+  - Two-step key regeneration (`PENDING` then activate) and emergency replacement; partial unique indexes
+    allow one `ACTIVE` and one `PENDING` key; retired keys lose their ciphertext (ADR 0017).
   - Master-key rotation: `POST /api/v1/admin/crypto:reencrypt` re-encrypts per row with an optimistic check,
-    is safe to re-run and reports rows per master-key version.
+    is safe to re-run and reports rows per master-key version (ADR 0020).
   - Startup fails clearly if a row references an unconfigured master-key version.
+  - Credential and crypto operations are authorized at the root, so only bootstrap admins in v1 (ADR 0018).
+  - API IDs are `cred_…` and `key_…`; all prefixes share one helper (ADR 0021).
 
 - [ ] **5. Git source**
   - Each ConfigSet maps to exactly one Git source; the source becomes required on ConfigSets.
-  - JGit SSH transport with mandatory host-key verification against `folio.git.known-hosts`.
+  - JGit SSH transport with mandatory host-key verification against each instance's trusted host keys, added
+    to its `folio.git.instances` entry (ADR 0016).
   - Disposable local bare-repository cache per source.
   - File listing and reads at latest or an exact commit, beneath the ConfigSet root path.
   - Path normalisation rejects absolute paths and traversal segments.
   - Onboarding check with `ls-remote`: credential reaches the repository; ref and root path exist.
+  - Optional `ls-remote` check before activating a pending key (moved from slice 4, ADR 0017).
+  - Sync gets the credential's active key pair from `CredentialKeyPairs.active`.
   - Integration tests run against an SSH Git server in Testcontainers (ADR 0004).
 
 - [ ] **6. Sync**
