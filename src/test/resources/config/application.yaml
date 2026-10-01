@@ -7,6 +7,7 @@ spring:
         jwt:
           # Never contacted: tests authenticate with Spring Security's jwt() request post-processor.
           issuer-uri: https://issuer.test
+          audiences: folio-test
 folio:
   bootstrap:
     admins:
