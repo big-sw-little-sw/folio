@@ -6,6 +6,14 @@ import io.github.big_sw_little_sw.folio.configset.ConfigSetPathNotFoundException
 import io.github.big_sw_little_sw.folio.configset.DuplicateConfigSetSlugException
 import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetIdException
 import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetPathException
+import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
+import io.github.big_sw_little_sw.folio.credential.CredentialException
+import io.github.big_sw_little_sw.folio.credential.CredentialNotFoundException
+import io.github.big_sw_little_sw.folio.credential.InvalidCredentialIdException
+import io.github.big_sw_little_sw.folio.credential.InvalidKeyIdException
+import io.github.big_sw_little_sw.folio.credential.KeyNotPendingException
+import io.github.big_sw_little_sw.folio.credential.PendingKeyExistsException
+import io.github.big_sw_little_sw.folio.credential.UnknownGitInstanceException
 import io.github.big_sw_little_sw.folio.namespace.DuplicateSlugException
 import io.github.big_sw_little_sw.folio.namespace.InvalidNamespaceIdException
 import io.github.big_sw_little_sw.folio.namespace.InvalidSlugException
@@ -68,6 +76,30 @@ class ProblemDetailsAdvice {
 
             is DuplicateConfigSetSlugException -> {
                 problem(HttpStatus.CONFLICT, exception.message)
+            }
+        }
+
+    @ExceptionHandler
+    fun credential(exception: CredentialException): ProblemDetail =
+        when (exception) {
+            is CredentialNotFoundException -> {
+                problem(HttpStatus.NOT_FOUND, "Credential not found")
+            }
+
+            is InvalidCredentialIdException, is InvalidKeyIdException, is UnknownGitInstanceException -> {
+                problem(HttpStatus.BAD_REQUEST, exception.message)
+            }
+
+            is CredentialDisabledException -> {
+                problem(HttpStatus.CONFLICT, "Credential is disabled")
+            }
+
+            is PendingKeyExistsException -> {
+                problem(HttpStatus.CONFLICT, "Credential already has a pending key")
+            }
+
+            is KeyNotPendingException -> {
+                problem(HttpStatus.CONFLICT, "Key is not the credential's pending key")
             }
         }
 
