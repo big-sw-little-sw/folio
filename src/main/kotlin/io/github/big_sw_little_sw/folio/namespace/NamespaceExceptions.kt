@@ -9,6 +9,11 @@ class NamespaceNotFoundException(
     val id: NamespaceId,
 ) : NamespaceException("Namespace ${id.value} not found")
 
+/** An API ID that is not `ns_` followed by 32 lowercase hex characters (ADR 0007). */
+class InvalidNamespaceIdException(
+    val value: String,
+) : NamespaceException("Invalid namespace ID '$value'")
+
 class InvalidSlugException(
     val slug: String,
 ) : NamespaceException("Invalid slug '$slug'")

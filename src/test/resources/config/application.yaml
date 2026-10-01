@@ -1,0 +1,14 @@
+# Test settings on top of src/main/resources/application.yaml. Boot also reads classpath:/config/, so this
+# file adds to the main one instead of hiding it.
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Never contacted: tests authenticate with Spring Security's jwt() request post-processor.
+          issuer-uri: https://issuer.test
+          audiences: folio-test
+folio:
+  bootstrap:
+    admins:
+      - user:bootstrap-admin

@@ -18,15 +18,19 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Deleting a namespace that has child namespaces is rejected (ADR 0001).
   - Unit tests for slug rules; integration tests for the tree rules and closure-table queries.
 
-- [ ] **2. Security and policy**
+- [x] **2. Security and policy**
   - JWT validation through the OAuth2 resource server; claims mapped to `ApplicationPrincipal`
     (user, groups, application ID) (ADR 0002).
-  - Action-based grant rules on namespaces and ConfigSets; subjects: public, any authenticated, user,
-    group, application.
+  - Action-based grant rules on namespaces (ConfigSets follow in slice 3); subjects: public, any
+    authenticated, user, group, application.
   - Nearest-rule resolution with default deny, enforced in application services.
   - Decision explanation endpoint for administrators.
-  - Bootstrap admins from `folio.bootstrap.admins` hold every action at the root (ADR 0002).
+  - Bootstrap admins from `folio.bootstrap.admins` hold every action at the root and below, ahead of
+    rules (ADR 0002, ADR 0008).
   - Namespace admin API (create, rename, move, delete) behind policy checks.
+  - Errors are RFC 9457 problem details; namespace API IDs are `ns_…` (ADR 0007).
+  - Only `NAMESPACE_*` and `POLICY_*` actions exist; slices 3 to 7 add the actions of the features they
+    build (ADR 0012).
 
 - [ ] **3. ConfigSets**
   - Create, move and delete ConfigSets; each maps to exactly one Git source.
@@ -35,6 +39,8 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - ConfigSet writes that require their namespace to exist take the namespace tree lock, so a concurrent
     namespace delete fails with NamespaceNotEmptyException rather than a foreign-key error.
   - `GET /api/v1/configsets:resolve?path=…` resolves a path to a ConfigSet.
+  - Policy rules attach to ConfigSets as well as namespaces; a ConfigSet's own rule is nearest, then its
+    namespace path (`policy_rule.config_set_id`, design 19.4).
   - Admin API behind policy checks; API IDs are prefixed strings (`ns_…`, `cfg_…`).
 
 - [ ] **4. Credentials and crypto**
