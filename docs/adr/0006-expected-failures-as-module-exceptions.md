@@ -25,3 +25,6 @@ Mixing both styles would give callers two ways to handle the same kind of failur
 - Service signatures stay plain (`fun move(...): Namespace`); callers that do not handle a failure
   let it reach the controller advice.
 - The compiler does not force callers to handle failures. Tests cover each failure instead.
+- Do not catch another module's exception inside your own transaction: the inner proxy has already
+  marked the shared transaction rollback-only, so the commit fails with `UnexpectedRollbackException`.
+  Check first, or let it propagate.
