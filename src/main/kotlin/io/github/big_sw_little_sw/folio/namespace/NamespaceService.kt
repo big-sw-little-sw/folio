@@ -91,7 +91,10 @@ class NamespaceService(
             .filter { policy.isAllowed(Action.NAMESPACE_VIEW, parentPath + it.id.value) }
     }
 
-    /** Ancestors of [id], root first, without the namespace itself. Requires view on the namespace. */
+    /**
+     * Ancestors of [id], root first, without the namespace itself. Requires view on the namespace only:
+     * seeing a namespace includes seeing its path (ADR 0010).
+     */
     @Transactional(readOnly = true)
     fun ancestors(id: NamespaceId): List<Namespace> {
         get(id)

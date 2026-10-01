@@ -29,6 +29,8 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
     rules (ADR 0002, ADR 0008).
   - Namespace admin API (create, rename, move, delete) behind policy checks.
   - Errors are RFC 9457 problem details; namespace API IDs are `ns_…` (ADR 0007).
+  - Only `NAMESPACE_*` and `POLICY_*` actions exist; slices 3 to 7 add the actions of the features they
+    build (ADR 0012).
 
 - [ ] **3. ConfigSets**
   - Create, move and delete ConfigSets; each maps to exactly one Git source.
