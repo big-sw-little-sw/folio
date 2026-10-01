@@ -1,0 +1,81 @@
+# Folio
+
+Internal configuration-management platform. Kotlin, Spring Boot 4.1, Java 25, Gradle Kotlin DSL,
+Spring Modulith, PostgreSQL.
+
+- `docs/v1-scope.md`: what v1 builds. Read it before every task.
+- `docs/folio-design.md`: the long-term design and domain language. Context only.
+- `docs/plan.md`: the slices v1 is built in.
+
+## Scope
+
+- `docs/v1-scope.md` decides what gets built. Anything not listed as in scope is not built,
+  even if `docs/folio-design.md` describes it.
+- If a task seems to need something out of scope, stop and ask.
+
+## Simplicity
+
+- Prefer a little duplication over a new abstraction.
+- No interface with a single implementation unless `docs/v1-scope.md` or the design doc names it as an
+  extension point that v1 implements (for example the content provider).
+- No speculative parameters, flags, generics or configuration "for later".
+- One way to do each thing: follow existing patterns for errors, mapping, transactions and tests
+  before inventing new ones.
+- New dependencies need a one-sentence justification in the PR description.
+
+## Kotlin style
+
+- Immutable by default: `val`, data classes, read-only collections.
+- Value classes for IDs inside the domain only. API DTOs and SQL use plain `UUID`/`String`;
+  convert at the edges.
+- Sealed interfaces plus exhaustive `when` for closed alternatives.
+- Scope functions only for obvious cases: `?.let` for nulls, `apply` for builders.
+  Never nest them, and never chain more than one.
+- Extension functions for mapping at module edges, not for domain logic.
+- No `!!`. No `lateinit` outside tests.
+- Expected failures are modelled as sealed result types or specific exceptions handled in one
+  place (`@RestControllerAdvice`), not as generic `RuntimeException`.
+- Name things after the domain language in `docs/folio-design.md`
+  (Namespace, ConfigSet, ConfigItem, Revision).
+
+## Spring
+
+- Constructor injection only.
+- `@Transactional` on application services, never on controllers or repositories.
+  Self-invocation bypasses the proxy: a call from one method to another in the same bean is not transactional.
+- Persistence uses `JdbcClient` with plain SQL in repository classes. No Spring Data, no JPA, no jOOQ.
+- Schema changes only through new Flyway migrations; never edit a merged migration.
+- Each Spring Modulith application module is a top-level package under
+  `io.github.big_sw_little_sw.folio`; other modules may use only its public API.
+  `ModularityTests` enforces this.
+- Configuration through immutable `@ConfigurationProperties` data classes, validated at startup.
+
+## Security
+
+- Never log secrets, private keys, tokens or full Git transport output.
+- Authorization is enforced in application services, not only by URL rules.
+- Never disable SSH host-key verification.
+
+## Testing
+
+- Domain logic gets plain unit tests without Spring.
+- Repositories and Git integration get integration tests tagged `@Tag("integration")`.
+  Anything that needs Docker (Testcontainers) must carry this tag.
+- Every behaviour in the slice's scope has a test; test names describe behaviour.
+
+## Static checks
+
+- ktlint (`ktlint_official`, 120 columns) and detekt (`config/detekt/detekt.yml`) fail the build.
+- Fix findings; do not suppress them, raise thresholds or add a baseline.
+- No `TODO`, `FIXME` or `STOPSHIP` comments. Unfinished work goes in `docs/plan.md`.
+
+## Working agreement
+
+- Commands:
+  - `./gradlew check`: everything (ktlint, detekt, test, integrationTest).
+  - `./gradlew check -x integrationTest`: without Docker.
+  - `./gradlew ktlintFormat`: auto-fix style.
+- A Stop hook (`.claude/hooks/check-build.sh`) runs `check` before you finish. Keep it green.
+- One slice of `docs/plan.md` per branch and PR. Tick the slice off in `docs/plan.md` in the same PR.
+- Before finishing, reread the diff and remove anything the slice did not need.
+- Record any decision a reader would ask "why?" about as a short ADR in `docs/adr/NNNN-title.md`.
