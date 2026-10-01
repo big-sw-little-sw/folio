@@ -10,13 +10,13 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Claude Code Stop hook runs `check`; CI runs `check` on pushes to main and on pull requests.
   - `CLAUDE.md` and this plan exist.
 
-- [ ] **1. Namespaces**
+- [x] **1. Namespaces**
   - Domain model: `Namespace` with stable ID, slug, parent; sibling-slug uniqueness, including at the root.
   - Flyway migration for namespaces and the closure table; `JdbcClient` repositories.
   - Create, rename, move and delete rules, with closure rows kept consistent on move.
   - Moving a namespace into its own subtree is rejected.
-  - Deleting a namespace that has child namespaces or ConfigSets is rejected (ADR 0001).
-  - Unit tests for the rules; integration tests for closure-table ancestor queries.
+  - Deleting a namespace that has child namespaces is rejected (ADR 0001).
+  - Unit tests for slug rules; integration tests for the tree rules and closure-table queries.
 
 - [ ] **2. Security and policy**
   - JWT validation through the OAuth2 resource server; claims mapped to `ApplicationPrincipal`
@@ -31,6 +31,9 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
 - [ ] **3. ConfigSets**
   - Create, move and delete ConfigSets; each maps to exactly one Git source.
   - ConfigSet IDs stay stable across renames and moves of the ConfigSet and its ancestors.
+  - Deleting a namespace that contains ConfigSets is rejected (ADR 0001).
+  - ConfigSet writes that require their namespace to exist take the namespace tree lock, so a concurrent
+    namespace delete fails with NamespaceNotEmptyException rather than a foreign-key error.
   - `GET /api/v1/configsets:resolve?path=…` resolves a path to a ConfigSet.
   - Admin API behind policy checks; API IDs are prefixed strings (`ns_…`, `cfg_…`).
 
