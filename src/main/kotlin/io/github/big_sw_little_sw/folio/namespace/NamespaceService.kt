@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional
 /**
  * Expected failures are thrown as [NamespaceException] subtypes (ADR 0006), and denials as policy exceptions.
  * A missing namespace fails before authorization, so it gives not found rather than denied (ADR 0010).
- * Every write takes the tree lock first; see [NamespaceClosureRepository.lockTree].
+ * Every write takes the tree lock first; see [NamespaceTree.lock].
  */
 @Service
 class NamespaceService(
@@ -26,7 +26,7 @@ class NamespaceService(
         parentId: NamespaceId?,
         slug: Slug,
     ): Namespace {
-        closure.lockTree()
+        tree.lock()
         policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(parentId))
         val namespace = namespaces.insert(parentId, slug)
         closure.insertPathsForLeaf(namespace.id, parentId)
@@ -38,7 +38,7 @@ class NamespaceService(
         id: NamespaceId,
         slug: Slug,
     ): Namespace {
-        closure.lockTree()
+        tree.lock()
         val renamed = existing(id).copy(slug = slug)
         policy.requireAllowed(Action.NAMESPACE_RENAME, path(id))
         namespaces.update(renamed)
@@ -54,7 +54,7 @@ class NamespaceService(
         id: NamespaceId,
         newParentId: NamespaceId?,
     ): Namespace {
-        closure.lockTree()
+        tree.lock()
         val moved = existing(id).copy(parentId = newParentId)
         policy.requireAllowed(Action.NAMESPACE_MOVE, path(id))
         policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(newParentId))
@@ -72,7 +72,7 @@ class NamespaceService(
      */
     @Transactional
     fun delete(id: NamespaceId) {
-        closure.lockTree()
+        tree.lock()
         policy.requireAllowed(Action.NAMESPACE_DELETE, path(id))
         if (namespaces.hasChildren(id)) throw NamespaceNotEmptyException(id)
         closure.deletePathsForLeaf(id)

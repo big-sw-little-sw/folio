@@ -10,6 +10,7 @@ import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import java.sql.ResultSet
+import java.sql.SQLException
 import java.util.UUID
 
 @Repository
@@ -49,8 +50,13 @@ class NamespaceRepository(
             jdbc.sql("delete from namespace where id = :id").param("id", id.value).update()
         } catch (exception: DataIntegrityViolationException) {
             // The PostgreSQL driver is a runtime dependency only, so the constraint name comes from the message.
-            val message = exception.mostSpecificCause.message.orEmpty()
-            if (CONFIG_SET_FOREIGN_KEY in message) throw NamespaceNotEmptyException(id)
+            val cause =
+                generateSequence<Throwable>(
+                    exception,
+                ) { it.cause }.filterIsInstance<SQLException>().firstOrNull()
+            val configSetsRemain =
+                cause?.sqlState == FOREIGN_KEY_VIOLATION && CONFIG_SET_FOREIGN_KEY in cause.message.orEmpty()
+            if (configSetsRemain) throw NamespaceNotEmptyException(id)
             throw exception
         }
     }
@@ -129,5 +135,8 @@ class NamespaceRepository(
 
         /** Declared in V3__config_sets.sql. */
         const val CONFIG_SET_FOREIGN_KEY = "config_set_namespace_fk"
+
+        /** SQLState `foreign_key_violation`. */
+        const val FOREIGN_KEY_VIOLATION = "23503"
     }
 }

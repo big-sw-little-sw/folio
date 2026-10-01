@@ -125,7 +125,8 @@ class ConfigSetAuthorizationIntegrationTest(
 
         assertEquals(listOf(visible), service.list(production.id))
         assertEquals(visible, service.resolve(ConfigSetPath.parse("production/visible")))
-        assertFailsWith<PermissionDeniedException> { service.resolve(ConfigSetPath.parse("production/hidden")) }
+        // Paths can be guessed, so a hidden ConfigSet is not found rather than denied (ADR 0013).
+        assertFailsWith<ConfigSetPathNotFoundException> { service.resolve(ConfigSetPath.parse("production/hidden")) }
     }
 
     @Test
@@ -173,6 +174,7 @@ class ConfigSetAuthorizationIntegrationTest(
     fun `managing ConfigSet rules needs policy permissions on the ConfigSet`() {
         val serviceA = asAdmin { service.create(namespace("production").id, Slug("service-a")) }
         val rule = Rule(Action.CONFIG_SET_VIEW, setOf(alice))
+        val principal = ApplicationPrincipal.Authenticated("alice", emptySet(), null)
         authenticateAs("alice")
         assertFailsWith<PermissionDeniedException> { policies.rules(serviceA.id) }
         assertFailsWith<PermissionDeniedException> { policies.putRule(serviceA.id, rule) }
@@ -180,7 +182,58 @@ class ConfigSetAuthorizationIntegrationTest(
         asAdmin { grantOnConfigSet(serviceA, Action.POLICY_UPDATE) }
         authenticateAs("alice")
         policies.putRule(serviceA.id, rule)
+        policies.deleteRule(serviceA.id, Action.CONFIG_SET_VIEW)
         assertFailsWith<PermissionDeniedException> { policies.rules(serviceA.id) }
+        assertFailsWith<PermissionDeniedException> { policies.explain(serviceA.id, principal, Action.POLICY_VIEW) }
+
+        asAdmin { grantOnConfigSet(serviceA, Action.POLICY_VIEW) }
+        authenticateAs("alice")
+        assertEquals(listOf(Action.POLICY_UPDATE, Action.POLICY_VIEW), policies.rules(serviceA.id).map { it.action })
+        assertEquals(
+            Decision.Granted(ResourceRef.ConfigSetRef(serviceA.id.value), alice),
+            policies.explain(serviceA.id, principal, Action.POLICY_VIEW),
+        )
+    }
+
+    @Test
+    fun `namespace-only actions granted on a ConfigSet do not reach its namespace`() {
+        val production = asAdmin { namespace("production") }
+        val serviceA = asAdmin { service.create(production.id, Slug("service-a")) }
+        asAdmin {
+            grantOnConfigSet(serviceA, Action.NAMESPACE_VIEW)
+            grantOnConfigSet(serviceA, Action.CONFIG_SET_CREATE)
+        }
+        authenticateAs("alice")
+
+        assertFailsWith<PermissionDeniedException> { namespaces.get(production.id) }
+        assertFailsWith<PermissionDeniedException> { service.create(production.id, Slug("other")) }
+    }
+
+    @Test
+    fun `a moved ConfigSet inherits from its new namespace and keeps its own rules`() {
+        val a = asAdmin { namespace("a") }
+        val b = asAdmin { namespace("b") }
+        val serviceA = asAdmin { service.create(a.id, Slug("service-a")) }
+        asAdmin { grantForMoves(a, b, serviceA) }
+        assertAliceMay(serviceA, view = false, rename = true)
+
+        asAdmin { service.move(serviceA.id, b.id) }
+
+        assertAliceMay(serviceA, view = true, rename = false)
+    }
+
+    @Test
+    fun `a ConfigSet whose namespace moves inherits from the new ancestors and keeps its own rules`() {
+        val a = asAdmin { namespace("a") }
+        val b = asAdmin { namespace("b") }
+        val inner = asAdmin { namespaces.create(a.id, Slug("inner")) }
+        val serviceA = asAdmin { service.create(inner.id, Slug("service-a")) }
+        asAdmin { grantForMoves(a, b, serviceA) }
+        assertAliceMay(serviceA, view = false, rename = true)
+
+        asAdmin { namespaces.move(inner.id, b.id) }
+
+        assertAliceMay(serviceA, view = true, rename = false)
     }
 
     @Test
@@ -194,6 +247,37 @@ class ConfigSetAuthorizationIntegrationTest(
     }
 
     private fun namespace(slug: String): Namespace = namespaces.create(null, Slug(slug))
+
+    /** Alice may rename only in [from], view only in [to], and see the rules of [configSet] wherever it is. */
+    private fun grantForMoves(
+        from: Namespace,
+        to: Namespace,
+        configSet: ConfigSet,
+    ) {
+        grantOnNamespace(from, Action.CONFIG_SET_RENAME)
+        grantOnNamespace(to, Action.CONFIG_SET_VIEW)
+        grantOnConfigSet(configSet, Action.POLICY_VIEW)
+    }
+
+    private fun assertAliceMay(
+        configSet: ConfigSet,
+        view: Boolean,
+        rename: Boolean,
+    ) {
+        authenticateAs("alice")
+        assertEquals(view, allowed { service.get(configSet.id) })
+        assertEquals(rename, allowed { service.rename(configSet.id, configSet.slug) })
+        assertEquals(listOf(Rule(Action.POLICY_VIEW, setOf(alice))), policies.rules(configSet.id))
+        SecurityContextHolder.clearContext()
+    }
+
+    private fun allowed(block: () -> Unit): Boolean =
+        try {
+            block()
+            true
+        } catch (_: PermissionDeniedException) {
+            false
+        }
 
     private fun grantOnNamespace(
         namespace: Namespace,
