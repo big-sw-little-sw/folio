@@ -40,9 +40,9 @@ class PolicyRuleRepositoryIntegrationTest(
     fun `stores every subject type and reads it back`() {
         val namespace = insertNamespace("a")
 
-        repository.put(namespace, Rule(Action.CONFIG_ITEM_READ, everySubjectType))
+        repository.put(namespace, Rule(Action.NAMESPACE_VIEW, everySubjectType))
 
-        assertEquals(listOf(Rule(Action.CONFIG_ITEM_READ, everySubjectType)), repository.findByNamespace(namespace))
+        assertEquals(listOf(Rule(Action.NAMESPACE_VIEW, everySubjectType)), repository.findByNamespace(namespace))
     }
 
     @Test

@@ -219,6 +219,27 @@ class NamespaceApiIntegrationTest(
     }
 
     @Test
+    fun `removing a rule needs policy update`() {
+        val engineering = create(null, "engineering")
+        grant(engineering, "NAMESPACE_VIEW", "public")
+        grant(engineering, "POLICY_VIEW", "user:alice")
+
+        mvc.delete("$NAMESPACES/$engineering/rules/NAMESPACE_VIEW") { with(alice) }.andExpectProblem(403)
+    }
+
+    @Test
+    fun `a caller holding policy view may explain decisions`() {
+        val engineering = create(null, "engineering")
+        grant(engineering, "POLICY_VIEW", "group:editors")
+
+        send(POST, "$NAMESPACES/$engineering:explain", """{"action": "POLICY_VIEW"}""", alice).andExpect {
+            status { isOk() }
+            jsonPath("$.allowed") { value(false) }
+            jsonPath("$.reason") { value("RULE_NOT_MATCHED") }
+        }
+    }
+
+    @Test
     fun `unknown namespaces give 404 problem details`() {
         mvc.get("$NAMESPACES/ns_${"0".repeat(32)}") { with(admin) }.andExpectProblem(404)
     }

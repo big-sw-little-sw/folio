@@ -89,6 +89,25 @@ class NamespaceAuthorizationIntegrationTest(
     }
 
     @Test
+    fun `create on the new parent without move on the namespace is denied`() {
+        val ai = asAdmin { service.create(null, Slug("ai")) }
+        val target = asAdmin { createWithRule("target", Action.NAMESPACE_CREATE, Subject.User("alice")) }
+        authenticateAs("alice")
+
+        assertFailsWith<PermissionDeniedException> { service.move(ai.id, target.id) }
+    }
+
+    @Test
+    fun `only bootstrap admins create at or move to the root`() {
+        val engineering = asAdmin { createWithRule("engineering", Action.NAMESPACE_MOVE, Subject.User("alice")) }
+        val ai = asAdmin { service.create(engineering.id, Slug("ai")) }
+        authenticateAs("alice")
+
+        assertFailsWith<PermissionDeniedException> { service.create(null, Slug("other")) }
+        assertFailsWith<PermissionDeniedException> { service.move(ai.id, null) }
+    }
+
+    @Test
     fun `deleting a namespace deletes its rules`() {
         val engineering = asAdmin { createWithRule("engineering", Action.NAMESPACE_VIEW, Subject.Public) }
 

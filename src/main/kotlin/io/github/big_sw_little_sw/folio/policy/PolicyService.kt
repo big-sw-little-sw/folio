@@ -53,8 +53,9 @@ class PolicyService(
     /** The rules on the target namespace itself, not inherited ones. Requires [Action.POLICY_VIEW]. */
     @Transactional(readOnly = true)
     fun rules(namespacePath: List<UUID>): List<Rule> {
+        val namespaceId = ruleTarget(namespacePath)
         requireAllowed(Action.POLICY_VIEW, namespacePath)
-        return repository.findByNamespace(namespacePath.last())
+        return repository.findByNamespace(namespaceId)
     }
 
     /** Adds the rule to the target namespace, replacing its rule for the same action. */
@@ -63,9 +64,10 @@ class PolicyService(
         namespacePath: List<UUID>,
         rule: Rule,
     ): Rule {
+        val namespaceId = ruleTarget(namespacePath)
         requireAllowed(Action.POLICY_UPDATE, namespacePath)
         if (rule.subjects.isEmpty()) throw RuleWithoutSubjectsException(rule.action)
-        repository.put(namespacePath.last(), rule)
+        repository.put(namespaceId, rule)
         return rule
     }
 
@@ -75,8 +77,15 @@ class PolicyService(
         namespacePath: List<UUID>,
         action: Action,
     ) {
+        val namespaceId = ruleTarget(namespacePath)
         requireAllowed(Action.POLICY_UPDATE, namespacePath)
-        repository.delete(namespacePath.last(), action)
+        repository.delete(namespaceId, action)
+    }
+
+    /** The namespace a rule operation acts on. */
+    private fun ruleTarget(namespacePath: List<UUID>): UUID {
+        require(namespacePath.isNotEmpty()) { "Rules attach to namespaces; the root holds none (ADR 0012)" }
+        return namespacePath.last()
     }
 
     private fun decision(
