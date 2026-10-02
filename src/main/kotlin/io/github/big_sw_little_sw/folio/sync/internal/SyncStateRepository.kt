@@ -62,21 +62,28 @@ class SyncStateRepository(
     /**
      * Leases up to [limit] due ConfigSets to [owner] for [duration], most overdue first. A ConfigSet is due when its
      * next due time has come and it is not leased, or its lease has expired. Rows that another claim has locked are
-     * skipped, so concurrent claims never return the same ConfigSet.
+     * skipped, so concurrent claims never return the same ConfigSet. [excluding] are never claimed.
      */
     fun claimDue(
         owner: UUID,
         duration: Duration,
         limit: Int,
-    ): List<SyncLease> =
-        jdbc
+        excluding: Set<ConfigSetId>,
+    ): List<SyncLease> {
+        // An empty `not in ()` is not SQL, so the condition is left out rather than given a placeholder ID.
+        val exclusion = if (excluding.isEmpty()) "" else "and config_set_id not in (:excluding)"
+        val params =
+            mapOf("owner" to owner, "leaseMillis" to duration.toMillis(), "limit" to limit) +
+                if (excluding.isEmpty()) emptyMap() else mapOf("excluding" to excluding.map { it.value })
+        // LEASE_END appears twice; now() is fixed for the statement, so both give the same time.
+        return jdbc
             .sql(
                 """
                 update sync_state s
                 set lease_owner = :owner, lease_until = $LEASE_END, next_due_at = $LEASE_END
                 from (
                     select config_set_id from sync_state
-                    where next_due_at <= now() and (lease_until is null or lease_until < now())
+                    where next_due_at <= now() and (lease_until is null or lease_until < now()) $exclusion
                     order by next_due_at
                     limit :limit
                     for update skip locked
@@ -84,17 +91,18 @@ class SyncStateRepository(
                 where s.config_set_id = due.config_set_id
                 returning s.config_set_id, s.lease_owner, s.lease_until, s.consecutive_failures
                 """.trimIndent(),
-            ).param("owner", owner)
-            .param("leaseMillis", duration.toMillis())
-            .param("limit", limit)
-            .query { rs, _ ->
-                SyncLease(
-                    ConfigSetId(rs.getObject("config_set_id", UUID::class.java)),
-                    rs.getObject("lease_owner", UUID::class.java),
-                    rs.getObject("lease_until", OffsetDateTime::class.java),
-                    rs.getInt("consecutive_failures"),
-                )
-            }.list()
+            ).params(params)
+            .query { rs, _ -> rs.toLease() }
+            .list()
+    }
+
+    private fun ResultSet.toLease() =
+        SyncLease(
+            ConfigSetId(getObject("config_set_id", UUID::class.java)),
+            getObject("lease_owner", UUID::class.java),
+            getObject("lease_until", OffsetDateTime::class.java),
+            getInt("consecutive_failures"),
+        )
 
     /**
      * Records a successful fetch whose branch tip is [revision], and releases the lease. An unchanged tip leaves the
@@ -116,7 +124,7 @@ class SyncStateRepository(
                     $RELEASE
                 """.trimIndent(),
             ).param("revision", revision)
-            .params(release(lease, delay))
+            .params(releaseParams(lease, delay))
             .update() == 1
 
     /**
@@ -138,7 +146,20 @@ class SyncStateRepository(
                 """.trimIndent(),
             ).param("code", failure.name)
             .param("summary", failure.summary)
-            .params(release(lease, delay))
+            .params(releaseParams(lease, delay))
+            .update() == 1
+
+    /**
+     * Releases the lease without recording an attempt, so the ConfigSet is due after [delay]. Returns false if [lease]
+     * is no longer held.
+     */
+    fun release(
+        lease: SyncLease,
+        delay: Duration,
+    ): Boolean =
+        jdbc
+            .sql("update sync_state set $RELEASE")
+            .params(releaseParams(lease, delay))
             .update() == 1
 
     /** Which of [ids] are ConfigSets; every ConfigSet has a state, and deleting it deletes the state. */
@@ -149,7 +170,7 @@ class SyncStateRepository(
             .query { rs, _ -> rs.getObject("config_set_id", UUID::class.java) }
             .set()
 
-    private fun release(
+    private fun releaseParams(
         lease: SyncLease,
         delay: Duration,
     ) = mapOf(
@@ -179,12 +200,11 @@ class SyncStateRepository(
             "config_set_id, last_seen_revision, last_synced_revision, last_attempt_at, last_success_at, " +
                 "last_error_code, last_error_summary, consecutive_failures, next_due_at"
 
-        // now() is fixed for the statement, so both uses give the same time.
         const val LEASE_END = "now() + :leaseMillis * interval '1 millisecond'"
 
         /**
          * Releases the lease if it is still held. A manual request during the sync moved next_due_at before the
-         * lease end, and then stays, so the ConfigSet syncs again at once; otherwise it is due after [delay].
+         * lease end, and then stays, so the ConfigSet syncs again at once; otherwise it is due after `:delayMillis`.
          */
         const val RELEASE = """next_due_at = case when next_due_at = lease_until
                         then now() + :delayMillis * interval '1 millisecond' else next_due_at end,

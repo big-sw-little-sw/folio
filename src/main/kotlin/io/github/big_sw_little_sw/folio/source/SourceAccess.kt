@@ -89,8 +89,7 @@ class SourceAccess(
             try {
                 keyPairs.active(source.credentialId)
             } catch (e: CredentialException) {
-                log.warn("Git access for ConfigSet {} failed: {}", configSetId, unusable(e))
-                throw SourceAccessFailedException(unusable(e))
+                throw failed(configSetId, unusable(e))
             }
         return fetch(configSetId, source, credential)
     }
@@ -152,12 +151,31 @@ class SourceAccess(
         try {
             return connections.run(credential, deadline) { transport ->
                 requireBranch(url, source.branch, transport)
-                cache.fetching(configSetId, source.branch) { fetchBranch(it, url, source.branch, transport, deadline) }
+                cache.fetching(configSetId, source.branch, deadline.remaining()) {
+                    val tip = fetchBranch(it, url, source.branch, transport)
+                    requireWithinSize(configSetId)
+                    tip
+                }
             }
         } catch (e: SourceAccessFailedException) {
             log.warn("Git access for ConfigSet {} failed: {}", configSetId, e.failure)
             throw e
         }
+    }
+
+    /** Discards a repository that grew past the size limit; the next fetch starts it again from nothing. */
+    private fun requireWithinSize(configSetId: UUID) {
+        if (cache.size(configSetId) <= properties.maxRepositorySize.toBytes()) return
+        cache.delete(configSetId)
+        throw SourceAccessFailedException(SourceFailure.REPOSITORY_TOO_LARGE)
+    }
+
+    private fun failed(
+        configSetId: UUID,
+        failure: SourceFailure,
+    ): SourceAccessFailedException {
+        log.warn("Git access for ConfigSet {} failed: {}", configSetId, failure)
+        return SourceAccessFailedException(failure)
     }
 
     private fun requireBranch(
@@ -182,7 +200,6 @@ class SourceAccess(
         url: String,
         branch: Branch,
         transport: TransportConfigCallback,
-        deadline: FetchDeadline,
     ): String {
         Git
             .wrap(repository)
@@ -192,7 +209,6 @@ class SourceAccess(
             .setTagOpt(TagOpt.NO_TAGS)
             .setCheckFetchedObjects(true)
             .setTimeout(TIMEOUT_SECONDS)
-            .setProgressMonitor(deadline)
             .setTransportConfigCallback(transport)
             .call()
         return checkNotNull(repository.exactRef(branch.ref)) { "Fetched branch is missing" }.objectId.name
@@ -259,7 +275,7 @@ class SourceAccess(
 
         /**
          * JGit's connect timeout and its idle timeout for each read from the connection, not a deadline for a whole
-         * fetch; [FetchDeadline] is that (ADR 0033).
+         * fetch; [FetchDeadline] is that, enforced by [SshConnections] (ADR 0033).
          */
         const val TIMEOUT_SECONDS = 30
     }

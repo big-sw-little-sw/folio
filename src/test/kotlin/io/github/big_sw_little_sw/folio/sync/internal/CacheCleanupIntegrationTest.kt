@@ -76,6 +76,8 @@ class CacheCleanupIntegrationTest(
                 root.resolve("1-1-1-1-1.git").createDirectories(),
             )
         try {
+            // Also removes repositories that other test contexts left in the shared cache directory. Test classes run
+            // one after another, and each creates its ConfigSets afresh, so none of them is still using one.
             cleanup.sweep()
 
             assertFalse(orphan.exists())

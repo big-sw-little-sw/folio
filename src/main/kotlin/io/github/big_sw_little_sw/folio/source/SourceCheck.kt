@@ -15,8 +15,11 @@ enum class SourceFailure(
     UNREACHABLE("The Git service could not be reached"),
     TRANSPORT_FAILURE("Git transport failed"),
 
-    /** The fetch was aborted at `folio.git.fetch-deadline` (ADR 0033). */
+    /** The fetch was cut off at `folio.git.fetch-deadline` (ADR 0033). */
     DEADLINE_EXCEEDED("The fetch did not finish within the fetch deadline"),
+
+    /** The fetched repository passed `folio.git.max-repository-size` on disk and was discarded (ADR 0033). */
+    REPOSITORY_TOO_LARGE("The repository is larger than the maximum repository size"),
 
     // The credential cannot be used: sync records these, the onboarding check refuses them instead (ADR 0032).
     CREDENTIAL_DISABLED("The source's credential is disabled"),

@@ -4,9 +4,11 @@ import com.tngtech.archunit.core.domain.JavaClass.Predicates.assignableTo
 import com.tngtech.archunit.core.importer.ClassFileImporter
 import com.tngtech.archunit.core.importer.ImportOption
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
+import io.github.big_sw_little_sw.folio.configset.ConfigSetSources
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPair
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
 import io.github.big_sw_little_sw.folio.source.SourceAccess
+import io.github.big_sw_little_sw.folio.source.SourceCache
 import org.junit.jupiter.api.Test
 import org.springframework.modulith.core.ApplicationModules
 import org.springframework.web.bind.annotation.RestController
@@ -31,10 +33,19 @@ class ModularityTests {
             ).check(classes)
     }
 
-    /** `SourceAccess` does not authorize; HTTP goes through `ConfigSetService`, which checks `CREDENTIAL_USE`. */
+    /**
+     * `SourceAccess`, `SourceCache` and `ConfigSetSources` do not authorize; HTTP goes through the services that do,
+     * such as `ConfigSetService`, which checks `CREDENTIAL_USE`.
+     */
     @Test
-    fun `no HTTP layer uses Git access directly`() {
-        httpLayer().should().dependOnClassesThat(assignableTo(SourceAccess::class.java)).check(classes)
+    fun `no HTTP layer uses Git access or unauthorized lookups directly`() {
+        httpLayer()
+            .should()
+            .dependOnClassesThat(
+                assignableTo(SourceAccess::class.java)
+                    .or(assignableTo(SourceCache::class.java))
+                    .or(assignableTo(ConfigSetSources::class.java)),
+            ).check(classes)
     }
 
     private val classes =

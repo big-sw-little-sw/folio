@@ -1,6 +1,8 @@
 package io.github.big_sw_little_sw.folio.source.internal
 
 import io.github.big_sw_little_sw.folio.source.Branch
+import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
+import io.github.big_sw_little_sw.folio.source.SourceFailure
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.revwalk.RevWalk
@@ -9,15 +11,19 @@ import org.springframework.stereotype.Component
 import java.io.IOException
 import java.nio.file.FileSystems
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
-import kotlin.concurrent.withLock
 import kotlin.concurrent.write
+import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
 
 /**
@@ -39,15 +45,36 @@ class RepositoryCache(
 
     private fun directory(id: UUID): Path = root.resolve("$id$SUFFIX")
 
-    /** Runs [fetch] on the cached repository of [id], recreating it first if it is missing or unreadable. */
+    /**
+     * Runs [fetch] on the cached repository of [id], recreating it first if it is missing or unreadable. Waits at most
+     * [wait] for another fetch of [id] in this process, such as an onboarding check, and then fails with
+     * `DEADLINE_EXCEEDED`, so a fetch never outlives its deadline waiting (ADR 0033).
+     */
     fun <T> fetching(
         id: UUID,
         branch: Branch,
+        wait: Duration,
         fetch: (Repository) -> T,
-    ): T =
-        locksOf(id).fetch.withLock {
+    ): T {
+        val lock = locksOf(id).fetch
+        if (!lock.tryLock(wait.toNanos(), TimeUnit.NANOSECONDS)) {
+            throw SourceAccessFailedException(SourceFailure.DEADLINE_EXCEEDED)
+        }
+        try {
             val repository = openReadable(id, branch) ?: recreate(id)
-            repository.use(fetch)
+            return repository.use(fetch)
+        } finally {
+            lock.unlock()
+        }
+    }
+
+    /** The bytes the repository of [id] holds on disk; symbolic links are not followed. */
+    fun size(id: UUID): Long =
+        Files.walk(directory(id)).use { paths ->
+            paths
+                .filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }
+                .mapToLong { Files.size(it) }
+                .sum()
         }
 
     /** Runs [read] on the cached repository of [id], or returns null if there is none. */
@@ -64,21 +91,29 @@ class RepositoryCache(
      * or leave a repository behind, which the next sweep removes (ADR 0034).
      */
     fun delete(id: UUID) {
-        locksOf(id).cache.write { directory(id).toFile().deleteRecursively() }
+        locksOf(id).cache.write { deleteEntry(id) }
     }
 
     /**
-     * The IDs that have an entry in the cache directory. Only entries named exactly like [directory] count; anything
-     * else there, such as the SSH home directory, is never reported and so never deleted.
+     * The IDs that have an entry in the cache directory. Only entries named exactly like [directory] count, and never
+     * symbolic links; anything else there, such as the SSH home directory, is never reported and so never deleted.
      */
     fun ids(): Set<UUID> =
         Files.list(root).use { entries ->
             entries
+                .filter { !Files.isSymbolicLink(it) }
                 .map { it.fileName.toString() }
                 .toList()
                 .mapNotNull(::idOf)
                 .toSet()
         }
+
+    /** Deletes the entry of [id] without following symbolic links, so nothing outside it is touched. */
+    @OptIn(ExperimentalPathApi::class)
+    private fun deleteEntry(id: UUID) {
+        val entry = directory(id)
+        if (entry.exists(LinkOption.NOFOLLOW_LINKS)) entry.deleteRecursively()
+    }
 
     private fun idOf(name: String): UUID? {
         // UUID.fromString accepts non-canonical forms such as "1-1-1-1-1"; the round trip rejects them.
@@ -88,7 +123,7 @@ class RepositoryCache(
 
     private fun recreate(id: UUID): Repository =
         locksOf(id).cache.write {
-            directory(id).toFile().deleteRecursively()
+            deleteEntry(id)
             val repository = open(id)
             try {
                 repository.create(true)

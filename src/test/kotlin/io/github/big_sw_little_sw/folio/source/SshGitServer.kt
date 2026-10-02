@@ -61,23 +61,27 @@ object SshGitServer {
     val knownHostsName: String get() = "[${container.host}]:${container.getMappedPort(SSH_PORT)}"
 
     /**
-     * Authorizes [publicKey]. With [delaySeconds], every command the key runs, ls-remote and fetch alike, starts that
-     * much later, which makes a slow server.
+     * Authorizes [publicKey]. With [command], every command the key runs, ls-remote and fetch alike, runs inside it
+     * as `$SSH_ORIGINAL_COMMAND`; see [delayed] and [TRICKLING].
      */
     fun authorize(
         publicKey: String,
-        delaySeconds: Int = 0,
+        command: String? = null,
     ) {
-        val options =
-            if (delaySeconds >
-                0
-            ) {
-                "command=\"sleep $delaySeconds; eval \\\"\$SSH_ORIGINAL_COMMAND\\\"\" "
-            } else {
-                ""
-            }
+        val options = if (command == null) "" else "command=\"${command.replace("\"", "\\\"")}\" "
         exec("sh", "-c", "echo '$options$publicKey' >> /home/git/.ssh/authorized_keys")
     }
+
+    /** Starts each command [seconds] late, sending nothing meanwhile. */
+    fun delayed(seconds: Int) = "sleep $seconds; eval \"\$SSH_ORIGINAL_COMMAND\""
+
+    /**
+     * Passes each command's output on 16 bytes a second: the connection is never idle for long, so JGit's idle timeout
+     * never fires, yet even ls-remote takes many seconds.
+     */
+    const val TRICKLING =
+        "eval \"\$SSH_ORIGINAL_COMMAND\" | " +
+            "while [ \"\$(dd bs=16 count=1 2>/dev/null | tee /dev/fd/3 | wc -c)\" -gt 0 ]; do sleep 1; done 3>&1"
 
     /** Deletes the branch `main` of `/repos/<name>.git`. */
     fun deleteMain(name: String) {
