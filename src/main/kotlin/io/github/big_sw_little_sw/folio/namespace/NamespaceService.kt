@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional
 /**
  * Expected failures are thrown as [NamespaceException] subtypes (ADR 0006), and denials as policy exceptions.
  * A missing namespace fails before authorization, so it gives not found rather than denied (ADR 0010).
- * Every write takes the tree lock first; see [NamespaceTree.lock].
+ * Every write takes the tree lock first; see [NamespaceTree.lock]. Each write publishes a [NamespaceEvent] after it.
  */
 @Service
 class NamespaceService(
@@ -32,6 +32,7 @@ class NamespaceService(
         policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(parentId))
         val namespace = namespaces.insert(parentId, slug)
         closure.insertPathsForLeaf(namespace.id, parentId)
+        events.publishEvent(NamespaceCreated(namespace.id, tree.slugPath(namespace.id)))
         return namespace
     }
 
@@ -43,7 +44,9 @@ class NamespaceService(
         tree.lock()
         val renamed = existing(id).copy(slug = slug)
         policy.requireAllowed(Action.NAMESPACE_RENAME, path(id))
+        val previousPath = tree.slugPath(id)
         namespaces.update(renamed)
+        events.publishEvent(NamespaceRenamed(id, previousPath.dropLast(1) + slug, previousPath))
         return renamed
     }
 
@@ -70,8 +73,10 @@ class NamespaceService(
         if (newParentId != null && closure.isAncestorOrSelf(id, newParentId)) {
             throw NamespaceMoveIntoOwnSubtreeException(id, newParentId)
         }
+        val previousPath = tree.slugPath(id)
         namespaces.update(moved)
         closure.moveSubtree(id, newParentId)
+        events.publishEvent(NamespaceMoved(id, tree.slugPath(id), previousPath))
         return moved
     }
 
@@ -84,8 +89,10 @@ class NamespaceService(
         tree.lock()
         policy.requireAllowed(Action.NAMESPACE_DELETE, path(id))
         if (namespaces.hasChildren(id)) throw NamespaceNotEmptyException(id)
+        val path = tree.slugPath(id)
         closure.deletePathsForLeaf(id)
         namespaces.delete(id)
+        events.publishEvent(NamespaceDeleted(id, path))
     }
 
     @Transactional(readOnly = true)

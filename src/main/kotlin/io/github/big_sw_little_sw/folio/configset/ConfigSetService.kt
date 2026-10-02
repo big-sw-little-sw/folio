@@ -26,7 +26,8 @@ import org.springframework.transaction.annotation.Transactional
  * missing resource gives not found rather than denied (ADR 0010).
  *
  * Every write takes the namespace tree lock first (ADR 0015). A namespace move or delete then cannot run
- * between reading a ConfigSet's path, authorizing against it and writing.
+ * between reading a ConfigSet's path, authorizing against it and writing. Each write publishes a [ConfigSetEvent]
+ * after it.
  */
 @Service
 class ConfigSetService(
@@ -51,7 +52,7 @@ class ConfigSetService(
         policy.requireAllowed(Action.CONFIG_SET_CREATE, tree.policyPath(namespaceId))
         credentials.requireUsable(source.credentialId)
         val configSet = configSets.insert(namespaceId, slug, source)
-        events.publishEvent(ConfigSetCreated(configSet.id))
+        events.publishEvent(ConfigSetCreated(configSet.id, pathOf(configSet), source))
         return configSet
     }
 
@@ -78,9 +79,12 @@ class ConfigSetService(
         slug: Slug,
     ): ConfigSet {
         tree.lock()
-        val renamed = existing(id).copy(slug = slug)
+        val configSet = existing(id)
+        val renamed = configSet.copy(slug = slug)
         policy.requireAllowed(Action.CONFIG_SET_RENAME, path(renamed))
         configSets.update(renamed)
+        val previousPath = pathOf(configSet)
+        events.publishEvent(ConfigSetRenamed(id, previousPath.copy(slug = slug), previousPath))
         return renamed
     }
 
@@ -101,6 +105,7 @@ class ConfigSetService(
         policy.requireAllowedToMoveRules(listOf(ResourceRef.ConfigSetRef(id.value)), targetPath)
         val moved = configSet.copy(namespaceId = namespaceId)
         configSets.update(moved)
+        events.publishEvent(ConfigSetMoved(id, pathOf(moved), pathOf(configSet)))
         return moved
     }
 
@@ -116,9 +121,11 @@ class ConfigSetService(
     @Transactional
     fun delete(id: ConfigSetId) {
         tree.lock()
-        policy.requireAllowed(Action.CONFIG_SET_DELETE, path(existing(id)))
+        val configSet = existing(id)
+        policy.requireAllowed(Action.CONFIG_SET_DELETE, path(configSet))
+        val path = pathOf(configSet)
         configSets.delete(id)
-        events.publishEvent(ConfigSetDeleted(id))
+        events.publishEvent(ConfigSetDeleted(id, path))
     }
 
     @Transactional(readOnly = true)
