@@ -105,3 +105,13 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
     manual syncs and sync outcomes.
   - Audit records carry IDs, the path at the time and key fingerprints, never key material.
   - Actuator health and Prometheus metrics for sync, authorization decisions and content reads.
+
+## After v1
+
+- [ ] Read-triggered sync: ConfigSets nobody reads are not polled; a read of a stale ConfigSet marks it due. The latest pointer still moves only through a sync run holding the lease.
+- [ ] One cache per repository (instance + repository path + branch) instead of per ConfigSet, if the cache metric shows repositories shared across ConfigSets.
+- [ ] A total cache budget with least-recently-read eviction.
+- [ ] Selective fetch of a single commit (verify JGit and provider support first).
+- [ ] Audit read API (super admins; filter by resource; page by time).
+- [ ] Changing a ConfigSet's source after creation.
+- [ ] Namespace-owned credentials so namespace admins can manage and use their own.
