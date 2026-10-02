@@ -87,6 +87,13 @@ class ConfigSetRepository(
             .query { rs, _ -> rs.toConfigSet() }
             .list()
 
+    fun findIdsByNamespaces(namespaceIds: List<NamespaceId>): List<ConfigSetId> =
+        jdbc
+            .sql("select id from config_set where namespace_id in (:namespaceIds)")
+            .param("namespaceIds", namespaceIds.map { it.value })
+            .query { rs, _ -> ConfigSetId(rs.getObject("id", UUID::class.java)) }
+            .list()
+
     // The slug-per-namespace unique constraint is the only unique key a caller can violate; IDs come from uuidv7().
     private fun <T> uniqueSlug(
         namespaceId: NamespaceId,

@@ -1,6 +1,7 @@
 # 0012. Authorizing namespace operations
 
-Status: Accepted (2026-09-30)
+Status: Accepted (2026-09-30). Amended by ADR 0031: moving a subtree with rules of its own also needs `POLICY_UPDATE`
+on the new parent.
 
 ## Context
 
