@@ -56,6 +56,7 @@ class CryptoIntegrationTest(
 
     @BeforeEach
     fun deleteAll() {
+        jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from credential_key").update()
         jdbc.sql("delete from credential").update()
         authenticateAs(BOOTSTRAP_ADMIN)
@@ -71,7 +72,7 @@ class CryptoIntegrationTest(
         val first = credentials.create("example")
         credentials.regenerate(first.id)
         val second = credentials.create("example")
-        val publicKeys = listOf(first, second).associate { it.id to keyPairs.active(it.id).public }
+        val publicKeys = listOf(first, second).associate { it.id to keyPairs.active(it.id).keyPair.public }
         encryptAllUnderVersion1()
         assertEquals(MasterKeyUsage(2, mapOf(1 to 3, 2 to 0)), crypto.usage())
 
@@ -117,7 +118,7 @@ class CryptoIntegrationTest(
             }
 
         usages.forEach { assertEquals(MasterKeyUsage(2, mapOf(1 to 0, 2 to 5)), it) }
-        ids.forEach { assertTrue(signsWith(it, keyPairs.active(it).public)) }
+        ids.forEach { assertTrue(signsWith(it, keyPairs.active(it).keyPair.public)) }
     }
 
     @Test
@@ -195,7 +196,7 @@ class CryptoIntegrationTest(
     ): Boolean {
         val message = "challenge".toByteArray()
         val signer = Signature.getInstance("Ed25519")
-        signer.initSign(keyPairs.active(id).private)
+        signer.initSign(keyPairs.active(id).keyPair.private)
         signer.update(message)
         val verifier = Signature.getInstance("Ed25519")
         verifier.initVerify(publicKey)

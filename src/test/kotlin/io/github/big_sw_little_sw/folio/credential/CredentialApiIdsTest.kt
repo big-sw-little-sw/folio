@@ -1,9 +1,5 @@
-package io.github.big_sw_little_sw.folio.credential.web
+package io.github.big_sw_little_sw.folio.credential
 
-import io.github.big_sw_little_sw.folio.credential.CredentialId
-import io.github.big_sw_little_sw.folio.credential.InvalidCredentialIdException
-import io.github.big_sw_little_sw.folio.credential.InvalidKeyIdException
-import io.github.big_sw_little_sw.folio.credential.KeyId
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.util.UUID

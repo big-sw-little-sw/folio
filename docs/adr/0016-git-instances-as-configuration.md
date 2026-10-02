@@ -1,6 +1,6 @@
 # 0016. Git service instances as configuration
 
-Status: Accepted (2026-10-01)
+Status: Accepted (2026-10-01). Amended by ADR 0025: instances also set the SSH user and their trusted host keys.
 
 ## Context
 

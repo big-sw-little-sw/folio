@@ -1,12 +1,10 @@
-package io.github.big_sw_little_sw.folio.credential.web
+package io.github.big_sw_little_sw.folio.credential
 
 import io.github.big_sw_little_sw.folio.apiid.formatApiId
 import io.github.big_sw_little_sw.folio.apiid.parseApiId
-import io.github.big_sw_little_sw.folio.credential.CredentialId
-import io.github.big_sw_little_sw.folio.credential.InvalidCredentialIdException
-import io.github.big_sw_little_sw.folio.credential.InvalidKeyIdException
-import io.github.big_sw_little_sw.folio.credential.KeyId
 
+// Public so that HTTP layers of other modules, such as ConfigSets, can accept and return credential and key IDs
+// (ADR 0023).
 private const val CREDENTIAL_PREFIX = "cred_"
 private const val KEY_PREFIX = "key_"
 
