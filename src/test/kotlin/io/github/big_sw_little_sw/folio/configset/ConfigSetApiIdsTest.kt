@@ -1,7 +1,5 @@
-package io.github.big_sw_little_sw.folio.configset.web
+package io.github.big_sw_little_sw.folio.configset
 
-import io.github.big_sw_little_sw.folio.configset.ConfigSetId
-import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetIdException
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.util.UUID

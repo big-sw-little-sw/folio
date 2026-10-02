@@ -2,6 +2,8 @@ package io.github.big_sw_little_sw.folio.configset.web
 
 import io.github.big_sw_little_sw.folio.configset.ConfigSetId
 import io.github.big_sw_little_sw.folio.configset.ConfigSetPolicyService
+import io.github.big_sw_little_sw.folio.configset.toApiId
+import io.github.big_sw_little_sw.folio.configset.toConfigSetId
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
 import io.github.big_sw_little_sw.folio.namespace.toApiId
 import io.github.big_sw_little_sw.folio.policy.Action
