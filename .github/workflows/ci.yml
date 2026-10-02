@@ -16,3 +16,5 @@ jobs:
           java-version: 25
       - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew check
+      - name: Module docs are up to date
+        run: git diff --exit-code -- docs/modules

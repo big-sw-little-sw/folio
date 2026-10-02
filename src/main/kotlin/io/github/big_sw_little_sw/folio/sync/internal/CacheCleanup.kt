@@ -24,18 +24,20 @@ class CacheCleanup(
 
     /**
      * Removes the cached repositories of ConfigSets that no longer exist, such as ones deleted on other instances,
-     * then measures the cache for its gauges (ADR 0039).
+     * then measures the cache for its gauges (ADR 0039), even if removing failed.
      */
     fun sweep() {
-        // Listed before the query: a listed repository whose ConfigSet still exists is then always found.
-        val cached = cache.configSetIds()
-        if (cached.isNotEmpty()) {
+        try {
+            // Listed before the query: a listed repository whose ConfigSet still exists is then always found.
+            val cached = cache.configSetIds()
+            if (cached.isEmpty()) return
             (cached - states.existing(cached)).forEach {
                 cache.delete(it)
                 log.info("Removed the cached repository of deleted ConfigSet {}", it)
             }
+        } finally {
+            cache.measure()
         }
-        cache.measure()
     }
 
     private companion object {
