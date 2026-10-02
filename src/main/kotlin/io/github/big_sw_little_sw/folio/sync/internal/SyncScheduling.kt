@@ -7,9 +7,9 @@ import org.springframework.scheduling.config.FixedDelayTask
 import org.springframework.scheduling.config.ScheduledTaskRegistrar
 
 /**
- * Polls every `folio.sync.poll-interval` and sweeps the cache every `folio.sync.interval`, both first after one delay
- * (ADR 0032). Registered here rather than with `@Scheduled`, so the delays come from the validated [SyncProperties]
- * with their defaults instead of repeating them in placeholders.
+ * Polls every `folio.sync.poll-interval` and sweeps and measures the cache every `folio.sync.interval`, both first
+ * after one delay (ADR 0032, ADR 0039). Registered here rather than with `@Scheduled`, so the delays come from the
+ * validated [SyncProperties] with their defaults instead of repeating them in placeholders.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling

@@ -149,6 +149,32 @@ class MetricsIntegrationTest(
         assertEquals(listOf(1.0, 2.0, 1.0), listOf(fetched.added(), missing.added(), tooLarge.added()))
     }
 
+    @Test
+    fun `the cache gauges report the cached repositories as last measured`() {
+        fixture.sync()
+        cache.measure()
+        val size = gauge(CACHE_SIZE)
+        val repositories = gauge(CACHE_REPOSITORIES)
+
+        cache.delete(fixture.configSet.id.value)
+        val unmeasured = gauge(CACHE_SIZE)
+        cache.measure()
+
+        assertTrue(size > 0)
+        assertEquals(
+            "bytes",
+            meters
+                .get(CACHE_SIZE)
+                .gauge()
+                .id.baseUnit,
+        )
+        assertEquals(size, unmeasured)
+        assertTrue(gauge(CACHE_SIZE) < size)
+        assertEquals(repositories - 1, gauge(CACHE_REPOSITORIES))
+    }
+
+    private fun gauge(name: String) = meters.get(name).gauge().value()
+
     private fun decision(
         result: String,
         reason: String,
@@ -212,6 +238,8 @@ class MetricsIntegrationTest(
         private const val REPOSITORY = "metrics"
         private const val REQUESTS = "http.server.requests"
         private const val CONFIG_SET = "/api/v1/configsets/{id}"
+        private const val CACHE_SIZE = "folio.source.cache.size"
+        private const val CACHE_REPOSITORIES = "folio.source.cache.repositories"
 
         @JvmStatic
         @DynamicPropertySource

@@ -1,6 +1,6 @@
 # 0039. Metrics
 
-Status: Accepted (2026-10-02)
+Status: Accepted (2026-10-02). Amended (2026-10-02) with the cache gauges.
 
 ## Context
 
@@ -18,6 +18,8 @@ Folio's own meters, under `folio.`. Prometheus names add `_total` to counters an
 | `folio.sync.fetch.duration` | timer | none |
 | `folio.consumption.fetches` | counter | `result`: `fetched`, `missing`, `busy`, `too_large`, `failed` |
 | `folio.authorization.decisions` | counter | `action`; `result`: `allowed`, `denied`; `reason`: `super_admin`, `rule`, `not_granted`, `no_rule` |
+| `folio.source.cache.size` | gauge, bytes | none |
+| `folio.source.cache.repositories` | gauge | none |
 
 Content reads use Spring's `http.server.requests` timer, which every request already records, tagged `method`, `uri`,
 `status`, `outcome` and `exception`. Its consumption series have these `uri` values:
@@ -43,6 +45,11 @@ Content reads use Spring's `http.server.requests` timer, which every request alr
   the exact status sent, such as `200`, `304`, `401` or `404`, so both stay bounded. Latest and exact-revision reads
   are not told apart: the revision is a query parameter, and a tag for it would need code of Folio's own for a
   distinction no alert needs yet.
+- **Cache gauges**, per instance: the bytes the cached repositories hold on disk (Prometheus:
+  `folio_source_cache_size_bytes`) and how many there are. Walking the cache on every scrape could be slow, so each
+  cache sweep (every `folio.sync.interval`, ADR 0034) measures it with the size check's walk, and the gauges report the
+  last measurement; they read 0 until the first sweep after start. They show whether the cache needs a budget or
+  sharing between ConfigSets that read one repository (`plan.md`, "After v1").
 - No ConfigSet IDs, paths, subjects or commit IDs in tags. The largest meter, decisions, has at most one series per
   action, result and reason.
 
