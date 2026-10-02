@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.configset.web
 
 import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.credential.uniqueCredentialName
 import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.source.SshGitServer
 import org.junit.jupiter.api.BeforeEach
@@ -213,7 +214,8 @@ class ConfigSetSourceApiIntegrationTest(
         return credential
     }
 
-    private fun credential(instance: String) = id(post(CREDENTIALS, """{"gitInstance": "$instance"}"""))
+    private fun credential(instance: String) =
+        id(post(CREDENTIALS, """{"gitInstance": "$instance", "name": "${uniqueCredentialName()}"}"""))
 
     private fun configSet(
         credentialId: String,

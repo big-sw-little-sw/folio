@@ -24,6 +24,16 @@ class UnknownGitInstanceException(
     val name: String,
 ) : CredentialException("Unknown Git instance '$name'")
 
+class InvalidCredentialNameException(
+    val name: String,
+) : CredentialException("Invalid credential name '$name'")
+
+/** Names are unique per Git instance (ADR 0029). */
+class DuplicateCredentialNameException(
+    val gitInstance: String,
+    val name: CredentialName,
+) : CredentialException("A credential named '$name' already exists for Git instance '$gitInstance'")
+
 class CredentialDisabledException(
     val id: CredentialId,
 ) : CredentialException("Credential ${id.value} is disabled")

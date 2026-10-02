@@ -9,8 +9,10 @@ import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetPathException
 import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
 import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialNotFoundException
+import io.github.big_sw_little_sw.folio.credential.DuplicateCredentialNameException
 import io.github.big_sw_little_sw.folio.credential.GitInstanceNotConfiguredException
 import io.github.big_sw_little_sw.folio.credential.InvalidCredentialIdException
+import io.github.big_sw_little_sw.folio.credential.InvalidCredentialNameException
 import io.github.big_sw_little_sw.folio.credential.InvalidKeyIdException
 import io.github.big_sw_little_sw.folio.credential.KeyNotPendingException
 import io.github.big_sw_little_sw.folio.credential.PendingKeyExistsException
@@ -95,8 +97,16 @@ class ProblemDetailsAdvice {
                 problem(HttpStatus.NOT_FOUND, "Credential not found")
             }
 
-            is InvalidCredentialIdException, is InvalidKeyIdException, is UnknownGitInstanceException -> {
+            is InvalidCredentialIdException,
+            is InvalidKeyIdException,
+            is InvalidCredentialNameException,
+            is UnknownGitInstanceException,
+            -> {
                 problem(HttpStatus.BAD_REQUEST, exception.message)
+            }
+
+            is DuplicateCredentialNameException -> {
+                problem(HttpStatus.CONFLICT, exception.message)
             }
 
             is CredentialDisabledException -> {

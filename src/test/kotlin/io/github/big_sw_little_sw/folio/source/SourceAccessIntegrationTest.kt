@@ -8,6 +8,7 @@ import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
 import io.github.big_sw_little_sw.folio.credential.CredentialService
 import io.github.big_sw_little_sw.folio.credential.GitInstanceNotConfiguredException
 import io.github.big_sw_little_sw.folio.credential.KeyStatus
+import io.github.big_sw_little_sw.folio.credential.uniqueCredentialName
 import io.github.big_sw_little_sw.folio.namespace.Namespace
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
 import io.github.big_sw_little_sw.folio.namespace.Slug
@@ -61,7 +62,7 @@ class SourceAccessIntegrationTest(
         commits = SshGitServer.createRepository("configs")
         authenticateAs(SUPER_ADMIN)
         namespace = namespaces.create(null, Slug("production"))
-        credential = credentials.create("test-server")
+        credential = credentials.create("test-server", uniqueCredentialName())
         SshGitServer.authorize(credential.key(KeyStatus.ACTIVE))
     }
 
@@ -79,7 +80,7 @@ class SourceAccessIntegrationTest(
 
     @Test
     fun `any of an instance's trusted host keys is accepted, not only the first`() {
-        val configSet = configSet(credential = authorized(credentials.create("multi-key")))
+        val configSet = configSet(credential = authorized(credentials.create("multi-key", uniqueCredentialName())))
 
         assertEquals(SourceCheck.Passed(commits.last()), check(configSet))
     }
@@ -97,7 +98,7 @@ class SourceAccessIntegrationTest(
 
     @Test
     fun `a host key that is not trusted fails the check and nothing is fetched`() {
-        val configSet = configSet(credential = credentials.create("wrong-host-key"))
+        val configSet = configSet(credential = credentials.create("wrong-host-key", uniqueCredentialName()))
 
         assertEquals(SourceCheck.Failed(SourceFailure.HOST_KEY_REJECTED), check(configSet))
         assertFalse(cacheOf(configSet).exists())
@@ -116,7 +117,7 @@ class SourceAccessIntegrationTest(
             SshGitServer.authorize(publicKey)
 
             // The real host key is only in known_hosts, and the only authorized key is only in ~/.ssh.
-            val wrongHostKey = configSet(credential = credentials.create("wrong-host-key"))
+            val wrongHostKey = configSet(credential = credentials.create("wrong-host-key", uniqueCredentialName()))
             assertEquals(SourceCheck.Failed(SourceFailure.HOST_KEY_REJECTED), check(wrongHostKey))
             assertEquals(SourceCheck.Failed(SourceFailure.AUTH_FAILED), check(configSet()))
         } finally {
@@ -150,7 +151,7 @@ class SourceAccessIntegrationTest(
     fun `an unreachable server fails as unreachable`() {
         assertEquals(
             SourceCheck.Failed(SourceFailure.UNREACHABLE),
-            check(configSet(credential = credentials.create("unreachable"))),
+            check(configSet(credential = credentials.create("unreachable", uniqueCredentialName()))),
         )
     }
 

@@ -188,8 +188,13 @@ class PolicyRuleRepositoryIntegrationTest(
         // A source needs a credential row; policy never reads it, so it needs no key.
         val credentialId =
             jdbc
-                .sql("insert into credential (git_instance, status) values ('example', 'ENABLED') returning id")
-                .query(UUID::class.java)
+                .sql(
+                    """
+                    insert into credential (git_instance, name, status)
+                    values ('example', 'test-' || gen_random_uuid(), 'ENABLED')
+                    returning id
+                    """.trimIndent(),
+                ).query(UUID::class.java)
                 .single()
         return ResourceRef.ConfigSetRef(
             jdbc

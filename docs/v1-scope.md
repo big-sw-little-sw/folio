@@ -60,7 +60,8 @@ where v1 has a real implementation behind them.
   and root path exist.
 
 ### Credentials
-- Credentials are scoped to a Git service instance and referenced by ConfigSets by stable ID.
+- Credentials are scoped to a Git service instance and referenced by ConfigSets by stable ID. Each has a name,
+  unique per instance ([ADR 0029](adr/0029-credential-names.md)).
 - **Folio generates Ed25519 key pairs.** Only the public key (OpenSSH format) is ever returned.
   Private keys are never uploaded, downloaded or written to disk unencrypted.
 - A credential holds key pairs as versions: `PENDING`, `ACTIVE` or `RETIRED`. At most one `ACTIVE`
