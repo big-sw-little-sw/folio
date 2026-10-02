@@ -1,10 +1,9 @@
-package io.github.big_sw_little_sw.folio.configset.web
+package io.github.big_sw_little_sw.folio.configset
 
 import io.github.big_sw_little_sw.folio.apiid.formatApiId
 import io.github.big_sw_little_sw.folio.apiid.parseApiId
-import io.github.big_sw_little_sw.folio.configset.ConfigSetId
-import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetIdException
 
+// Public so that HTTP layers of other modules, such as sync, can accept and return ConfigSet IDs (ADR 0032).
 private const val PREFIX = "cfg_"
 
 fun ConfigSetId.toApiId(): String = formatApiId(PREFIX, value)
