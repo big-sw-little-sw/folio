@@ -28,6 +28,7 @@ import org.springframework.test.context.DynamicPropertySource
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.time.Duration
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
@@ -36,6 +37,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 /** The onboarding check, fetches and reads against a real SSH Git server (ADR 0004). */
 @Tag("integration")
@@ -203,6 +206,49 @@ class SourceAccessIntegrationTest(
     }
 
     @Test
+    fun `listed files carry the size and blob ID that finding them returns`() {
+        val configSet = configSet()
+        sources.fetch(id(configSet), configSet.source)
+
+        val app =
+            sources
+                .list(
+                    id(configSet),
+                    configSet.source,
+                    RevisionRef.Latest,
+                ).first { it.path.value == "app.yaml" }
+        val first = sources.find(id(configSet), configSet.source, app.path, RevisionRef.Commit(commits.first()))
+
+        assertEquals(2, app.size)
+        assertEquals(app, sources.find(id(configSet), configSet.source, app.path, RevisionRef.Latest))
+        assertNotEquals(app.blobId, first.blobId)
+    }
+
+    @Test
+    fun `a read refuses a file larger than its limit`() {
+        val configSet = configSet()
+        sources.fetch(id(configSet), configSet.source)
+
+        assertFailsWith<SourceFileTooLargeException> {
+            sources.read(id(configSet), configSet.source, SourcePath.parse("app.yaml"), RevisionRef.Latest, 1)
+        }
+    }
+
+    @Test
+    fun `fetching if missing fetches only when the cache lacks the commit`() {
+        val configSet = configSet()
+        val (first, second) = commits.map { RevisionRef.Commit(it) }
+
+        assertTrue(sources.fetchIfMissing(id(configSet), configSet.source, second, Duration.ofSeconds(1)))
+        SshGitServer.revokeAll()
+        // Held already, so nothing contacts the server, which now refuses the key.
+        assertTrue(sources.fetchIfMissing(id(configSet), configSet.source, first, Duration.ofSeconds(1)))
+        assertFailsWith<SourceAccessFailedException> {
+            sources.fetchIfMissing(id(configSet), configSet.source, RevisionRef.Commit("0".repeat(40)), Duration.ZERO)
+        }
+    }
+
+    @Test
     fun `a second fetch moves the tip to new commits`() {
         val configSet = configSet()
         sources.fetch(id(configSet), configSet.source)
@@ -286,13 +332,13 @@ class SourceAccessIntegrationTest(
     private fun list(
         configSet: ConfigSet,
         revision: RevisionRef,
-    ) = sources.list(id(configSet), configSet.source, revision).map { it.value }
+    ) = sources.list(id(configSet), configSet.source, revision).map { it.path.value }
 
     private fun read(
         configSet: ConfigSet,
         path: String,
         revision: RevisionRef,
-    ) = String(sources.read(id(configSet), configSet.source, SourcePath.parse(path), revision))
+    ) = String(sources.read(id(configSet), configSet.source, SourcePath.parse(path), revision, Int.MAX_VALUE))
 
     private fun id(configSet: ConfigSet) = configSet.id.value
 

@@ -40,6 +40,21 @@ class PolicyService(
     }
 
     /**
+     * Throws [NotAuthenticatedException] for an anonymous caller, for lookups that answer a missing and a hidden
+     * resource alike: an anonymous caller gets the same 401 for both, as when [requireAllowed] denies it (ADR 0035).
+     */
+    fun requireAuthenticated(action: Action) {
+        if (currentPrincipal.get() == ApplicationPrincipal.Anonymous) throw NotAuthenticatedException(action)
+    }
+
+    /** Whether everyone, anonymous callers included, may do [action]: a `public` rule grants it (ADR 0035). */
+    @Transactional(readOnly = true)
+    fun isPublic(
+        action: Action,
+        path: List<ResourceRef>,
+    ): Boolean = decision(ApplicationPrincipal.Anonymous, action, path).allowed
+
+    /**
      * For a move of [moved] under the resource whose path is [targetPath]: if any of [moved] has rules of its own,
      * requires [Action.POLICY_UPDATE] on the target. Moved rules sit nearer than the target's and could lock out its
      * policy administrators (ADR 0031).

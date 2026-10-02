@@ -9,6 +9,7 @@ import io.github.big_sw_little_sw.folio.credential.CredentialKeyPair
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
 import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SourceCache
+import io.github.big_sw_little_sw.folio.sync.SyncedRevisions
 import org.junit.jupiter.api.Test
 import org.springframework.modulith.core.ApplicationModules
 import org.springframework.web.bind.annotation.RestController
@@ -34,8 +35,8 @@ class ModularityTests {
     }
 
     /**
-     * `SourceAccess`, `SourceCache` and `ConfigSetSources` do not authorize; HTTP goes through the services that do,
-     * such as `ConfigSetService`, which checks `CREDENTIAL_USE`.
+     * `SourceAccess`, `SourceCache`, `ConfigSetSources` and `SyncedRevisions` do not authorize; HTTP goes through the
+     * services that do, such as `ConfigSetService`, which checks `CREDENTIAL_USE`, and `ConsumptionService`.
      */
     @Test
     fun `no HTTP layer uses Git access or unauthorized lookups directly`() {
@@ -44,7 +45,8 @@ class ModularityTests {
             .dependOnClassesThat(
                 assignableTo(SourceAccess::class.java)
                     .or(assignableTo(SourceCache::class.java))
-                    .or(assignableTo(ConfigSetSources::class.java)),
+                    .or(assignableTo(ConfigSetSources::class.java))
+                    .or(assignableTo(SyncedRevisions::class.java)),
             ).check(classes)
     }
 
