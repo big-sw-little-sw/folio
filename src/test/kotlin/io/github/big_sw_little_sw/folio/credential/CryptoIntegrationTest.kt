@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.credential
 
 import io.github.big_sw_little_sw.folio.FolioApplication
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.audit.AuditRecords
 import io.github.big_sw_little_sw.folio.credential.internal.CryptoProperties
 import io.github.big_sw_little_sw.folio.credential.internal.EncryptedKeyRepository
 import io.github.big_sw_little_sw.folio.credential.internal.PrivateKeyCipher
@@ -27,6 +28,7 @@ import java.security.Signature
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import javax.crypto.AEADBadTagException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -80,6 +82,49 @@ class CryptoIntegrationTest(
 
         assertEquals(MasterKeyUsage(2, mapOf(1 to 0, 2 to 3)), usage)
         publicKeys.forEach { (id, publicKey) -> assertTrue(signsWith(id, publicKey)) }
+    }
+
+    @Test
+    fun `a re-encryption pass writes one audit record with counts per master-key version`() {
+        repeat(2) { credentials.create("example", uniqueCredentialName()) }
+        encryptAllUnderVersion1()
+
+        crypto.reencrypt()
+        crypto.reencrypt()
+
+        val (rerun, pass) = AuditRecords(jdbc).ofMasterKeyRing(2)
+        assertEquals("MASTER_KEYS_REENCRYPTED", pass.action)
+        assertEquals(SUPER_ADMIN, pass.actorSubject)
+        assertEquals(null, pass.resourceId)
+        assertEquals(
+            mapOf(
+                "complete" to true,
+                "activeVersion" to 2,
+                "reencryptedByVersion" to mapOf("1" to 2),
+                "keysByVersion" to mapOf("1" to 0, "2" to 2),
+            ),
+            pass.details,
+        )
+        assertEquals(emptyMap<String, Int>(), rerun.details["reencryptedByVersion"])
+    }
+
+    @Test
+    fun `a pass that fails partway still records the keys done so far, as incomplete`() {
+        repeat(2) { credentials.create("example", uniqueCredentialName()) }
+        encryptAllUnderVersion1()
+        // Keys are re-encrypted in ID order; the last one cannot be decrypted.
+        jdbc
+            .sql(
+                "update credential_key set ciphertext = set_byte(ciphertext, 0, (get_byte(ciphertext, 0) + 1) % 256) " +
+                    "where id = (select id from credential_key order by id desc limit 1)",
+            ).update()
+
+        assertFailsWith<AEADBadTagException> { crypto.reencrypt() }
+
+        val failed = AuditRecords(jdbc).ofMasterKeyRing(1).single()
+        assertEquals(false, failed.details["complete"])
+        assertEquals(mapOf("1" to 1), failed.details["reencryptedByVersion"])
+        assertEquals(mapOf("1" to 1, "2" to 1), failed.details["keysByVersion"])
     }
 
     @Test
@@ -175,6 +220,7 @@ class CryptoIntegrationTest(
                 "spring.datasource.username=${postgres.username}",
                 "spring.datasource.password=${postgres.password}",
                 "server.port=0",
+                "management.server.port=0",
             ).run()
 
     /** Rewrites every stored key as the application did while version 1 was active. */

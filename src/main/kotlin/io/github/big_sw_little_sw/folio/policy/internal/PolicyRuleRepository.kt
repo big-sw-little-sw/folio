@@ -96,17 +96,16 @@ class PolicyRuleRepository(
         }
     }
 
-    /** Deletes the rule and, by cascade, its subjects. */
+    /** Deletes the rule and, by cascade, its subjects. Returns whether there was a rule to delete. */
     fun delete(
         resource: ResourceRef,
         action: Action,
-    ) {
+    ): Boolean =
         jdbc
             .sql("delete from policy_rule where ${resource.column()} = :resourceId and action = :action")
             .param("resourceId", resource.id)
             .param("action", action.name)
-            .update()
-    }
+            .update() == 1
 
     private fun ResourceRef.column() =
         when (this) {

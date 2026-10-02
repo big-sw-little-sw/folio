@@ -107,48 +107,47 @@ class SyncStateRepository(
     /**
      * Records a successful fetch whose branch tip is [revision], and releases the lease. An unchanged tip leaves the
      * revisions as they were; a new one becomes the synced revision and is added to `synced_revision`, or moved to the
-     * top if it was synced before (ADR 0036). One statement, so the two never disagree. Returns false, recording
-     * nothing, if [lease] is no longer held.
+     * top if it was synced before (ADR 0036). One statement, so the two never disagree. Returns the state it replaced,
+     * or null, recording nothing, if [lease] is no longer held.
      */
     fun recordSuccess(
         lease: SyncLease,
         revision: String,
         delay: Duration,
-    ): Boolean =
+    ): PreviousSync? =
         jdbc
             .sql(
                 """
-                with previous as (
-                    select last_synced_revision from sync_state where config_set_id = :id
-                ), recorded as (
+                with recorded as (
                     update sync_state
                     set last_seen_revision = :revision, last_synced_revision = :revision,
                         last_attempt_at = now(), last_success_at = now(),
                         last_error_code = null, last_error_summary = null, consecutive_failures = 0,
                         $RELEASE
-                    returning config_set_id
+                    returning config_set_id, $PREVIOUS
                 ), revision as (
                     insert into synced_revision (config_set_id, commit_id, synced_at)
                     select config_set_id, :revision, now() from recorded
-                    where :revision is distinct from (select last_synced_revision from previous)
+                    where :revision is distinct from recorded.previous_revision
                     on conflict (config_set_id, commit_id) do update set synced_at = excluded.synced_at
                 )
-                select count(*) from recorded
+                select previous_revision, previous_error_code from recorded
                 """.trimIndent(),
             ).param("revision", revision)
             .params(releaseParams(lease, delay))
-            .query(Long::class.java)
-            .single() == 1L
+            .query { rs, _ -> rs.toPreviousSync() }
+            .optional()
+            .orElse(null)
 
     /**
-     * Records a failed attempt, keeping the revisions, and releases the lease. Returns false, recording nothing, if
-     * [lease] is no longer held.
+     * Records a failed attempt, keeping the revisions, and releases the lease. Returns the state it replaced, or null,
+     * recording nothing, if [lease] is no longer held.
      */
     fun recordFailure(
         lease: SyncLease,
         failure: SourceFailure,
         delay: Duration,
-    ): Boolean =
+    ): PreviousSync? =
         jdbc
             .sql(
                 """
@@ -156,11 +155,17 @@ class SyncStateRepository(
                 set last_attempt_at = now(), last_error_code = :code, last_error_summary = :summary,
                     consecutive_failures = consecutive_failures + 1,
                     $RELEASE
+                returning $PREVIOUS
                 """.trimIndent(),
             ).param("code", failure.name)
             .param("summary", failure.summary)
             .params(releaseParams(lease, delay))
-            .update() == 1
+            .query { rs, _ -> rs.toPreviousSync() }
+            .optional()
+            .orElse(null)
+
+    private fun ResultSet.toPreviousSync() =
+        PreviousSync(getString("previous_revision"), getString("previous_error_code"))
 
     /**
      * Releases the lease without recording an attempt, so the ConfigSet is due after [delay]. Returns false if [lease]
@@ -214,6 +219,9 @@ class SyncStateRepository(
                 "last_error_code, last_error_summary, consecutive_failures, next_due_at"
 
         const val LEASE_END = "now() + :leaseMillis * interval '1 millisecond'"
+
+        /** The row as it was before a recording's update (PostgreSQL 18's `old` in `returning`). */
+        const val PREVIOUS = "old.last_synced_revision as previous_revision, old.last_error_code as previous_error_code"
 
         /**
          * Releases the lease if it is still held. A manual request during the sync moved next_due_at before the

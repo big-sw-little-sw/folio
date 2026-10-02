@@ -100,7 +100,7 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
     `public` rules apply; until then every route needs a token. For anonymous callers too, resolve must
     answer a missing path and a path they may not view identically (ADR 0013, ADR 0035).
 
-- [ ] **8. Audit and metrics**
+- [x] **8. Audit and metrics**
   - Audit events table for namespace, ConfigSet, policy, credential, key and crypto operations,
     manual syncs and sync outcomes.
   - Audit records carry IDs, the path at the time and key fingerprints, never key material.
