@@ -15,7 +15,9 @@ logging:
 # - spring.security.oauth2.resourceserver.jwt.issuer-uri: the one trusted issuer.
 # - spring.security.oauth2.resourceserver.jwt.audiences: required; startup fails without it. Tokens whose
 #   `aud` does not contain one of these values are rejected.
-# - folio.security.claims and folio.bootstrap.admins.
+# - folio.security.claims and folio.super-admins. Use separate client registrations for workloads; `application:`
+#   subjects match any token whose application claim has that value, including user tokens issued through the same
+#   client.
 # - folio.crypto.master-keys and folio.crypto.active-key-version: required; startup fails without them (ADR 0019).
 #   Each positive version maps to a base64 secret of at least 32 bytes, for example `openssl rand -base64 32`.
 #   Supply them through the deployment's secret mechanism, never in this file or the database.

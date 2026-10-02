@@ -62,19 +62,19 @@ class NearestRuleTest {
     }
 
     @Test
-    fun `at the root only bootstrap admins are allowed`() {
+    fun `at the root only super admins are allowed`() {
         val admin = ApplicationPrincipal.Authenticated("bob", setOf("admins"), null)
 
         assertEquals(Decision.NoRule, decide(alice, emptyList(), emptyMap(), admins))
-        assertEquals(Decision.BootstrapAdmin(Subject.Group("admins")), decide(admin, emptyList(), emptyMap(), admins))
+        assertEquals(Decision.SuperAdmin(Subject.Group("admins")), decide(admin, emptyList(), emptyMap(), admins))
     }
 
     @Test
-    fun `bootstrap admins are allowed even where a nearer rule does not name them`() {
+    fun `super admins are allowed even where a nearer rule does not name them`() {
         val admin = ApplicationPrincipal.Authenticated("bob", setOf("admins"), null)
         val rules = mapOf(hive to listOf(Subject.User("alice")))
 
-        assertEquals(Decision.BootstrapAdmin(Subject.Group("admins")), decide(admin, path, rules, admins))
+        assertEquals(Decision.SuperAdmin(Subject.Group("admins")), decide(admin, path, rules, admins))
     }
 
     @Test

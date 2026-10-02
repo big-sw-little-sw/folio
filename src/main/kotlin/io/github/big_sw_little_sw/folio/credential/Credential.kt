@@ -12,6 +12,26 @@ value class KeyId(
     val value: UUID,
 )
 
+/**
+ * Unique per Git instance (ADR 0029): 1 to 100 characters of lowercase letters, digits and single hyphens, starting
+ * and ending with a letter or digit (for example `payments-bot`). The same rules as namespace slugs.
+ */
+@JvmInline
+value class CredentialName(
+    val value: String,
+) {
+    init {
+        if (value.length > MAX_LENGTH || !PATTERN.matches(value)) throw InvalidCredentialNameException(value)
+    }
+
+    override fun toString(): String = value
+
+    private companion object {
+        const val MAX_LENGTH = 100
+        val PATTERN = Regex("[a-z0-9]+(-[a-z0-9]+)*")
+    }
+}
+
 enum class CredentialStatus {
     ENABLED,
 
@@ -38,6 +58,7 @@ enum class KeyStatus {
 data class Credential(
     val id: CredentialId,
     val gitInstance: String,
+    val name: CredentialName,
     val status: CredentialStatus,
     /** Oldest first. */
     val keys: List<CredentialKey>,

@@ -3,9 +3,12 @@ package io.github.big_sw_little_sw.folio.credential.internal
 import io.github.big_sw_little_sw.folio.credential.Credential
 import io.github.big_sw_little_sw.folio.credential.CredentialId
 import io.github.big_sw_little_sw.folio.credential.CredentialKey
+import io.github.big_sw_little_sw.folio.credential.CredentialName
 import io.github.big_sw_little_sw.folio.credential.CredentialStatus
+import io.github.big_sw_little_sw.folio.credential.DuplicateCredentialNameException
 import io.github.big_sw_little_sw.folio.credential.KeyId
 import io.github.big_sw_little_sw.folio.credential.KeyStatus
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import java.sql.ResultSet
@@ -22,15 +25,28 @@ class CredentialRepository(
     /** A new uuidv7 ID. Keys need their ID before insert because the associated data includes it. */
     fun newKeyId(): KeyId = KeyId(jdbc.sql("select uuidv7()").query(UUID::class.java).single())
 
-    fun insert(gitInstance: String): CredentialId =
-        CredentialId(
-            jdbc
-                .sql("insert into credential (git_instance, status) values (:gitInstance, :status) returning id")
-                .param("gitInstance", gitInstance)
-                .param("status", CredentialStatus.ENABLED.name)
-                .query(UUID::class.java)
-                .single(),
-        )
+    // The instance-and-name unique constraint is the only unique key a caller can violate; IDs come from uuidv7().
+    fun insert(
+        gitInstance: String,
+        name: CredentialName,
+    ): CredentialId =
+        try {
+            CredentialId(
+                jdbc
+                    .sql(
+                        """
+                        insert into credential (git_instance, name, status) values (:gitInstance, :name, :status)
+                        returning id
+                        """.trimIndent(),
+                    ).param("gitInstance", gitInstance)
+                    .param("name", name.value)
+                    .param("status", CredentialStatus.ENABLED.name)
+                    .query(UUID::class.java)
+                    .single(),
+            )
+        } catch (_: DuplicateKeyException) {
+            throw DuplicateCredentialNameException(gitInstance, name)
+        }
 
     /**
      * Locks the credential row until the transaction ends and returns its status, or null if there is none.
@@ -58,7 +74,7 @@ class CredentialRepository(
     fun findById(id: CredentialId): Credential? {
         val keys = findKeys(id)
         return jdbc
-            .sql("select id, git_instance, status from credential where id = :id")
+            .sql("select $COLUMNS from credential where id = :id")
             .param("id", id.value)
             .query { rs, _ -> rs.toCredential { keys } }
             .optional()
@@ -74,7 +90,7 @@ class CredentialRepository(
                 .list()
                 .groupBy({ it.first }, { it.second })
         return jdbc
-            .sql("select id, git_instance, status from credential order by id")
+            .sql("select $COLUMNS from credential order by id")
             .query { rs, _ -> rs.toCredential { keys[it].orEmpty() } }
             .list()
     }
@@ -138,7 +154,13 @@ class CredentialRepository(
 
     private fun ResultSet.toCredential(keysOf: (CredentialId) -> List<CredentialKey>): Credential {
         val id = CredentialId(getObject("id", UUID::class.java))
-        return Credential(id, getString("git_instance"), CredentialStatus.valueOf(getString("status")), keysOf(id))
+        return Credential(
+            id,
+            getString("git_instance"),
+            CredentialName(getString("name")),
+            CredentialStatus.valueOf(getString("status")),
+            keysOf(id),
+        )
     }
 
     private fun ResultSet.toKey() =
@@ -150,6 +172,7 @@ class CredentialRepository(
         )
 
     private companion object {
+        const val COLUMNS = "id, git_instance, name, status"
         const val KEY_COLUMNS = "id, status, public_key, fingerprint"
     }
 }

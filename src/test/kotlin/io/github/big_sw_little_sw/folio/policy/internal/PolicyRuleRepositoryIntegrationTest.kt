@@ -98,6 +98,20 @@ class PolicyRuleRepositoryIntegrationTest(
     }
 
     @Test
+    fun `finds whether any of the given namespaces and ConfigSets has a rule of its own`() {
+        val a = insertNamespace("a")
+        val b = insertNamespace("b")
+        val serviceA = insertConfigSet(a, "service-a")
+        repository.put(serviceA, Rule(Action.CONFIG_SET_VIEW, setOf(Subject.Public)))
+
+        assertEquals(true, repository.existsOnAny(listOf(a, b, serviceA)))
+        assertEquals(false, repository.existsOnAny(listOf(a, b)))
+        // A namespace reference with the ConfigSet's UUID is another resource.
+        assertEquals(false, repository.existsOnAny(listOf(ResourceRef.NamespaceRef(serviceA.id))))
+        assertEquals(false, repository.existsOnAny(emptyList()))
+    }
+
+    @Test
     fun `deleting a namespace cascades to its rules and subjects`() {
         val namespace = insertNamespace("a")
         repository.put(namespace, Rule(Action.NAMESPACE_VIEW, everySubjectType))
@@ -188,8 +202,13 @@ class PolicyRuleRepositoryIntegrationTest(
         // A source needs a credential row; policy never reads it, so it needs no key.
         val credentialId =
             jdbc
-                .sql("insert into credential (git_instance, status) values ('example', 'ENABLED') returning id")
-                .query(UUID::class.java)
+                .sql(
+                    """
+                    insert into credential (git_instance, name, status)
+                    values ('example', 'test-' || gen_random_uuid(), 'ENABLED')
+                    returning id
+                    """.trimIndent(),
+                ).query(UUID::class.java)
                 .single()
         return ResourceRef.ConfigSetRef(
             jdbc

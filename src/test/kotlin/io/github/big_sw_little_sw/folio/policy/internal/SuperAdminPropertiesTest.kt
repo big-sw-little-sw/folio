@@ -6,25 +6,25 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class BootstrapPropertiesTest {
+class SuperAdminPropertiesTest {
     @Test
     fun `accepts users, groups and applications`() {
-        val properties = BootstrapProperties(listOf("user:alice", "group:admins", "application:ops"))
+        val properties = SuperAdminProperties(listOf("user:alice", "group:admins", "application:ops"))
 
         assertEquals(
             setOf(Subject.User("alice"), Subject.Group("admins"), Subject.Application("ops")),
-            properties.adminSubjects,
+            properties.subjects,
         )
     }
 
     @Test
     fun `rejects public and authenticated, which would make everyone an admin`() {
-        assertFailsWith<IllegalArgumentException> { BootstrapProperties(listOf("public")) }
-        assertFailsWith<IllegalArgumentException> { BootstrapProperties(listOf("user:alice", "authenticated")) }
+        assertFailsWith<IllegalArgumentException> { SuperAdminProperties(listOf("public")) }
+        assertFailsWith<IllegalArgumentException> { SuperAdminProperties(listOf("user:alice", "authenticated")) }
     }
 
     @Test
     fun `rejects malformed entries`() {
-        assertFailsWith<InvalidSubjectException> { BootstrapProperties(listOf("alice")) }
+        assertFailsWith<InvalidSubjectException> { SuperAdminProperties(listOf("alice")) }
     }
 }

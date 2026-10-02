@@ -1,6 +1,7 @@
 # 0014. Authorizing ConfigSet operations
 
-Status: Accepted (2026-09-30)
+Status: Accepted (2026-09-30). Amended by ADR 0031, which answers the open question on moves: moving a resource with
+rules of its own also needs `POLICY_UPDATE` on the target.
 
 ## Context
 

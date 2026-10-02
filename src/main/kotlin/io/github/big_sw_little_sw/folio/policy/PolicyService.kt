@@ -1,7 +1,7 @@
 package io.github.big_sw_little_sw.folio.policy
 
-import io.github.big_sw_little_sw.folio.policy.internal.BootstrapProperties
 import io.github.big_sw_little_sw.folio.policy.internal.PolicyRuleRepository
+import io.github.big_sw_little_sw.folio.policy.internal.SuperAdminProperties
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 import io.github.big_sw_little_sw.folio.security.CurrentPrincipal
 import org.springframework.stereotype.Service
@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional
 class PolicyService(
     private val repository: PolicyRuleRepository,
     private val currentPrincipal: CurrentPrincipal,
-    private val bootstrap: BootstrapProperties,
+    private val superAdmins: SuperAdminProperties,
 ) {
     @Transactional(readOnly = true)
     fun isAllowed(
@@ -37,6 +37,19 @@ class PolicyService(
             ApplicationPrincipal.Anonymous -> NotAuthenticatedException(action)
             is ApplicationPrincipal.Authenticated -> PermissionDeniedException(action)
         }
+    }
+
+    /**
+     * For a move of [moved] under the resource whose path is [targetPath]: if any of [moved] has rules of its own,
+     * requires [Action.POLICY_UPDATE] on the target. Moved rules sit nearer than the target's and could lock out its
+     * policy administrators (ADR 0031).
+     */
+    @Transactional(readOnly = true)
+    fun requireAllowedToMoveRules(
+        moved: Collection<ResourceRef>,
+        targetPath: List<ResourceRef>,
+    ) {
+        if (repository.existsOnAny(moved)) requireAllowed(Action.POLICY_UPDATE, targetPath)
     }
 
     /** How [action] on the target would be decided for [principal]. Requires [Action.POLICY_VIEW]. */
@@ -92,5 +105,5 @@ class PolicyService(
         principal: ApplicationPrincipal,
         action: Action,
         path: List<ResourceRef>,
-    ): Decision = decide(principal, path, repository.findSubjects(action, path), bootstrap.adminSubjects)
+    ): Decision = decide(principal, path, repository.findSubjects(action, path), superAdmins.subjects)
 }

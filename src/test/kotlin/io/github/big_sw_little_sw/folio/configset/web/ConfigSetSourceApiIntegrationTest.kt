@@ -2,7 +2,8 @@ package io.github.big_sw_little_sw.folio.configset.web
 
 import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.credential.uniqueCredentialName
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.source.SshGitServer
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -36,7 +37,7 @@ class ConfigSetSourceApiIntegrationTest(
     @Autowired private val mvc: MockMvc,
     @Autowired private val jdbc: JdbcClient,
 ) {
-    private val admin = jwt().jwt { it.subject(BOOTSTRAP_ADMIN) }
+    private val admin = jwt().jwt { it.subject(SUPER_ADMIN) }
     private val alice = jwt().jwt { it.subject("alice") }
     private lateinit var commits: List<String>
     private lateinit var namespaceId: String
@@ -213,7 +214,8 @@ class ConfigSetSourceApiIntegrationTest(
         return credential
     }
 
-    private fun credential(instance: String) = id(post(CREDENTIALS, """{"gitInstance": "$instance"}"""))
+    private fun credential(instance: String) =
+        id(post(CREDENTIALS, """{"gitInstance": "$instance", "name": "${uniqueCredentialName()}"}"""))
 
     private fun configSet(
         credentialId: String,

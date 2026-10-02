@@ -3,7 +3,7 @@ package io.github.big_sw_little_sw.folio.credential
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.internal.OpenSshPublicKey
 import io.github.big_sw_little_sw.folio.policy.PermissionDeniedException
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -41,7 +41,7 @@ class CredentialServiceIntegrationTest(
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from credential_key").update()
         jdbc.sql("delete from credential").update()
-        authenticateAs(BOOTSTRAP_ADMIN)
+        authenticateAs(SUPER_ADMIN)
     }
 
     @AfterEach
@@ -51,7 +51,7 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `the active key pair decrypts, matches the public key and signs`() {
-        val credential = service.create("example")
+        val credential = service.create("example", uniqueCredentialName())
 
         val keyPair = keyPairs.active(credential.id).keyPair
 
@@ -61,7 +61,7 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `the private key is stored only encrypted`() {
-        val credential = service.create("example")
+        val credential = service.create("example", uniqueCredentialName())
         val pkcs8 =
             keyPairs
                 .active(credential.id)
@@ -77,7 +77,7 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `activation retires the previous key, wipes its encrypted private key and keeps its fingerprint`() {
-        val created = service.create("example")
+        val created = service.create("example", uniqueCredentialName())
         val oldKey = created.keys.single()
         val pending = service.regenerate(created.id).keys.single { it.status == KeyStatus.PENDING }
         assertEquals(oldKey.publicKey, OpenSshPublicKey.of(keyPairs.active(created.id).keyPair.public).text)
@@ -93,8 +93,21 @@ class CredentialServiceIntegrationTest(
     }
 
     @Test
+    fun `discarding retires the pending key, wipes its encrypted private key and keeps the active key`() {
+        val created = service.create("example", uniqueCredentialName())
+        val activeKey = created.keys.single()
+        val pending = service.regenerate(created.id).keys.single { it.status == KeyStatus.PENDING }
+
+        val discarded = service.discard(created.id, pending.id)
+
+        assertEquals(listOf(activeKey, pending.copy(status = KeyStatus.RETIRED)), discarded.keys)
+        assertEquals(5, wipedColumns(pending.id))
+        assertEquals(activeKey.publicKey, OpenSshPublicKey.of(keyPairs.active(created.id).keyPair.public).text)
+    }
+
+    @Test
     fun `emergency replacement switches the active key pair at once`() {
-        val created = service.create("example")
+        val created = service.create("example", uniqueCredentialName())
         val before = keyPairs.active(created.id).keyPair
 
         val replaced = service.replace(created.id)
@@ -110,7 +123,7 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `a disabled credential gives no key pair`() {
-        val created = service.create("example")
+        val created = service.create("example", uniqueCredentialName())
 
         service.disable(created.id)
 
@@ -120,8 +133,8 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `a ciphertext moved to another key's row does not decrypt`() {
-        val first = service.create("example")
-        val second = service.create("example")
+        val first = service.create("example", uniqueCredentialName())
+        val second = service.create("example", uniqueCredentialName())
         jdbc
             .sql(
                 """
@@ -141,7 +154,7 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `concurrent regenerations create one pending key`() {
-        val created = service.create("example")
+        val created = service.create("example", uniqueCredentialName())
         val threads = 4
         val barrier = CyclicBarrier(threads)
         val executor = Executors.newFixedThreadPool(threads)
@@ -151,7 +164,7 @@ class CredentialServiceIntegrationTest(
                 (1..threads)
                     .map {
                         executor.submit<Result<Credential>> {
-                            authenticateAs(BOOTSTRAP_ADMIN)
+                            authenticateAs(SUPER_ADMIN)
                             barrier.await()
                             runCatching { service.regenerate(created.id) }
                         }
@@ -167,13 +180,13 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `the active key pair stays consistent while the key is replaced concurrently`() {
-        val created = service.create("example")
+        val created = service.create("example", uniqueCredentialName())
         val executor = Executors.newSingleThreadExecutor()
 
         try {
             val replacements =
                 executor.submit {
-                    authenticateAs(BOOTSTRAP_ADMIN)
+                    authenticateAs(SUPER_ADMIN)
                     repeat(ROUNDS) { service.replace(created.id) }
                 }
             repeat(ROUNDS) { assertTrue(signsFor(keyPairs.active(created.id).keyPair)) }
@@ -185,12 +198,12 @@ class CredentialServiceIntegrationTest(
 
     @Test
     fun `a non-admin may not view or change credentials`() {
-        val created = service.create("example")
+        val created = service.create("example", uniqueCredentialName())
         authenticateAs("alice")
 
         assertFailsWith<PermissionDeniedException> { service.get(created.id) }
         assertFailsWith<PermissionDeniedException> { service.list() }
-        assertFailsWith<PermissionDeniedException> { service.create("example") }
+        assertFailsWith<PermissionDeniedException> { service.create("example", uniqueCredentialName()) }
     }
 
     private companion object {
