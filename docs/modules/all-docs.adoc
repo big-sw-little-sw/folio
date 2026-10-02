@@ -1,0 +1,47 @@
+== FolioApplication
+plantuml::components.puml[,,format=svg]
+
+== Apiid
+plantuml::module-apiid.puml[,,format=svg]
+include::module-apiid.adoc[]
+
+== Security
+plantuml::module-security.puml[,,format=svg]
+include::module-security.adoc[]
+
+== Policy
+plantuml::module-policy.puml[,,format=svg]
+include::module-policy.adoc[]
+
+== Credential
+plantuml::module-credential.puml[,,format=svg]
+include::module-credential.adoc[]
+
+== Namespace
+plantuml::module-namespace.puml[,,format=svg]
+include::module-namespace.adoc[]
+
+== Source
+plantuml::module-source.puml[,,format=svg]
+include::module-source.adoc[]
+
+== Configset
+plantuml::module-configset.puml[,,format=svg]
+include::module-configset.adoc[]
+
+== Sync
+plantuml::module-sync.puml[,,format=svg]
+include::module-sync.adoc[]
+
+== Audit
+plantuml::module-audit.puml[,,format=svg]
+include::module-audit.adoc[]
+
+== Consumption
+plantuml::module-consumption.puml[,,format=svg]
+include::module-consumption.adoc[]
+
+== Web
+plantuml::module-web.puml[,,format=svg]
+include::module-web.adoc[]
+

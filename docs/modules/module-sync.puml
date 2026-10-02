@@ -1,0 +1,37 @@
+@startuml
+title <size:24>Sync</size>
+
+set separator none
+top to bottom direction
+
+<style>
+  root {
+    BackgroundColor: #ffffff
+    FontColor: #444444
+  }
+</style>
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Component>
+
+System_Boundary("FolioApplication_boundary", "FolioApplication", $tags="") {
+  Container_Boundary("FolioApplication.FolioApplication_boundary", "FolioApplication", $tags="") {
+    Component(FolioApplication.FolioApplication.Sync, "Sync", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Policy, "Policy", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Source, "Source", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Configset, "Configset", $techn="Module", $descr="", $tags="", $link="")
+  }
+
+}
+
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Policy, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Source, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Configset, "listens to", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Configset, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Policy, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Source, "uses", $techn="", $tags="", $link="")
+
+SHOW_LEGEND(true)
+hide stereotypes
+@enduml
