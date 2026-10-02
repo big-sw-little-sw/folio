@@ -20,8 +20,12 @@ folio:
   git:
     # cache-directory: set per test run by build.gradle.kts.
     instances:
+      # Placeholders: no test connects to these instances.
       example:
         host: git.example.test
-        # A placeholder: no test connects to this instance.
+        host-keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea
+      other:
+        host: git.other.test
         host-keys:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea

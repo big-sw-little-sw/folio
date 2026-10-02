@@ -12,12 +12,13 @@ others out.
 
 - Bootstrap admins are renamed super admins. The configuration key `folio.bootstrap.admins` becomes
   `folio.super-admins`, with the same entry format (`user:<subject>`, `group:<group>` or `application:<id>`).
-- The old key is not read any more and has no alias: Folio is not released yet.
+- The old key has no alias: Folio is not released yet. Startup fails if it is still set, naming the new key, so a
+  deployment cannot silently lose its super admins.
 - Explanations report reason `SUPER_ADMIN` instead of `BOOTSTRAP_ADMIN`.
 - The semantics of ADR 0008 are unchanged: super admins are allowed every action on every resource, regardless of
   rules, and are not stored as rules.
 
 ## Consequences
 
-- A deployment that still sets `folio.bootstrap.admins` has no super admins until it renames the key.
-- Accepted ADRs keep the old name in their text; their status lines point here.
+- A deployment that still sets `folio.bootstrap.admins` does not start until it renames the key.
+- ADRs 0002 and 0008 point here; other accepted ADRs keep the old name.

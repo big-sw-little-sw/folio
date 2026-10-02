@@ -234,6 +234,20 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
+    fun `moving a ConfigSet with rules of its own without policy update on the target gives 403`() {
+        val target = namespace(null, "target")
+        val production = namespace(null, "production")
+        val serviceA = configSet(production, "service-a")
+        grant(NAMESPACES, production, "CONFIG_SET_MOVE", "user:alice")
+        grant(NAMESPACES, target, "CONFIG_SET_CREATE", "user:alice")
+        grant(CONFIG_SETS, serviceA, "CONFIG_SET_VIEW", "user:bob")
+
+        send(POST, "$CONFIG_SETS/$serviceA:move", """{"namespaceId": "$target"}""", alice)
+            .andExpectProblem(403)
+            .andExpect { jsonPath("$.detail") { value("Permission POLICY_UPDATE denied") } }
+    }
+
+    @Test
     fun `missing resources give 404 whoever asks`() {
         val missingConfigSet = "cfg_${"0".repeat(32)}"
         val missingNamespace = "ns_${"0".repeat(32)}"
