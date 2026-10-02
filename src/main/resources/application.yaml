@@ -37,3 +37,12 @@ logging:
 #   responses about `latest` and shared caches keep public exact revisions, which private caches keep for a year;
 #   max-concurrent-fetches (default 2) on-demand fetches per instance for reads; max-file-size (default 10MB) of a
 #   served file.
+# - management.server.port: run the actuator endpoints on a port of their own and keep that port off the public
+#   network. /actuator/prometheus needs no token, so that scrapers can reach it; on the application port it is public
+#   (ADR 0040).
+management:
+  endpoints:
+    web:
+      exposure:
+        # Nothing else: env and configprops would show configuration such as folio.crypto.* (ADR 0019).
+        include: health, prometheus

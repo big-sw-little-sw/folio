@@ -35,6 +35,9 @@ class SecurityConfiguration(
         http {
             authorizeHttpRequests {
                 authorize("/actuator/health/**", permitAll)
+                // Scrapers send no token; deployments keep it off the public port with management.server.port
+                // (ADR 0040).
+                authorize("/actuator/prometheus", permitAll)
                 authorize("/v3/api-docs/**", permitAll)
                 authorize("/swagger-ui/**", permitAll)
                 authorize("/swagger-ui.html", permitAll)
