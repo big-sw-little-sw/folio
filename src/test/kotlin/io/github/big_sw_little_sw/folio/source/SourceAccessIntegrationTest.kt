@@ -6,6 +6,7 @@ import io.github.big_sw_little_sw.folio.configset.ConfigSetService
 import io.github.big_sw_little_sw.folio.credential.Credential
 import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
 import io.github.big_sw_little_sw.folio.credential.CredentialService
+import io.github.big_sw_little_sw.folio.credential.GitInstanceNotConfiguredException
 import io.github.big_sw_little_sw.folio.credential.KeyStatus
 import io.github.big_sw_little_sw.folio.namespace.Namespace
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
@@ -74,6 +75,24 @@ class SourceAccessIntegrationTest(
         assertEquals(SourceCheck.Passed(commits.last()), check(configSet()))
         assertEquals(SourceCheck.Passed(commits.last()), check(configSet(rootPath = "")))
         assertEquals(SourceCheck.Passed(commits.last()), check(configSet(rootPath = "config/sub")))
+    }
+
+    @Test
+    fun `any of an instance's trusted host keys is accepted, not only the first`() {
+        val configSet = configSet(credential = authorized(credentials.create("multi-key")))
+
+        assertEquals(SourceCheck.Passed(commits.last()), check(configSet))
+    }
+
+    @Test
+    fun `a credential whose Git instance is no longer configured is refused`() {
+        val configSet = configSet()
+        jdbc
+            .sql("update credential set git_instance = 'removed' where id = :id")
+            .param("id", credential.id.value)
+            .update()
+
+        assertFailsWith<GitInstanceNotConfiguredException> { check(configSet) }
     }
 
     @Test
@@ -183,6 +202,28 @@ class SourceAccessIntegrationTest(
     }
 
     @Test
+    fun `a second fetch moves the tip to new commits`() {
+        val configSet = configSet()
+        sources.fetch(id(configSet), configSet.source)
+
+        val third = SshGitServer.addCommit("configs", "v3")
+
+        assertEquals(third, sources.fetch(id(configSet), configSet.source))
+        assertEquals("v3", read(configSet, "app.yaml", RevisionRef.Latest))
+        assertEquals("v2", read(configSet, "app.yaml", RevisionRef.Commit(commits.last())))
+    }
+
+    @Test
+    fun `a failure before the fetch leaves a good cache intact`() {
+        val configSet = configSet()
+        sources.fetch(id(configSet), configSet.source)
+        SshGitServer.revokeAll()
+
+        assertEquals(SourceCheck.Failed(SourceFailure.AUTH_FAILED), check(configSet))
+        assertEquals("v2", read(configSet, "app.yaml", RevisionRef.Latest))
+    }
+
+    @Test
     fun `reads cannot leave the root path and serve regular files only`() {
         val configSet = configSet()
         sources.fetch(id(configSet), configSet.source)
@@ -194,6 +235,12 @@ class SourceAccessIntegrationTest(
         listOf("README.md", "link", "sub", "missing.yaml").forEach {
             assertFailsWith<SourceFileNotFoundException> { read(configSet, it, RevisionRef.Latest) }
         }
+
+        // At the repository root, the empty path is the root directory itself.
+        val atRoot = configSet(rootPath = "")
+        sources.fetch(id(atRoot), atRoot.source)
+        assertFailsWith<SourceFileNotFoundException> { read(atRoot, "", RevisionRef.Latest) }
+        assertEquals("readme", read(atRoot, "README.md", RevisionRef.Latest))
     }
 
     @Test
@@ -249,6 +296,11 @@ class SourceAccessIntegrationTest(
     private fun id(configSet: ConfigSet) = configSet.id.value
 
     private fun cacheOf(configSet: ConfigSet): Path = properties.cacheDirectory.resolve("${id(configSet)}.git")
+
+    private fun authorized(credential: Credential): Credential {
+        SshGitServer.authorize(credential.key(KeyStatus.ACTIVE))
+        return credential
+    }
 
     private fun Credential.key(status: KeyStatus) = keys.single { it.status == status }.publicKey
 

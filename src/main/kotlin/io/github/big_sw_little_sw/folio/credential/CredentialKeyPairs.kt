@@ -64,7 +64,7 @@ class CredentialKeyPairs(
         val id = key.stored.credentialId
         if (key.credentialStatus == CredentialStatus.DISABLED) throw CredentialDisabledException(id)
         // A credential whose instance was removed from configuration cannot reach any Git service (ADR 0016).
-        val instance = instances.find(key.gitInstance) ?: throw UnknownGitInstanceException(key.gitInstance)
+        val instance = instances.find(key.gitInstance) ?: throw GitInstanceNotConfiguredException(id, key.gitInstance)
         val pkcs8 = cipher.decrypt(key.stored.encrypted, id, key.stored.id)
         // The key spec and the JDK key keep their own copies, which cannot be zeroed; this one can.
         try {

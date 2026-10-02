@@ -7,10 +7,12 @@ import org.eclipse.jgit.api.errors.TransportException
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
 import org.eclipse.jgit.transport.URIish
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.concurrent.TimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -46,10 +48,17 @@ class FailureClassifierTest {
     }
 
     @Test
-    fun `connection failures are unreachable`() {
-        listOf(ConnectException(), UnknownHostException(), SocketTimeoutException(), NoRouteToHostException()).forEach {
-            assertEquals(SourceFailure.UNREACHABLE, classify(wrapped(it), false))
-        }
+    fun `connection failures and timeouts are unreachable`() {
+        val failures =
+            listOf(
+                ConnectException(),
+                UnknownHostException(),
+                NoRouteToHostException(),
+                SocketTimeoutException(),
+                InterruptedIOException(),
+                TimeoutException(),
+            )
+        failures.forEach { assertEquals(SourceFailure.UNREACHABLE, classify(wrapped(it), false), "$it") }
     }
 
     @Test

@@ -45,12 +45,16 @@ object SshGitServer {
 
     /**
      * Registers the server under the instance name `test-server`, plus `wrong-host-key` (same server, a host key it
-     * does not have) and `unreachable` (a closed port).
+     * does not have), `multi-key` (same server, a wrong key listed before the right one) and `unreachable` (a closed
+     * port).
      */
     fun register(registry: DynamicPropertyRegistry) {
         instance(registry, "test-server", container.host, container.getMappedPort(SSH_PORT), hostKey)
         instance(registry, "wrong-host-key", container.host, container.getMappedPort(SSH_PORT), otherHostKey())
         instance(registry, "unreachable", "127.0.0.1", 1, hostKey)
+        // The matching key is not the first one listed.
+        instance(registry, "multi-key", container.host, container.getMappedPort(SSH_PORT), otherHostKey())
+        registry.add("folio.git.instances.multi-key.host-keys[1]") { hostKey }
     }
 
     /** `[host]:port`, as a known_hosts file names this server. */
@@ -100,6 +104,30 @@ object SshGitServer {
             git rev-parse HEAD~1 HEAD
             """.trimIndent()
         return exec("sh", "-c", script).lines().filter { it.isNotBlank() }
+    }
+
+    /** Pushes a commit to `main` of `/repos/<name>.git` that sets `config/app.yaml` to [content]; returns its ID. */
+    fun addCommit(
+        name: String,
+        content: String,
+    ): String {
+        val script =
+            """
+            set -e
+            # The repository belongs to git; root may work in it here.
+            git config --global --add safe.directory '*'
+            work=${'$'}(mktemp -d)
+            git clone -q /repos/$name.git ${'$'}work
+            cd ${'$'}work
+            git config user.email test@folio.test
+            git config user.name test
+            printf '$content' > config/app.yaml
+            git commit -q -am three
+            git push -q origin main
+            chown -R git:git /repos/$name.git
+            git rev-parse HEAD
+            """.trimIndent()
+        return exec("sh", "-c", script).trim()
     }
 
     private fun instance(

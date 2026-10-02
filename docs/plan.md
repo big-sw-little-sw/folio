@@ -84,6 +84,7 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
     consecutive failures.
   - Manual sync through the admin API.
   - Remove the cache directories of deleted ConfigSets (ADR 0024).
+  - Bound each fetch: total deadline, repository size limit, and a cap on concurrent fetches.
 
 - [ ] **7. Consumption API**
   - ConfigSet metadata, file listing, raw file reads and revision listing; `latest` and exact-revision reads.

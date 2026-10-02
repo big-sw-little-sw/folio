@@ -124,6 +124,12 @@ class ConfigSetSourceApiIntegrationTest(
         post(check, """{"keyId": "key_${"0".repeat(32)}"}""").andExpectProblem(409).andExpect {
             jsonPath("$.detail") { value("Key is not the credential's pending key") }
         }
+        // A real pending key, but of another credential.
+        val other = credential("test-server")
+        val othersPending = JsonPath.read<String>(body(post("$CREDENTIALS/$other:regenerate", "")), "$.keys[1].id")
+        post(check, """{"keyId": "$othersPending"}""").andExpectProblem(409).andExpect {
+            jsonPath("$.detail") { value("Key is not the credential's pending key") }
+        }
     }
 
     @Test

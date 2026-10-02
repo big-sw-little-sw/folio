@@ -6,6 +6,7 @@ import com.tngtech.archunit.core.importer.ImportOption
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPair
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
+import io.github.big_sw_little_sw.folio.source.SourceAccess
 import org.junit.jupiter.api.Test
 import org.springframework.modulith.core.ApplicationModules
 import org.springframework.web.bind.annotation.RestController
@@ -23,11 +24,25 @@ class ModularityTests {
      */
     @Test
     fun `no HTTP layer uses decrypted key pairs`() {
-        val classes =
-            ClassFileImporter()
-                .withImportOption(ImportOption.DoNotIncludeTests())
-                .importPackagesOf(FolioApplication::class.java)
+        httpLayer()
+            .should()
+            .dependOnClassesThat(
+                assignableTo(CredentialKeyPairs::class.java).or(assignableTo(CredentialKeyPair::class.java)),
+            ).check(classes)
+    }
 
+    /** `SourceAccess` does not authorize; HTTP goes through `ConfigSetService`, which checks `CREDENTIAL_USE`. */
+    @Test
+    fun `no HTTP layer uses Git access directly`() {
+        httpLayer().should().dependOnClassesThat(assignableTo(SourceAccess::class.java)).check(classes)
+    }
+
+    private val classes =
+        ClassFileImporter()
+            .withImportOption(ImportOption.DoNotIncludeTests())
+            .importPackagesOf(FolioApplication::class.java)
+
+    private fun httpLayer() =
         noClasses()
             .that()
             .resideInAPackage("..web..")
@@ -35,9 +50,4 @@ class ModularityTests {
             .areAnnotatedWith(RestController::class.java)
             .or()
             .areAnnotatedWith(RestControllerAdvice::class.java)
-            .should()
-            .dependOnClassesThat(
-                assignableTo(CredentialKeyPairs::class.java).or(assignableTo(CredentialKeyPair::class.java)),
-            ).check(classes)
-    }
 }

@@ -103,9 +103,11 @@ class SourceAccess(
     ): ByteArray =
         reading(configSetId, revision) { repository ->
             val commit = resolve(repository, source, revision)
+            val fullPath = source.rootPath.resolve(path)
+            // The repository root is a directory, never a file.
+            if (fullPath.isRoot) throw SourceFileNotFoundException(path)
             val walk =
-                TreeWalk.forPath(repository, source.rootPath.resolve(path).value, commit.tree)
-                    ?: throw SourceFileNotFoundException(path)
+                TreeWalk.forPath(repository, fullPath.value, commit.tree) ?: throw SourceFileNotFoundException(path)
             walk.use {
                 if (!it.getFileMode(0).isRegularFile()) throw SourceFileNotFoundException(path)
                 repository.open(it.getObjectId(0), Constants.OBJ_BLOB).bytes
@@ -125,8 +127,6 @@ class SourceAccess(
                 cache.fetching(configSetId, source.branch) { fetchBranch(it, url, source.branch, transport) }
             }
         } catch (e: SourceAccessFailedException) {
-            // A failure that is not one of the known causes may come from a damaged cache; start the next one afresh.
-            if (e.failure == SourceFailure.TRANSPORT_FAILURE) cache.discard(configSetId)
             log.warn("Git access for ConfigSet {} failed: {}", configSetId, e.failure)
             throw e
         }
@@ -161,6 +161,7 @@ class SourceAccess(
             .setRemote(url)
             .setRefSpecs(RefSpec("+${branch.ref}:${branch.ref}"))
             .setTagOpt(TagOpt.NO_TAGS)
+            .setCheckFetchedObjects(true)
             .setTimeout(TIMEOUT_SECONDS)
             .setTransportConfigCallback(transport)
             .call()
@@ -226,7 +227,10 @@ class SourceAccess(
     private companion object {
         val log = LoggerFactory.getLogger(SourceAccess::class.java)
 
-        /** Bounds each connection's setup and every read from it (design 23.2). */
+        /**
+         * JGit's connect timeout and its idle timeout for each read from the connection, not a deadline for a whole
+         * fetch; slice 6 adds that (design 23.2).
+         */
         const val TIMEOUT_SECONDS = 30
     }
 }

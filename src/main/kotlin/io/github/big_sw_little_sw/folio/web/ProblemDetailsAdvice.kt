@@ -9,6 +9,7 @@ import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetPathException
 import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
 import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialNotFoundException
+import io.github.big_sw_little_sw.folio.credential.GitInstanceNotConfiguredException
 import io.github.big_sw_little_sw.folio.credential.InvalidCredentialIdException
 import io.github.big_sw_little_sw.folio.credential.InvalidKeyIdException
 import io.github.big_sw_little_sw.folio.credential.KeyNotPendingException
@@ -108,6 +109,10 @@ class ProblemDetailsAdvice {
 
             is KeyNotPendingException -> {
                 problem(HttpStatus.CONFLICT, "Key is not the credential's pending key")
+            }
+
+            is GitInstanceNotConfiguredException -> {
+                problem(HttpStatus.CONFLICT, "The credential's Git instance is not configured")
             }
         }
 

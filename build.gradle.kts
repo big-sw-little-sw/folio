@@ -95,6 +95,17 @@ tasks.test {
     }
 }
 
+// Each test run gets a fresh repository cache under the build directory (ADR 0024).
+tasks.withType<Test>().configureEach {
+    val cacheDirectory =
+        layout.buildDirectory
+            .dir("folio-test-cache/$name")
+            .get()
+            .asFile
+    systemProperty("folio.git.cache-directory", cacheDirectory.absolutePath)
+    doFirst { cacheDirectory.deleteRecursively() }
+}
+
 tasks.register<Test>("integrationTest") {
     description = "Runs tests tagged 'integration' (requires Docker)."
     group = LifecycleBasePlugin.VERIFICATION_GROUP

@@ -7,8 +7,10 @@ import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.springframework.stereotype.Component
 import java.io.IOException
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
@@ -23,13 +25,16 @@ import kotlin.io.path.exists
  * cache is disposable: a missing or unreadable repository is deleted and created empty, and the next fetch fills it.
  *
  * Fetches of one ConfigSet run one at a time in this process; slice 6 adds leases across instances. Reads run
- * alongside fetches, because a fetch only adds objects and moves a ref. Deleting a repository waits for reads.
+ * alongside fetches, because a fetch only adds objects and moves a ref. Recreating a repository waits for reads.
+ * Only the tip's commit and tree are checked before a fetch; a deeper missing object surfaces as an error until an
+ * operator deletes the repository.
  */
 @Component
 class RepositoryCache(
     properties: SourceProperties,
 ) {
-    private val root: Path = Files.createDirectories(properties.cacheDirectory)
+    // Owner-only where the file system supports POSIX permissions: the cache holds the configuration content.
+    private val root: Path = createOwnerOnly(properties.cacheDirectory)
     private val locks = ConcurrentHashMap<UUID, Locks>()
 
     private fun directory(id: UUID): Path = root.resolve("$id.git")
@@ -54,16 +59,17 @@ class RepositoryCache(
             openExisting(id)?.use(read)
         }
 
-    /** Deletes the cached repository of [id], so that the next fetch starts from scratch. */
-    fun discard(id: UUID) {
-        val locks = locksOf(id)
-        locks.fetch.withLock { locks.cache.write { directory(id).toFile().deleteRecursively() } }
-    }
-
     private fun recreate(id: UUID): Repository =
         locksOf(id).cache.write {
             directory(id).toFile().deleteRecursively()
-            open(id).apply { create(true) }
+            val repository = open(id)
+            try {
+                repository.create(true)
+            } catch (e: IOException) {
+                repository.close()
+                throw e
+            }
+            repository
         }
 
     /** The repository of [id] if it exists, opens and can read the commit [branch] points to, if any. */
@@ -114,9 +120,17 @@ class RepositoryCache(
 
     private fun locksOf(id: UUID) = locks.computeIfAbsent(id) { Locks() }
 
-    /** [fetch] serializes fetches; [cache] lets reads share the repository and deletion exclude them. */
+    /** [fetch] serializes fetches; [cache] lets reads share the repository and recreation exclude them. */
     private class Locks {
         val fetch = ReentrantLock()
         val cache = ReentrantReadWriteLock()
     }
+}
+
+private fun createOwnerOnly(directory: Path): Path {
+    if ("posix" !in FileSystems.getDefault().supportedFileAttributeViews()) return Files.createDirectories(directory)
+    val ownerOnly = PosixFilePermissions.fromString("rwx------")
+    Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(ownerOnly))
+    Files.setPosixFilePermissions(directory, ownerOnly)
+    return directory
 }

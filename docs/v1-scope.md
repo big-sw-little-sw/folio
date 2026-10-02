@@ -51,7 +51,7 @@ where v1 has a real implementation behind them.
 
 ### Git source
 - SSH transport through JGit with **mandatory host-key verification**.
-- Trusted host keys come from deployment configuration (`folio.git.known-hosts`), per Git instance.
+- Trusted host keys come from deployment configuration (`folio.git.instances.<name>.host-keys`, ADR 0025), per Git instance.
 - Local bare-repository cache per source; the cache is disposable.
 - File listing and reads at latest or an exact commit, beneath the ConfigSet root path.
 - Path normalisation; absolute paths and traversal segments are rejected.

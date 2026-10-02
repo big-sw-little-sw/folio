@@ -19,7 +19,7 @@ folio:
       2: uv8GMrwyjtZpqi4eruxcrHoo+hdO74ZX+uLGen3rDio=
     active-key-version: 2
   git:
-    cache-directory: ${java.io.tmpdir}/folio-test-cache
+    # cache-directory: set per test run by build.gradle.kts.
     instances:
       example:
         host: git.example.test
