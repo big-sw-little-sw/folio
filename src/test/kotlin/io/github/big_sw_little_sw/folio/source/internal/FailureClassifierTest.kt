@@ -23,16 +23,21 @@ class FailureClassifierTest {
     fun `a rejected host key wins over whatever JGit reports`() {
         assertEquals(
             SourceFailure.HOST_KEY_REJECTED,
-            classify(wrapped(SshException("Server key did not validate")), true),
+            classify(wrapped(SshException("Server key did not validate")), true, false),
         )
-        assertEquals(SourceFailure.HOST_KEY_REJECTED, classify(wrapped(ConnectException()), true))
+        assertEquals(SourceFailure.HOST_KEY_REJECTED, classify(wrapped(ConnectException()), true, false))
+    }
+
+    @Test
+    fun `a fetch cancelled at its deadline is reported as such, not as the transport failure JGit reports`() {
+        assertEquals(SourceFailure.DEADLINE_EXCEEDED, classify(wrapped(IOException("Download cancelled")), false, true))
     }
 
     @Test
     fun `a missing repository anywhere in the chain`() {
         val notFound = NoRemoteRepositoryException(uri, "fatal: not a git repository")
 
-        assertEquals(SourceFailure.REPOSITORY_NOT_FOUND, classify(wrapped(notFound), false))
+        assertEquals(SourceFailure.REPOSITORY_NOT_FOUND, classify(wrapped(notFound), false, false))
     }
 
     @Test
@@ -40,10 +45,10 @@ class FailureClassifierTest {
         val noMoreMethods =
             SshException(SshConstants.SSH2_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE, "No more authentication methods")
 
-        assertEquals(SourceFailure.AUTH_FAILED, classify(wrapped(noMoreMethods), false))
+        assertEquals(SourceFailure.AUTH_FAILED, classify(wrapped(noMoreMethods), false, false))
         assertEquals(
             SourceFailure.TRANSPORT_FAILURE,
-            classify(wrapped(SshException(SshConstants.SSH2_DISCONNECT_PROTOCOL_ERROR, "x")), false),
+            classify(wrapped(SshException(SshConstants.SSH2_DISCONNECT_PROTOCOL_ERROR, "x")), false, false),
         )
     }
 
@@ -58,13 +63,19 @@ class FailureClassifierTest {
                 InterruptedIOException(),
                 TimeoutException(),
             )
-        failures.forEach { assertEquals(SourceFailure.UNREACHABLE, classify(wrapped(it), false), "$it") }
+        failures.forEach { assertEquals(SourceFailure.UNREACHABLE, classify(wrapped(it), false, false), "$it") }
     }
 
     @Test
     fun `anything else is a transport failure, judged by type and never by message`() {
-        assertEquals(SourceFailure.TRANSPORT_FAILURE, classify(wrapped(IOException("Connection refused")), false))
-        assertEquals(SourceFailure.TRANSPORT_FAILURE, classify(TransportException("repository not found"), false))
+        assertEquals(
+            SourceFailure.TRANSPORT_FAILURE,
+            classify(wrapped(IOException("Connection refused")), false, false),
+        )
+        assertEquals(
+            SourceFailure.TRANSPORT_FAILURE,
+            classify(TransportException("repository not found"), false, false),
+        )
     }
 
     @Test
@@ -73,7 +84,7 @@ class FailureClassifierTest {
         val second = IOException("second", first)
         first.initCause(second)
 
-        assertEquals(SourceFailure.TRANSPORT_FAILURE, classify(first, false))
+        assertEquals(SourceFailure.TRANSPORT_FAILURE, classify(first, false, false))
     }
 
     /** As JGit's commands report them: an API exception around a transport exception around the cause. */

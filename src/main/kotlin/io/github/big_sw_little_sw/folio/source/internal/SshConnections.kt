@@ -35,10 +35,12 @@ class SshConnections(
 
     /**
      * Runs [operation], whose JGit commands must apply the callback it receives so they connect with [credential].
-     * Throws [SourceAccessFailedException] with the classified failure if a command fails.
+     * Throws [SourceAccessFailedException] with the classified failure if a command fails; [deadline] is the monitor
+     * that [operation] gives its fetch.
      */
     fun <T> run(
         credential: CredentialKeyPair,
+        deadline: FetchDeadline,
         operation: (TransportConfigCallback) -> T,
     ): T {
         val database = TrustedKeyDatabase(hostKeys.of(credential.gitInstance))
@@ -59,9 +61,9 @@ class SshConnections(
         try {
             return operation { (it as SshTransport).sshSessionFactory = factory }
         } catch (e: GitAPIException) {
-            throw SourceAccessFailedException(classify(e, database.rejected))
+            throw SourceAccessFailedException(classify(e, database.rejected, deadline.exceeded))
         } catch (e: JGitInternalException) {
-            throw SourceAccessFailedException(classify(e, database.rejected))
+            throw SourceAccessFailedException(classify(e, database.rejected, deadline.exceeded))
         } finally {
             factory.close()
         }

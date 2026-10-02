@@ -60,8 +60,32 @@ object SshGitServer {
     /** `[host]:port`, as a known_hosts file names this server. */
     val knownHostsName: String get() = "[${container.host}]:${container.getMappedPort(SSH_PORT)}"
 
-    fun authorize(publicKey: String) {
-        exec("sh", "-c", "echo '$publicKey' >> /home/git/.ssh/authorized_keys")
+    /**
+     * Authorizes [publicKey]. With [delaySeconds], every command the key runs, ls-remote and fetch alike, starts that
+     * much later, which makes a slow server.
+     */
+    fun authorize(
+        publicKey: String,
+        delaySeconds: Int = 0,
+    ) {
+        val options =
+            if (delaySeconds >
+                0
+            ) {
+                "command=\"sleep $delaySeconds; eval \\\"\$SSH_ORIGINAL_COMMAND\\\"\" "
+            } else {
+                ""
+            }
+        exec("sh", "-c", "echo '$options$publicKey' >> /home/git/.ssh/authorized_keys")
+    }
+
+    /** Deletes the branch `main` of `/repos/<name>.git`. */
+    fun deleteMain(name: String) {
+        exec(
+            "sh",
+            "-c",
+            "git config --global --add safe.directory '*' && git -C /repos/$name.git update-ref -d refs/heads/main",
+        )
     }
 
     /** A new key pair, generated in the container: the OpenSSH private key file and the public key line. */
