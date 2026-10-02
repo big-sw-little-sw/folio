@@ -47,7 +47,10 @@ fetches must not let callers make an instance fetch without limit.
 - Under load from many ConfigSets with cold caches, reads get 503 until fetches complete; clients retry after
   `Retry-After`.
 - A synced commit that leaves the branch stays readable on instances that still hold it; elsewhere it is 404, with at
-  most one fetch per minute per instance.
+  most one fetch per minute per instance for each such commit: N such commits allow N fetches a minute, run one at a
+  time per ConfigSet and within the cap.
+- Reads waiting for another fetch of the same ConfigSet hold a slot of `max-concurrent-fetches`, so a long fetch of one
+  ConfigSet can briefly make cold reads of other ConfigSets answer 503.
 - A fetch that fails, rather than finding the commit missing, is not remembered: the next read fetches again, within the
   cap.
 - The table keeps one row per synced revision and is not pruned in v1.
