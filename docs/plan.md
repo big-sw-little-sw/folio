@@ -84,8 +84,8 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
     consecutive failures.
   - Manual sync through the admin API.
   - Remove the cache directories of deleted ConfigSets (ADR 0024, ADR 0034).
-  - Bound each fetch: total deadline and a cap on concurrent fetches. A repository size limit is not built: JGit's fetch
-    has no client-side bound; it is an open question (ADR 0033).
+  - Bound each fetch: a wall-clock deadline, a repository size limit checked on disk after each fetch, and a cap on
+    concurrent fetches (ADR 0033).
 
 - [ ] **7. Consumption API**
   - ConfigSet metadata, file listing, raw file reads and revision listing; `latest` and exact-revision reads.

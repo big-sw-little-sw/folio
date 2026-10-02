@@ -30,10 +30,14 @@ revision and record sync state. Several Folio instances share one database, each
 - **Leases.** A claim is one `UPDATE … FROM (SELECT … FOR UPDATE SKIP LOCKED LIMIT n)` that sets `lease_owner` (a
   random ID per process start) and `lease_until`, and commits. The fetch runs outside any transaction. The result is
   recorded in one statement only if `lease_owner` and `lease_until` still match the claim, so neither another
-  instance nor an earlier claim of the same instance can overwrite a newer lease. A lease lasts the fetch deadline
-  (ADR 0033) plus two minutes for connecting, `ls-remote` and recording. While leased, `next_due_at` equals
-  `lease_until`, so a crashed instance's ConfigSets become due when their leases expire. Times come from the database
-  clock, so instance clock skew does not matter.
+  instance nor an earlier claim of the same instance can overwrite a newer lease. A lease lasts the fetch deadline plus
+  a two-minute margin. The deadline is enforced on the wall clock and covers connecting, `ls-remote`, the transfer and
+  waiting for the fetch lock (ADR 0033), so a sync is done fetching by the deadline; the margin covers loading the
+  ConfigSet, the size check, recording, and a database or JVM pause. While leased, `next_due_at` equals `lease_until`,
+  so a crashed instance's ConfigSets become due when their leases expire. Times come from the database clock, so
+  instance clock skew does not matter.
+- **Never twice in one instance.** The poller keeps the leases it is running and excludes those ConfigSets from its
+  claims, so even after an expired lease it never starts a second sync of a ConfigSet it is still syncing.
 - **Due-ness and backoff.** A ConfigSet is due `folio.sync.interval` (default 1 minute) after its last attempt. Each
   consecutive failure doubles that, up to `folio.sync.max-backoff` (default 30 minutes). A new ConfigSet is due at once.
 - **Scheduling.** Every `folio.sync.poll-interval` (default 10 seconds) an instance claims at most as many due
@@ -53,9 +57,12 @@ revision and record sync state. Several Folio instances share one database, each
 ## Consequences
 
 - One ConfigSet's failure never stops others; each records its own code.
-- An unexpected exception during a sync (a database outage, say) leaves the lease to expire, so the ConfigSet is retried
-  after the lease duration instead of the backoff.
-- Should a sync outlast its lease, another instance may fetch the same ConfigSet into its own cache at the same time.
-  That costs a duplicate fetch, not a wrong result.
+- An unexpected exception during a sync records no attempt. The poller releases the lease so the ConfigSet is due again
+  after the interval, with no failure code and no backoff, and logs the ConfigSet ID and the exception's type. If the
+  release fails too (a database outage, say), the lease expires instead.
+- On shutdown, the poller waits ten seconds for running syncs, then releases their leases due at once before
+  interrupting them, so an interrupted sync records neither a failure nor backoff. Sync threads are daemons.
+- A sync can outlast its lease only if recording is delayed past the margin, such as by a long database pause. Another
+  instance may then fetch the same ConfigSet into its own cache at the same time; the late result is not recorded.
 - Per-ConfigSet intervals, `ls-remote` polling and webhooks are not built; each changes how `next_due_at` is set, not
   the lease.
