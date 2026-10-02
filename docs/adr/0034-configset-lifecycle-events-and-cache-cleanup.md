@@ -22,7 +22,10 @@ runs on one instance only. ADR 0031 kept events to checks and reactions that mus
   ever deleted.
 - Deleting a repository waits for reads but not for a running fetch. A fetch of a deleted ConfigSet may fail or leave a
   repository behind; the next sweep removes it.
-- The database migration creates state rows for ConfigSets that already exist.
+- The database migration creates state rows for ConfigSets that already exist. An instance without this release
+  creates ConfigSets without state rows, which then never sync, so all instances must be upgraded together. Folio is
+  pre-release and runs no mixed versions.
+- The sweep never lists symbolic links, and deleting a repository does not follow them.
 
 ## Consequences
 

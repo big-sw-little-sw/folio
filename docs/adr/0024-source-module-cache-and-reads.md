@@ -1,6 +1,6 @@
 # 0024. Source module, cache and reads
 
-Status: Accepted (2026-10-01). Amended by ADR 0033 (fetch deadline) and ADR 0034 (removing the caches of deleted
+Status: Accepted (2026-10-01). Amended by ADR 0033 (fetch deadline and size limit) and ADR 0034 (removing the caches of deleted
 ConfigSets).
 
 ## Context

@@ -1,7 +1,7 @@
 # 0027. Onboarding check and failure codes
 
 Status: Accepted (2026-10-01). Amended by ADR 0032 and ADR 0033, which add the failure codes `CREDENTIAL_DISABLED`,
-`GIT_INSTANCE_NOT_CONFIGURED`, `NO_ACTIVE_KEY` and `DEADLINE_EXCEEDED`.
+`GIT_INSTANCE_NOT_CONFIGURED`, `NO_ACTIVE_KEY`, `DEADLINE_EXCEEDED` and `REPOSITORY_TOO_LARGE`.
 
 ## Context
 
