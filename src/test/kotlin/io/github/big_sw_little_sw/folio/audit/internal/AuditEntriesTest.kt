@@ -131,7 +131,7 @@ class AuditEntriesTest {
 
     @Test
     fun `a re-encryption records counts per master-key version on the key ring`() {
-        val entry = MasterKeysReencrypted(mapOf(1 to 3), MasterKeyUsage(2, mapOf(1 to 0, 2 to 5))).toAuditEntry()
+        val entry = MasterKeysReencrypted(mapOf(1 to 3), MasterKeyUsage(2, mapOf(1 to 0, 2 to 5)), true).toAuditEntry()
 
         assertEquals(
             AuditEntry(
@@ -140,6 +140,7 @@ class AuditEntriesTest {
                 null,
                 null,
                 mapOf(
+                    "complete" to true,
                     "activeVersion" to 2,
                     "reencryptedByVersion" to mapOf(1 to 3),
                     "keysByVersion" to mapOf(1 to 0, 2 to 5),

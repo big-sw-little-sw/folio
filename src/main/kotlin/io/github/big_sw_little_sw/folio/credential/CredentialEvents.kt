@@ -22,9 +22,10 @@ data class CredentialChanged(
 
 /**
  * Published synchronously inside a transaction after a re-encryption pass (ADR 0038). [reencrypted] counts the keys
- * the pass moved off each master-key version; [usage] is what remains.
+ * the pass moved off each master-key version; [usage] is what remains. [complete] is false if a key failed partway.
  */
 data class MasterKeysReencrypted(
     val reencrypted: Map<Int, Int>,
     val usage: MasterKeyUsage,
+    val complete: Boolean,
 )

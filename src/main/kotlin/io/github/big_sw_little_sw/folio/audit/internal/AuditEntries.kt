@@ -103,6 +103,7 @@ fun MasterKeysReencrypted.toAuditEntry() =
         null,
         null,
         mapOf(
+            "complete" to complete,
             "activeVersion" to usage.activeVersion,
             "reencryptedByVersion" to reencrypted.toSortedMap(),
             "keysByVersion" to usage.keysByVersion,

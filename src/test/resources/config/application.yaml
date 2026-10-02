@@ -8,6 +8,11 @@ spring:
           # Never contacted: tests authenticate with Spring Security's jwt() request post-processor.
           issuer-uri: https://issuer.test
           audiences: folio-test
+management:
+  server:
+    # The application's port, so that MockMvc reaches the actuator; ManagementPortIntegrationTest covers a port of its
+    # own, as deployed.
+    port: 8080
 folio:
   super-admins:
     - user:super-admin

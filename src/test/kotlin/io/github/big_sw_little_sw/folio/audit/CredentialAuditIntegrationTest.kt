@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.security.core.context.SecurityContextHolder
 import java.util.Base64
@@ -109,6 +110,25 @@ class CredentialAuditIntegrationTest(
             credentials.activate(created.id, created.key(KeyStatus.ACTIVE).id)
         }
 
+        assertEquals(listOf("CREDENTIAL_CREATED"), records.of(created.id.value).map { it.action })
+    }
+
+    @Test
+    fun `a key operation whose audit record cannot be written fails and changes nothing`() {
+        val created = credentials.create("example", uniqueCredentialName())
+        // NOT VALID: records of earlier tests are not checked, only new ones.
+        jdbc
+            .sql(
+                "alter table audit_event add constraint audit_test_failure " +
+                    "check (action <> 'CREDENTIAL_KEY_REPLACED') not valid",
+            ).update()
+        try {
+            assertFailsWith<DataIntegrityViolationException> { credentials.replace(created.id) }
+        } finally {
+            jdbc.sql("alter table audit_event drop constraint audit_test_failure").update()
+        }
+
+        assertEquals(created.keys, credentials.get(created.id).keys)
         assertEquals(listOf("CREDENTIAL_CREATED"), records.of(created.id.value).map { it.action })
     }
 

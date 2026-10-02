@@ -2,9 +2,11 @@ package io.github.big_sw_little_sw.folio
 
 import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.env.YamlPropertySourceLoader
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.core.io.ClassPathResource
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -13,8 +15,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * The deployment ADR 0040 recommends: actuator endpoints on a management port of their own, so that the token-free
- * Prometheus endpoint is not on the application port.
+ * Actuator endpoints on a management port of their own, as the production configuration sets by default (ADR 0040), so
+ * that the token-free Prometheus endpoint is not on the application port. A random port stands in for 8081.
  */
 @Tag("integration")
 @Import(TestcontainersConfiguration::class)
@@ -38,6 +40,15 @@ class ManagementPortIntegrationTest(
     @Test
     fun `the application port serves no actuator endpoint`() {
         assertEquals(404, status(serverPort, "/actuator/prometheus"))
+        assertEquals(404, status(serverPort, "/actuator/health"))
+    }
+
+    @Test
+    fun `the production configuration puts the actuator on port 8081`() {
+        // src/main/resources/application.yaml; the test configuration under config/ moves it to the application port.
+        val production = YamlPropertySourceLoader().load("production", ClassPathResource("application.yaml"))
+
+        assertEquals(8081, production.single().getProperty("management.server.port"))
     }
 
     private fun status(

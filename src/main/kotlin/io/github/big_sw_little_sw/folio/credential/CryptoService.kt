@@ -46,19 +46,26 @@ class CryptoService(
      * pass that moved it first, or a retirement that wiped it, makes the update match nothing, so concurrent
      * passes and re-runs are safe.
      *
-     * The pass publishes one [MasterKeysReencrypted] at the end, in a transaction of its own (ADR 0038).
+     * The pass publishes one [MasterKeysReencrypted] at the end, in a transaction of its own (ADR 0038), also when a
+     * key fails partway: then with the keys done so far, marked incomplete, before the failure propagates.
      */
     fun reencrypt(): MasterKeyUsage {
         policy.requireAllowed(Action.CRYPTO_MANAGE, ROOT)
-        val reencrypted =
-            keys
-                .findNotUnder(masterKeys.activeKeyVersion)
-                .filter(::reencrypt)
-                .groupingBy { it.encrypted.masterKeyVersion }
-                .eachCount()
-        val usage = currentUsage()
-        transactions.executeWithoutResult { events.publishEvent(MasterKeysReencrypted(reencrypted, usage)) }
-        return usage
+        val reencrypted = mutableMapOf<Int, Int>()
+        var complete = false
+        try {
+            keys.findNotUnder(masterKeys.activeKeyVersion).forEach { key ->
+                if (reencrypt(key)) reencrypted.merge(key.encrypted.masterKeyVersion, 1, Int::plus)
+            }
+            complete = true
+        } finally {
+            // If recording fails too, its exception replaces the pass's; either way the request fails.
+            val usage = currentUsage()
+            transactions.executeWithoutResult {
+                events.publishEvent(MasterKeysReencrypted(reencrypted.toMap(), usage, complete))
+            }
+        }
+        return currentUsage()
     }
 
     /** Returns false if another pass or a retirement changed the row first. */

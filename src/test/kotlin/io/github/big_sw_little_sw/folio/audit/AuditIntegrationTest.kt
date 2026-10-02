@@ -140,6 +140,18 @@ class AuditIntegrationTest(
     }
 
     @Test
+    fun `deleting a rule that does not exist records nothing`() {
+        val namespace = namespaces.create(null, Slug("engineering"))
+        val configSet = configSets.create(namespace.id, Slug("app"), credentials.exampleSource())
+
+        namespaceRules.deleteRule(namespace.id, Action.CONFIG_ITEM_READ)
+        configSetRules.deleteRule(configSet.id, Action.CONFIG_ITEM_READ)
+
+        assertEquals(listOf("NAMESPACE_CREATED"), records.of(namespace.id.value).map { it.action })
+        assertEquals(listOf("CONFIG_SET_CREATED"), records.of(configSet.id.value).map { it.action })
+    }
+
+    @Test
     fun `a caller who is not a super admin is recorded with its application ID`() {
         val namespace = namespaces.create(null, Slug("engineering"))
         namespaceRules.putRule(namespace.id, Rule(Action.NAMESPACE_RENAME, setOf(Subject.User("alice"))))
