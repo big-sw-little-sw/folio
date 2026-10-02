@@ -20,8 +20,7 @@ import java.security.KeyPair
 import java.security.PublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /**
@@ -37,15 +36,19 @@ class SshConnections(
     // Empty and never written: JGit resolves `~` and `~/.ssh` against it instead of the process user's home.
     private val home: File = Files.createDirectories(properties.cacheDirectory.resolve("ssh-home")).toFile()
 
-    // Daemon: an enforcement still scheduled must not keep the JVM alive.
-    private val watchdog: ScheduledExecutorService =
-        Executors.newSingleThreadScheduledExecutor(
+    // Daemon: an enforcement still scheduled must not keep the JVM alive. Cancelled enforcements, one per finished
+    // operation, are removed at once rather than held until their deadline.
+    private val watchdog =
+        ScheduledThreadPoolExecutor(
+            1,
             Thread
                 .ofPlatform()
                 .name("folio-fetch-deadline")
                 .daemon()
                 .factory(),
-        )
+        ).apply {
+            removeOnCancelPolicy = true
+        }
 
     /**
      * Runs [operation], whose JGit commands must apply the callback it receives so they connect with [credential].

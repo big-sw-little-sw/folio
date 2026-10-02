@@ -3,10 +3,12 @@ package io.github.big_sw_little_sw.folio.sync.internal
 import java.time.Duration
 
 /**
- * Covers what the fetch deadline does not: connecting, `ls-remote` stalls up to JGit's idle timeout, and recording
- * the result (ADR 0032).
+ * Covers what the fetch deadline does not cut (ADR 0032, ADR 0033): an SSH session that reaches key exchange and
+ * authentication just before the deadline may take sshd's 2-minute authentication timeout, then up to 30 seconds to
+ * open its command channel, before the command is cut as it starts. That leaves 30 seconds for loading the ConfigSet,
+ * the size check and recording.
  */
-private val LEASE_MARGIN: Duration = Duration.ofMinutes(2)
+private val LEASE_MARGIN: Duration = Duration.ofMinutes(3)
 
 /**
  * How long after an attempt the ConfigSet is due again: [interval] after a success, doubled for each of the

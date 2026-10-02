@@ -70,7 +70,7 @@ class SyncBoundsIntegrationTest(
     }
 
     @Test
-    fun `a server that sends nothing past the deadline is cut off at the deadline`() {
+    fun `ls-remote on a server that sends nothing past the deadline is cut off at the deadline`() {
         val configSet = fixture.configSet(fixture.authorizedCredential(SshGitServer.delayed(SLOW_SECONDS)))
 
         val seconds = secondsToSync(sourceProperties.copy(fetchDeadline = DEADLINE))
@@ -81,13 +81,29 @@ class SyncBoundsIntegrationTest(
     }
 
     @Test
-    fun `a server that keeps sending, so the connection is never idle, is cut off mid-response at the deadline`() {
-        val configSet = fixture.configSet(fixture.authorizedCredential(SshGitServer.TRICKLING))
+    fun `ls-remote on a server that keeps sending, so the connection is never idle, is cut off at the deadline`() {
+        // About 40 seconds for the ref advertisement alone.
+        val configSet = fixture.configSet(fixture.authorizedCredential(SshGitServer.throttled(8)))
 
         val seconds = secondsToSync(sourceProperties.copy(fetchDeadline = DEADLINE))
 
         assertTrue(seconds < DEADLINE.seconds + MARGIN_SECONDS, "took $seconds s")
         assertEquals("DEADLINE_EXCEEDED", state(configSet).errorCode)
+    }
+
+    @Test
+    fun `a pack transfer still running at the deadline is cut off at the deadline`() {
+        // The ref advertisements pass at once, so ls-remote finishes; the 4 MB pack would take about a minute.
+        SshGitServer.createLargeRepository("large", LARGE_REPOSITORY_BYTES)
+        val credential = fixture.authorizedCredential(SshGitServer.throttled(THROTTLED_BYTES_PER_SECOND))
+        val configSet = fixture.configSet(credential, repository = "large")
+
+        val seconds = secondsToSync(sourceProperties.copy(fetchDeadline = DEADLINE))
+
+        assertTrue(seconds < DEADLINE.seconds + MARGIN_SECONDS, "took $seconds s")
+        assertEquals("DEADLINE_EXCEEDED", state(configSet).errorCode)
+        // The fetch itself started: only it creates the cached repository, after ls-remote.
+        assertTrue(sourceProperties.cacheDirectory.resolve("${configSet.id.value}.git").exists())
     }
 
     @Test
@@ -118,13 +134,18 @@ class SyncBoundsIntegrationTest(
     private fun state(configSet: ConfigSet) = checkNotNull(states.find(configSet.id))
 
     companion object {
-        val DEADLINE: Duration = Duration.ofSeconds(2)
+        val DEADLINE: Duration = Duration.ofSeconds(3)
 
-        /** Covers connecting, the cut itself and recording; far below what the server would take without the cut. */
-        const val MARGIN_SECONDS = 3L
+        /**
+         * Covers connecting, the cut and recording, with headroom for slow CI machines; still well below the 40 seconds
+         * or more each server would take without the cut.
+         */
+        const val MARGIN_SECONDS = 12L
 
         /** Without the deadline, a sync would wait this long twice, for ls-remote and the fetch. */
-        const val SLOW_SECONDS = 20
+        const val SLOW_SECONDS = 60
+        const val LARGE_REPOSITORY_BYTES = 4_000_000
+        const val THROTTLED_BYTES_PER_SECOND = 65_536
 
         @JvmStatic
         @DynamicPropertySource

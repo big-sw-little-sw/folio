@@ -29,6 +29,17 @@ class FetchDeadlineTest {
     }
 
     @Test
+    fun `as a progress monitor it cancels JGit's work from the deadline on`() {
+        val deadline = FetchDeadline(Duration.ofSeconds(10)) { now }
+
+        now = Duration.ofSeconds(10).toNanos() - 1
+        assertFalse(deadline.isCancelled())
+        now = Duration.ofSeconds(10).toNanos()
+        assertTrue(deadline.isCancelled())
+        assertTrue(deadline.exceeded)
+    }
+
+    @Test
     fun `the time left survives a wrap-around of the nanosecond clock`() {
         now = Long.MAX_VALUE - 5
         val deadline = FetchDeadline(Duration.ofNanos(10)) { now }
