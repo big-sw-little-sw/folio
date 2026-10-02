@@ -6,6 +6,11 @@ import io.github.big_sw_little_sw.folio.configset.ConfigSetPathNotFoundException
 import io.github.big_sw_little_sw.folio.configset.DuplicateConfigSetSlugException
 import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetIdException
 import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetPathException
+import io.github.big_sw_little_sw.folio.consumption.ConsumptionException
+import io.github.big_sw_little_sw.folio.consumption.InvalidRevisionException
+import io.github.big_sw_little_sw.folio.consumption.NotYetSyncedException
+import io.github.big_sw_little_sw.folio.consumption.RevisionNotAvailableException
+import io.github.big_sw_little_sw.folio.consumption.UnknownRevisionException
 import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
 import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialNotFoundException
@@ -36,6 +41,7 @@ import io.github.big_sw_little_sw.folio.source.InvalidSourcePathException
 import io.github.big_sw_little_sw.folio.source.RevisionNotFoundException
 import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
 import io.github.big_sw_little_sw.folio.source.SourceException
+import io.github.big_sw_little_sw.folio.source.SourceFailure
 import io.github.big_sw_little_sw.folio.source.SourceFileNotFoundException
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -143,9 +149,27 @@ class ProblemDetailsAdvice {
 
             // The fixed summary and code only; never the transport output behind them (ADR 0027).
             is SourceAccessFailedException -> {
-                problem(HttpStatus.BAD_GATEWAY, exception.failure.summary).apply {
+                val status =
+                    if (exception.failure == SourceFailure.DEADLINE_EXCEEDED) {
+                        HttpStatus.GATEWAY_TIMEOUT
+                    } else {
+                        HttpStatus.BAD_GATEWAY
+                    }
+                problem(status, exception.failure.summary).apply {
                     setProperty("code", exception.failure.name)
                 }
+            }
+        }
+
+    @ExceptionHandler
+    fun consumption(exception: ConsumptionException): ProblemDetail =
+        when (exception) {
+            is InvalidRevisionException -> {
+                problem(HttpStatus.BAD_REQUEST, exception.message)
+            }
+
+            is NotYetSyncedException, is UnknownRevisionException, is RevisionNotAvailableException -> {
+                problem(HttpStatus.NOT_FOUND, exception.message)
             }
         }
 
