@@ -1,6 +1,7 @@
 # 0015. ConfigSet module boundaries
 
-Status: Accepted (2026-09-30). The shared ID helper it anticipated is ADR 0021.
+Status: Accepted (2026-09-30). The shared ID helper it anticipated is ADR 0021. Amended by ADR 0032: the `cfg_`
+conversion moves to the ConfigSet module's public API.
 
 ## Context
 
