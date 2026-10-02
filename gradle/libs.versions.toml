@@ -8,6 +8,8 @@ spring-dependency-management = "1.1.7"
 spring-modulith = "2.1.1"
 springdoc = "3.1.0"
 jgit = "7.8.0.202609011348-r"
+# Apache sshd's Ed25519 provider for Git SSH only; Folio's own crypto stays JDK-only (ADR 0026).
+bouncycastle = "1.86"
 ktlintGradle = "14.2.0"
 ktlint = "1.8.0"
 # Pre-release: detekt 1.23.x does not support Kotlin 2.3. Move to 2.0.0 once it is final.
@@ -20,6 +22,7 @@ spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-b
 springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
 jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
 jgit-ssh-apache = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
+bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

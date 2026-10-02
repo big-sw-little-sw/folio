@@ -22,7 +22,7 @@ where v1 has a real implementation behind them.
 | Authentication | OAuth2 resource server (JWT bearer tokens) only |
 | Client for v1 | Admin and consumption HTTP APIs, used through curl, checked-in `.http` files and springdoc's Swagger UI |
 | Leases | PostgreSQL `SELECT … FOR UPDATE SKIP LOCKED`. No ShedLock |
-| Crypto | JDK only: HKDF-SHA256 (Java 25 KDF API) and AES-256-GCM. No Bouncy Castle |
+| Crypto | JDK only for Folio's own crypto: HKDF-SHA256 (Java 25 KDF API) and AES-256-GCM. Bouncy Castle is used only as Apache sshd's Ed25519 provider for Git SSH. |
 
 ---
 
