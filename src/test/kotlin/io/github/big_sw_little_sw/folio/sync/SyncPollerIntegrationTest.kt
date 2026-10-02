@@ -11,8 +11,10 @@ import io.github.big_sw_little_sw.folio.source.SshGitServer
 import io.github.big_sw_little_sw.folio.sync.internal.SyncLease
 import io.github.big_sw_little_sw.folio.sync.internal.SyncPoller
 import io.github.big_sw_little_sw.folio.sync.internal.SyncProperties
+import io.github.big_sw_little_sw.folio.sync.internal.SyncRecorder
 import io.github.big_sw_little_sw.folio.sync.internal.SyncStateRepository
 import io.github.big_sw_little_sw.folio.sync.internal.Synchronizer
+import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -39,6 +41,8 @@ class SyncPollerIntegrationTest(
     @Autowired private val states: SyncStateRepository,
     @Autowired private val properties: SyncProperties,
     @Autowired private val configSetSources: ConfigSetSources,
+    @Autowired private val recorder: SyncRecorder,
+    @Autowired private val meters: MeterRegistry,
     @Autowired private val sources: SourceAccess,
     @Autowired configSets: ConfigSetService,
     @Autowired credentials: CredentialService,
@@ -106,7 +110,7 @@ class SyncPollerIntegrationTest(
     fun `a sync that fails and cannot even release its lease still returns its slot`() {
         val configSet = fixture.configSet(fixture.authorizedCredential())
         val broken =
-            object : Synchronizer(states, configSetSources, sources, properties) {
+            object : Synchronizer(states, configSetSources, sources, recorder, properties, meters) {
                 override fun sync(lease: SyncLease): Boolean = throw IllegalStateException("sync failed")
 
                 override fun release(

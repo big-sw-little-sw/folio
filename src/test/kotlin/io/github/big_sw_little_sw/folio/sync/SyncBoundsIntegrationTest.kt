@@ -14,8 +14,10 @@ import io.github.big_sw_little_sw.folio.source.internal.RepositoryCache
 import io.github.big_sw_little_sw.folio.source.internal.SourceProperties
 import io.github.big_sw_little_sw.folio.source.internal.SshConnections
 import io.github.big_sw_little_sw.folio.sync.internal.SyncProperties
+import io.github.big_sw_little_sw.folio.sync.internal.SyncRecorder
 import io.github.big_sw_little_sw.folio.sync.internal.SyncStateRepository
 import io.github.big_sw_little_sw.folio.sync.internal.Synchronizer
+import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -46,6 +48,8 @@ class SyncBoundsIntegrationTest(
     @Autowired private val synchronizer: Synchronizer,
     @Autowired private val states: SyncStateRepository,
     @Autowired private val configSetSources: ConfigSetSources,
+    @Autowired private val recorder: SyncRecorder,
+    @Autowired private val meters: MeterRegistry,
     @Autowired private val properties: SyncProperties,
     @Autowired private val keyPairs: CredentialKeyPairs,
     @Autowired private val connections: SshConnections,
@@ -124,7 +128,14 @@ class SyncBoundsIntegrationTest(
     /** Syncs the one due ConfigSet with [bounds] and returns how long it took, in whole seconds. */
     private fun secondsToSync(bounds: SourceProperties): Long {
         val bounded =
-            Synchronizer(states, configSetSources, SourceAccess(keyPairs, connections, cache, bounds), properties)
+            Synchronizer(
+                states,
+                configSetSources,
+                SourceAccess(keyPairs, connections, cache, bounds),
+                recorder,
+                properties,
+                meters,
+            )
         val lease = bounded.claimDue(1).single()
         val started = System.nanoTime()
         assertTrue(bounded.sync(lease))

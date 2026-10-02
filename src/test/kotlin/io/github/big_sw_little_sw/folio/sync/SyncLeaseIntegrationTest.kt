@@ -1,6 +1,8 @@
 package io.github.big_sw_little_sw.folio.sync
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.audit.AuditRecords
+import io.github.big_sw_little_sw.folio.configset.ConfigSet
 import io.github.big_sw_little_sw.folio.configset.ConfigSetService
 import io.github.big_sw_little_sw.folio.configset.ConfigSetSources
 import io.github.big_sw_little_sw.folio.credential.CredentialService
@@ -8,8 +10,10 @@ import io.github.big_sw_little_sw.folio.namespace.NamespaceService
 import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SshGitServer
 import io.github.big_sw_little_sw.folio.sync.internal.SyncProperties
+import io.github.big_sw_little_sw.folio.sync.internal.SyncRecorder
 import io.github.big_sw_little_sw.folio.sync.internal.SyncStateRepository
 import io.github.big_sw_little_sw.folio.sync.internal.Synchronizer
+import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -37,6 +41,8 @@ class SyncLeaseIntegrationTest(
     @Autowired private val synchronizer: Synchronizer,
     @Autowired private val states: SyncStateRepository,
     @Autowired private val configSetSources: ConfigSetSources,
+    @Autowired private val recorder: SyncRecorder,
+    @Autowired private val meters: MeterRegistry,
     @Autowired private val sources: SourceAccess,
     @Autowired private val properties: SyncProperties,
     @Autowired configSets: ConfigSetService,
@@ -45,7 +51,8 @@ class SyncLeaseIntegrationTest(
     @Autowired jdbc: JdbcClient,
 ) {
     private val fixture = SyncFixture(configSets, credentials, namespaces, jdbc, "leases")
-    private val other = Synchronizer(states, configSetSources, sources, properties)
+    private val records = AuditRecords(jdbc)
+    private val other = Synchronizer(states, configSetSources, sources, recorder, properties, meters)
     private lateinit var commits: List<String>
 
     @BeforeEach
@@ -114,11 +121,16 @@ class SyncLeaseIntegrationTest(
         assertFalse(synchronizer.sync(lost))
         assertNull(checkNotNull(states.find(configSet.id)).lastAttemptAt)
         assertEquals(other.instanceId.toString(), fixture.leaseOwner(configSet))
+        assertEquals(emptyList(), syncRecords(configSet))
 
         assertTrue(other.sync(taken))
         assertEquals(commits.last(), checkNotNull(states.find(configSet.id)).lastSyncedRevision)
         assertNull(fixture.leaseOwner(configSet))
+        assertEquals(listOf("SYNC_REVISION_CHANGED"), syncRecords(configSet))
     }
+
+    private fun syncRecords(configSet: ConfigSet) =
+        records.of(configSet.id.value).map { it.action }.filter { it.startsWith("SYNC_") }
 
     @Test
     fun `a lease claimed again by the same instance replaces the earlier one`() {

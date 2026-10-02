@@ -7,8 +7,10 @@ import io.github.big_sw_little_sw.folio.credential.internal.StoredKey
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.policy.PolicyService
 import io.github.big_sw_little_sw.folio.policy.ResourceRef
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 
 /**
  * How many stored private keys each master-key version encrypts, for every configured version. A version with
@@ -27,6 +29,8 @@ class CryptoService(
     private val cipher: PrivateKeyCipher,
     private val masterKeys: CryptoProperties,
     private val policy: PolicyService,
+    private val events: ApplicationEventPublisher,
+    private val transactions: TransactionTemplate,
 ) {
     @Transactional(readOnly = true)
     fun usage(): MasterKeyUsage {
@@ -41,17 +45,34 @@ class CryptoService(
      * done. The update applies only while the row is still under the version it was read with. A concurrent
      * pass that moved it first, or a retirement that wiped it, makes the update match nothing, so concurrent
      * passes and re-runs are safe.
+     *
+     * The pass publishes one [MasterKeysReencrypted] at the end, in a transaction of its own (ADR 0038), also when a
+     * key fails partway: then with the keys done so far, marked incomplete, before the failure propagates.
      */
     fun reencrypt(): MasterKeyUsage {
         policy.requireAllowed(Action.CRYPTO_MANAGE, ROOT)
-        keys.findNotUnder(masterKeys.activeKeyVersion).forEach(::reencrypt)
+        val reencrypted = mutableMapOf<Int, Int>()
+        var complete = false
+        try {
+            keys.findNotUnder(masterKeys.activeKeyVersion).forEach { key ->
+                if (reencrypt(key)) reencrypted.merge(key.encrypted.masterKeyVersion, 1, Int::plus)
+            }
+            complete = true
+        } finally {
+            // If recording fails too, its exception replaces the pass's; either way the request fails.
+            val usage = currentUsage()
+            transactions.executeWithoutResult {
+                events.publishEvent(MasterKeysReencrypted(reencrypted.toMap(), usage, complete))
+            }
+        }
         return currentUsage()
     }
 
-    private fun reencrypt(key: StoredKey) {
+    /** Returns false if another pass or a retirement changed the row first. */
+    private fun reencrypt(key: StoredKey): Boolean {
         val plaintext = cipher.decrypt(key.encrypted, key.credentialId, key.id)
         try {
-            keys.replaceEncryption(
+            return keys.replaceEncryption(
                 key.id,
                 key.encrypted.masterKeyVersion,
                 cipher.encrypt(plaintext, key.credentialId, key.id),

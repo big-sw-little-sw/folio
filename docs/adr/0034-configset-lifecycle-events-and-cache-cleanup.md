@@ -1,6 +1,7 @@
 # 0034. ConfigSet lifecycle events and cache cleanup
 
-Status: Accepted (2026-10-01). Amends ADR 0024 and ADR 0031.
+Status: Accepted (2026-10-01). Amends ADR 0024 and ADR 0031. Amended by ADR 0038: the events carry the ConfigSet's path,
+and audit also listens to them in the transaction.
 
 ## Context
 

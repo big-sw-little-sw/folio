@@ -1,7 +1,8 @@
 # 0032. Sync state and leases
 
 Status: Accepted (2026-10-01). Amends ADR 0015 and ADR 0027. Amended by ADR 0035 (the consumption module depends on
-`sync`) and ADR 0036 (synced revisions and reads on demand).
+`sync`), ADR 0036 (synced revisions and reads on demand) and ADR 0038 (an attempt and its audit record are recorded in
+one transaction).
 
 ## Context
 
