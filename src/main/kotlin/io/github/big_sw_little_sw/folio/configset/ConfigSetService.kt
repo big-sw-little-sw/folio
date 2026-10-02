@@ -148,14 +148,33 @@ class ConfigSetService(
     }
 
     /**
+     * The path of [configSet], which the caller was allowed to view: seeing a ConfigSet includes seeing its path
+     * (ADR 0013).
+     */
+    @Transactional(readOnly = true)
+    fun pathOf(configSet: ConfigSet): ConfigSetPath =
+        ConfigSetPath(tree.slugPath(configSet.namespaceId), configSet.slug)
+
+    /**
+     * Whether everyone, anonymous callers included, may do [action] on [configSet], so that responses may be cached
+     * in shared caches (ADR 0035). Says nothing about the caller.
+     */
+    @Transactional(readOnly = true)
+    fun isPublic(
+        configSet: ConfigSet,
+        action: Action,
+    ): Boolean = policy.isPublic(action, path(configSet))
+
+    /**
      * The ConfigSet at [path]. Requires view on it, which includes seeing its path. Paths can be guessed, so a
-     * ConfigSet the caller may not view is reported as not found, unlike lookups by ID (ADR 0013).
+     * ConfigSet the caller may not view is reported as not found, unlike lookups by ID (ADR 0013). An anonymous caller
+     * gets "authentication required" for both instead (ADR 0035).
      */
     @Transactional(readOnly = true)
     fun resolve(path: ConfigSetPath): ConfigSet {
-        val namespace = tree.findByPath(path.namespacePath) ?: throw ConfigSetPathNotFoundException(path)
-        val configSet = configSets.findBySlug(namespace.id, path.slug)
+        val configSet = tree.findByPath(path.namespacePath)?.let { configSets.findBySlug(it.id, path.slug) }
         if (configSet == null || !policy.isAllowed(Action.CONFIG_SET_VIEW, path(configSet))) {
+            policy.requireAuthenticated(Action.CONFIG_SET_VIEW)
             throw ConfigSetPathNotFoundException(path)
         }
         return configSet

@@ -51,6 +51,14 @@ class BearerTokenIntegrationTest(
     }
 
     @Test
+    fun `rejects an invalid token on routes that anonymous callers may reach`() {
+        // Without a token this invalid path gives 400; a token that is sent must be valid first.
+        val url = "/api/v1/configsets:resolve?path=a"
+        mvc.get(url).andExpect { status { isBadRequest() } }
+        mvc.get(url) { bearer(token("another-api")) }.andExpect { status { isUnauthorized() } }
+    }
+
+    @Test
     fun `rejects a token whose claims do not map to a principal`() {
         mvc.get(NAMESPACES) { bearer(token(AUDIENCE, subject = null)) }.andExpect { status { isUnauthorized() } }
     }

@@ -38,6 +38,10 @@ class SecurityConfiguration(
                 authorize("/swagger-ui/**", permitAll)
                 authorize("/swagger-ui.html", permitAll)
                 authorize("/error", permitAll)
+                // Consumption routes take anonymous callers too, so that `public` rules apply; their services
+                // authorize every request (ADR 0035). A token that is sent must still be valid.
+                authorize("/api/v1/configsets/**", permitAll)
+                authorize("/api/v1/configsets:resolve", permitAll)
                 authorize(anyRequest, authenticated)
             }
             oauth2ResourceServer { jwt { } }
