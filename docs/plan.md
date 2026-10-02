@@ -58,15 +58,21 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Credential and crypto operations are authorized at the root, so only bootstrap admins in v1 (ADR 0018).
   - API IDs are `cred_…` and `key_…`; all prefixes share one helper (ADR 0021).
 
-- [ ] **5. Git source**
-  - Each ConfigSet maps to exactly one Git source; the source becomes required on ConfigSets.
-  - JGit SSH transport with mandatory host-key verification against each instance's trusted host keys, added
-    to its `folio.git.instances` entry (ADR 0016).
-  - Disposable local bare-repository cache per source.
+- [x] **5. Git source**
+  - Each ConfigSet maps to exactly one Git source, set at creation and required: credential, repository path on the
+    credential's Git instance, branch and root path (ADR 0022). Changing a source is not built yet.
+  - Attaching a credential needs `CREDENTIAL_USE` at the root, so bootstrap admins only in v1 (ADR 0023).
+  - New `source` module: JGit SSH transport with mandatory host-key verification against each instance's trusted host
+    keys, added to its `folio.git.instances` entry with the SSH user (ADR 0016, ADR 0025). Nothing is read from
+    `~/.ssh`, an SSH agent or the system and user Git config.
+  - Apache sshd gets Ed25519 from Bouncy Castle; Folio's own crypto stays JDK-only (ADR 0026).
+  - Disposable local bare-repository cache per ConfigSet under `folio.git.cache-directory` (ADR 0024).
   - File listing and reads at latest or an exact commit, beneath the ConfigSet root path.
-  - Path normalisation rejects absolute paths and traversal segments.
-  - Onboarding check with `ls-remote`: credential reaches the repository; ref and root path exist.
-  - Optional `ls-remote` check before activating a pending key (moved from slice 4, ADR 0017).
+  - Path normalisation rejects absolute paths, traversal and empty segments, backslashes and NUL.
+  - Onboarding check, `POST /api/v1/admin/configsets/{id}:check`: `ls-remote` and fetch show that the credential
+    reaches the repository and the branch and root path exist; failures are stable codes with safe summaries
+    (ADR 0027).
+  - The same check with a pending `keyId` verifies a pending key before activation (moved from slice 4, ADR 0017).
   - Sync gets the credential's active key pair from `CredentialKeyPairs.active`.
   - Integration tests run against an SSH Git server in Testcontainers (ADR 0004).
 
@@ -77,6 +83,7 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Sync state: last seen and synced revisions, attempt and success times, error code, safe summary,
     consecutive failures.
   - Manual sync through the admin API.
+  - Remove the cache directories of deleted ConfigSets (ADR 0024).
 
 - [ ] **7. Consumption API**
   - ConfigSet metadata, file listing, raw file reads and revision listing; `latest` and exact-revision reads.
