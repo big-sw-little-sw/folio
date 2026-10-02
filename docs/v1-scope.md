@@ -70,6 +70,8 @@ where v1 has a real implementation behind them.
   1. Generate a `PENDING` key pair and return its public key; sync keeps using the `ACTIVE` key.
   2. Activate it, optionally verifying access with `ls-remote` first. The previous key becomes
      `RETIRED` and its ciphertext is wiped; its public key and fingerprint are kept for audit.
+- Discard a `PENDING` key without activating it; it becomes `RETIRED` like a replaced key
+  ([ADR 0030](adr/0030-discarding-a-pending-key.md)).
 - Emergency replacement: generate and activate immediately.
 - Disable a credential.
 

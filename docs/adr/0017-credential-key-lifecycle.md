@@ -1,6 +1,7 @@
 # 0017. Credential key lifecycle
 
-Status: Accepted (2026-10-01). Amended by ADR 0029: a credential has a name.
+Status: Accepted (2026-10-01). Amended by ADR 0029: a credential has a name. Amended by ADR 0030: a pending key
+can be discarded without activating it.
 
 ## Context
 

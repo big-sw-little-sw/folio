@@ -90,6 +90,21 @@ class CredentialService(
         return existing(id)
     }
 
+    /**
+     * Retires the pending key [keyId] without activating it, so a new regeneration can follow (ADR 0030). Like
+     * activation, it names the key, so it cannot discard a key generated since the caller looked.
+     */
+    @Transactional
+    fun discard(
+        id: CredentialId,
+        keyId: KeyId,
+    ): Credential {
+        lockEnabled(id)
+        if (pendingKey(id) != keyId) throw KeyNotPendingException(id, keyId)
+        credentials.retire(id, KeyStatus.PENDING)
+        return existing(id)
+    }
+
     /** Emergency replacement: retires the active key and any pending key, and activates a new key at once. */
     @Transactional
     fun replace(id: CredentialId): Credential {

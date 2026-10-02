@@ -38,12 +38,12 @@ class CredentialDisabledException(
     val id: CredentialId,
 ) : CredentialException("Credential ${id.value} is disabled")
 
-/** A regeneration while a key is already pending; activate it or replace the credential's key first. */
+/** A regeneration while a key is already pending; activate or discard it, or replace the credential's key, first. */
 class PendingKeyExistsException(
     val id: CredentialId,
 ) : CredentialException("Credential ${id.value} already has a pending key")
 
-/** Activation named a key that is not the credential's pending key (ADR 0017). */
+/** Activation or discarding named a key that is not the credential's pending key (ADR 0017, ADR 0030). */
 class KeyNotPendingException(
     val credentialId: CredentialId,
     val keyId: KeyId,

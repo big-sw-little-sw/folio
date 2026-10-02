@@ -93,6 +93,19 @@ class CredentialServiceIntegrationTest(
     }
 
     @Test
+    fun `discarding retires the pending key, wipes its encrypted private key and keeps the active key`() {
+        val created = service.create("example", uniqueCredentialName())
+        val activeKey = created.keys.single()
+        val pending = service.regenerate(created.id).keys.single { it.status == KeyStatus.PENDING }
+
+        val discarded = service.discard(created.id, pending.id)
+
+        assertEquals(listOf(activeKey, pending.copy(status = KeyStatus.RETIRED)), discarded.keys)
+        assertEquals(5, wipedColumns(pending.id))
+        assertEquals(activeKey.publicKey, OpenSshPublicKey.of(keyPairs.active(created.id).keyPair.public).text)
+    }
+
+    @Test
     fun `emergency replacement switches the active key pair at once`() {
         val created = service.create("example", uniqueCredentialName())
         val before = keyPairs.active(created.id).keyPair
