@@ -17,7 +17,7 @@ private const val MAX_CAUSES = 20
  * The stable code for a failed Git operation (ADR 0027). Looks only at exception types and sshd's disconnect code,
  * never at messages, which carry transport output. [hostKeyRejected] comes from the key database of the connection,
  * because JGit reports a rejected host key like any other failed connection, and [deadlineExceeded] from the fetch's
- * [FetchDeadline], because JGit reports a cancelled fetch like any other transport failure.
+ * [FetchDeadline], because a command cut at the deadline fails like any other broken connection.
  */
 fun classify(
     error: Throwable,

@@ -96,6 +96,15 @@ class SyncLeaseIntegrationTest(
     }
 
     @Test
+    fun `a claim never takes the ConfigSets it is told to leave out`() {
+        val credential = fixture.authorizedCredential()
+        val left = fixture.configSet(credential)
+        val taken = fixture.configSet(credential)
+
+        assertEquals(listOf(taken.id), synchronizer.claimDue(CONFIG_SETS, setOf(left.id)).map { it.configSetId })
+    }
+
+    @Test
     fun `an instance that lost its lease records nothing, and the new holder records its result`() {
         val configSet = fixture.configSet(fixture.authorizedCredential())
         val lost = synchronizer.claimDue(1).single()

@@ -1,5 +1,6 @@
 package io.github.big_sw_little_sw.folio.sync.internal
 
+import io.github.big_sw_little_sw.folio.configset.ConfigSetId
 import io.github.big_sw_little_sw.folio.configset.ConfigSetSources
 import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
@@ -28,10 +29,20 @@ class Synchronizer(
 
     private val leaseDuration: Duration = leaseDuration(sources.fetchDeadline)
 
-    /** Leases up to [limit] due ConfigSets to this instance, most overdue first. */
+    /** Leases up to [limit] due ConfigSets to this instance, most overdue first, never one of [excluding]. */
     @Transactional
-    fun claimDue(limit: Int): List<SyncLease> =
-        if (limit > 0) states.claimDue(instanceId, leaseDuration, limit) else emptyList()
+    fun claimDue(
+        limit: Int,
+        excluding: Set<ConfigSetId> = emptySet(),
+    ): List<SyncLease> = if (limit > 0) states.claimDue(instanceId, leaseDuration, limit, excluding) else emptyList()
+
+    /** Releases [lease] without recording an attempt; the ConfigSet is due after [delay]. */
+    fun release(
+        lease: SyncLease,
+        delay: Duration,
+    ) {
+        states.release(lease, delay)
+    }
 
     /**
      * Fetches the leased ConfigSet's branch and records the outcome. Returns false if nothing was recorded: the
@@ -54,7 +65,8 @@ class Synchronizer(
         if (recorded) {
             log.debug("Sync of ConfigSet {} took {} ms", lease.configSetId.value, millis)
         } else {
-            log.info("Sync of ConfigSet {} lost its lease after {} ms", lease.configSetId.value, millis)
+            // Deleted during the fetch, or the lease was lost; the two look the same here.
+            log.info("Sync of ConfigSet {} was not recorded after {} ms", lease.configSetId.value, millis)
         }
         return recorded
     }

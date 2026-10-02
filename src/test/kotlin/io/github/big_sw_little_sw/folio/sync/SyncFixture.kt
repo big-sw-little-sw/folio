@@ -43,18 +43,18 @@ class SyncFixture(
         return commits
     }
 
-    /** A credential of the test server whose active key the server accepts, answering after [delaySeconds]. */
-    fun authorizedCredential(delaySeconds: Int = 0): Credential {
+    /** A credential of the test server whose active key the server accepts, running commands inside [command]. */
+    fun authorizedCredential(command: String? = null): Credential {
         val credential = credentials.create("test-server", uniqueCredentialName())
-        authorize(credential, delaySeconds)
+        authorize(credential, command)
         return credential
     }
 
     fun authorize(
         credential: Credential,
-        delaySeconds: Int = 0,
+        command: String? = null,
     ) {
-        SshGitServer.authorize(credential.keys.single { it.status == KeyStatus.ACTIVE }.publicKey, delaySeconds)
+        SshGitServer.authorize(credential.keys.single { it.status == KeyStatus.ACTIVE }.publicKey, command)
     }
 
     fun configSet(credential: Credential): ConfigSet {
@@ -87,6 +87,13 @@ class SyncFixture(
             ).param("id", configSet.id.value)
             .update()
     }
+
+    fun isDue(configSet: ConfigSet): Boolean =
+        jdbc
+            .sql("select next_due_at <= now() and lease_owner is null from sync_state where config_set_id = :id")
+            .param("id", configSet.id.value)
+            .query(Boolean::class.java)
+            .single()
 
     fun leaseOwner(configSet: ConfigSet): String? =
         jdbc

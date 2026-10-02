@@ -29,6 +29,7 @@ logging:
 # - folio.git.cache-directory: required; an absolute directory for the disposable repository cache (ADR 0024).
 #   Each instance has its own.
 # - folio.git.fetch-deadline: how long one fetch may take, default 5m (ADR 0033).
+# - folio.git.max-repository-size: the most a ConfigSet's cached repository may hold on disk, default 1GB (ADR 0033).
 # - folio.sync (ADR 0032), all optional: interval (default 1m) between syncs of a ConfigSet; max-backoff (default 30m)
 #   caps the doubling of that interval after consecutive failures; poll-interval (default 10s) between polls for due
 #   ConfigSets; max-concurrent-fetches (default 4) per instance.
