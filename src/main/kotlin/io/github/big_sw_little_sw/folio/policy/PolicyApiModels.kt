@@ -51,8 +51,8 @@ fun Decision.toResponse(
     resourceId: String,
     apiId: (ResourceRef) -> String,
 ) = when (this) {
-    is Decision.BootstrapAdmin -> {
-        DecisionResponse(true, action, resourceId, "BOOTSTRAP_ADMIN", null, subject.toString())
+    is Decision.SuperAdmin -> {
+        DecisionResponse(true, action, resourceId, "SUPER_ADMIN", null, subject.toString())
     }
 
     is Decision.Granted -> {

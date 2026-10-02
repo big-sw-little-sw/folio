@@ -25,8 +25,8 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
     authenticated, user, group, application.
   - Nearest-rule resolution with default deny, enforced in application services.
   - Decision explanation endpoint for administrators.
-  - Bootstrap admins from `folio.bootstrap.admins` hold every action at the root and below, ahead of
-    rules (ADR 0002, ADR 0008).
+  - Super admins from `folio.super-admins` hold every action at the root and below, ahead of
+    rules (ADR 0002, ADR 0008, ADR 0028).
   - Namespace admin API (create, rename, move, delete) behind policy checks.
   - Errors are RFC 9457 problem details; namespace API IDs are `ns_…` (ADR 0007).
   - Only `NAMESPACE_*` and `POLICY_*` actions exist; slices 3 to 7 add the actions of the features they
@@ -55,13 +55,13 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Master-key rotation: `POST /api/v1/admin/crypto:reencrypt` re-encrypts per row with an optimistic check,
     is safe to re-run and reports rows per master-key version (ADR 0020).
   - Startup fails clearly if a row references an unconfigured master-key version.
-  - Credential and crypto operations are authorized at the root, so only bootstrap admins in v1 (ADR 0018).
+  - Credential and crypto operations are authorized at the root, so only super admins in v1 (ADR 0018).
   - API IDs are `cred_…` and `key_…`; all prefixes share one helper (ADR 0021).
 
 - [x] **5. Git source**
   - Each ConfigSet maps to exactly one Git source, set at creation and required: credential, repository path on the
     credential's Git instance, branch and root path (ADR 0022). Changing a source is not built yet.
-  - Attaching a credential needs `CREDENTIAL_USE` at the root, so bootstrap admins only in v1 (ADR 0023).
+  - Attaching a credential needs `CREDENTIAL_USE` at the root, so super admins only in v1 (ADR 0023).
   - New `source` module: JGit SSH transport with mandatory host-key verification against each instance's trusted host
     keys, added to its `folio.git.instances` entry with the SSH user (ADR 0016, ADR 0025). Nothing is read from
     `~/.ssh`, an SSH agent or the system and user Git config.

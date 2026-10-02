@@ -11,7 +11,7 @@ import io.github.big_sw_little_sw.folio.namespace.NamespaceNotEmptyException
 import io.github.big_sw_little_sw.folio.namespace.NamespaceNotFoundException
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
 import io.github.big_sw_little_sw.folio.namespace.Slug
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import io.github.big_sw_little_sw.folio.source.Branch
 import io.github.big_sw_little_sw.folio.source.RepositoryPath
@@ -45,10 +45,10 @@ class ConfigSetServiceIntegrationTest(
 ) {
     private lateinit var source: SourceDefinition
 
-    // Authorization has its own tests; these run as a bootstrap admin, who may do everything.
+    // Authorization has its own tests; these run as a super admin, who may do everything.
     @BeforeEach
-    fun authenticateAsBootstrapAdmin() {
-        authenticateAs(BOOTSTRAP_ADMIN)
+    fun authenticateAsSuperAdmin() {
+        authenticateAs(SUPER_ADMIN)
         deleteAll()
         source = credentials.exampleSource()
     }
@@ -248,7 +248,7 @@ class ConfigSetServiceIntegrationTest(
                         { namespaces.delete(production.id) },
                     ).map { operation ->
                         executor.submit<Result<Any>> {
-                            authenticateAs(BOOTSTRAP_ADMIN)
+                            authenticateAs(SUPER_ADMIN)
                             barrier.await()
                             runCatching { operation() }
                         }

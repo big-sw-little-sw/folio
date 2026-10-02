@@ -4,7 +4,8 @@ import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
 import io.github.big_sw_little_sw.folio.credential.toCredentialId
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.credential.uniqueCredentialName
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
 import org.hamcrest.Matchers.startsWith
@@ -41,7 +42,7 @@ class CredentialApiIntegrationTest(
     @Autowired private val jdbc: JdbcClient,
     @Autowired private val keyPairs: CredentialKeyPairs,
 ) {
-    private val admin = token(BOOTSTRAP_ADMIN)
+    private val admin = token(SUPER_ADMIN)
     private val alice = token("alice")
 
     @BeforeEach
@@ -53,11 +54,12 @@ class CredentialApiIntegrationTest(
 
     @Test
     fun `create returns 201 with an active key's OpenSSH public key and fingerprint`() {
-        send(POST, CREDENTIALS, """{"gitInstance": "example"}""").andExpect {
+        send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "payments-bot"}""").andExpect {
             status { isCreated() }
             header { string(HttpHeaders.LOCATION, matchesPattern("$CREDENTIALS/cred_[0-9a-f]{32}")) }
             jsonPath("$.id") { value(matchesPattern("cred_[0-9a-f]{32}")) }
             jsonPath("$.gitInstance") { value("example") }
+            jsonPath("$.name") { value("payments-bot") }
             jsonPath("$.status") { value("ENABLED") }
             jsonPath("$.keys.length()") { value(1) }
             jsonPath("$.keys[0].id") { value(matchesPattern("key_[0-9a-f]{32}")) }
@@ -66,6 +68,18 @@ class CredentialApiIntegrationTest(
                 value(matchesPattern("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5[A-Za-z0-9+/]{48} key_[0-9a-f]{32}"))
             }
             jsonPath("$.keys[0].fingerprint") { value(matchesPattern("SHA256:[A-Za-z0-9+/]{43}")) }
+        }
+    }
+
+    @Test
+    fun `get and list return the name, which is unique per Git instance`() {
+        val id = credential("payments-bot")
+
+        send(GET, "$CREDENTIALS/$id", "").andExpect { jsonPath("$.name") { value("payments-bot") } }
+        send(GET, CREDENTIALS, "").andExpect { jsonPath("$[*].name") { value(contains("payments-bot")) } }
+        send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "payments-bot"}""").andExpectProblem(409)
+        send(POST, CREDENTIALS, """{"gitInstance": "other", "name": "payments-bot"}""").andExpect {
+            status { isCreated() }
         }
     }
 
@@ -131,6 +145,33 @@ class CredentialApiIntegrationTest(
     }
 
     @Test
+    fun `discard retires the pending key, after which a new key can be generated`() {
+        val id = credential()
+        val pendingKey = keyIds(send(POST, "$CREDENTIALS/$id:regenerate", "")).last()
+
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpect {
+            status { isOk() }
+            jsonPath("$.keys[*].status") { value(contains("ACTIVE", "RETIRED")) }
+            jsonPath("$.keys[1].id") { value(pendingKey) }
+        }
+        send(POST, "$CREDENTIALS/$id:regenerate", "").andExpect {
+            status { isOk() }
+            jsonPath("$.keys[*].status") { value(contains("ACTIVE", "RETIRED", "PENDING")) }
+        }
+    }
+
+    @Test
+    fun `discarding a key that is not the pending key gives 409`() {
+        val id = credential()
+        val activeKey = keyIds(send(GET, "$CREDENTIALS/$id", "")).single()
+
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$activeKey"}""").andExpectProblem(409)
+        val pendingKey = keyIds(send(POST, "$CREDENTIALS/$id:regenerate", "")).last()
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpect { status { isOk() } }
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpectProblem(409)
+    }
+
+    @Test
     fun `emergency replacement activates a new key at once and retires the active and pending keys`() {
         val id = credential()
         send(POST, "$CREDENTIALS/$id:regenerate", "")
@@ -154,6 +195,7 @@ class CredentialApiIntegrationTest(
         send(POST, "$CREDENTIALS/$id:regenerate", "").andExpectProblem(409)
         send(POST, "$CREDENTIALS/$id:replace", "").andExpectProblem(409)
         send(POST, "$CREDENTIALS/$id:activate", """{"keyId": "$pendingKey"}""").andExpectProblem(409)
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpectProblem(409)
     }
 
     @Test
@@ -167,10 +209,12 @@ class CredentialApiIntegrationTest(
     }
 
     @Test
-    fun `an unknown Git instance, invalid IDs and missing fields give 400`() {
+    fun `an unknown Git instance, invalid names and IDs and missing fields give 400`() {
         val id = credential()
 
-        send(POST, CREDENTIALS, """{"gitInstance": "unknown"}""").andExpectProblem(400)
+        send(POST, CREDENTIALS, """{"gitInstance": "unknown", "name": "bot"}""").andExpectProblem(400)
+        send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "Payments Bot"}""").andExpectProblem(400)
+        send(POST, CREDENTIALS, """{"gitInstance": "example"}""").andExpectProblem(400)
         send(POST, CREDENTIALS, "{}").andExpectProblem(400)
         send(GET, "$CREDENTIALS/cred_123", "").andExpectProblem(400)
         send(GET, "$CREDENTIALS/${id.replace("cred_", "key_")}", "").andExpectProblem(400)
@@ -187,7 +231,7 @@ class CredentialApiIntegrationTest(
     }
 
     @Test
-    fun `without bootstrap admin rights every endpoint denies with 403`() {
+    fun `without super admin rights every endpoint denies with 403`() {
         val id = credential()
         val keyId = keyIds(send(GET, "$CREDENTIALS/$id", "")).single()
 
@@ -231,20 +275,21 @@ class CredentialApiIntegrationTest(
         id: String,
         keyId: String,
     ) = listOf(
-        Triple(POST, CREDENTIALS, """{"gitInstance": "example"}"""),
+        Triple(POST, CREDENTIALS, """{"gitInstance": "example", "name": "other"}"""),
         Triple(GET, CREDENTIALS, ""),
         Triple(GET, "$CREDENTIALS/$id", ""),
         Triple(POST, "$CREDENTIALS/$id:regenerate", ""),
         Triple(POST, "$CREDENTIALS/$id:activate", """{"keyId": "$keyId"}"""),
+        Triple(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$keyId"}"""),
         Triple(POST, "$CREDENTIALS/$id:replace", ""),
         Triple(POST, "$CREDENTIALS/$id:disable", ""),
         Triple(GET, CRYPTO, ""),
         Triple(POST, "$CRYPTO:reencrypt", ""),
     )
 
-    private fun credential(): String {
+    private fun credential(name: String = uniqueCredentialName().value): String {
         val body =
-            send(POST, CREDENTIALS, """{"gitInstance": "example"}""")
+            send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "$name"}""")
                 .andExpect { status { isCreated() } }
                 .andReturn()
                 .response.contentAsString

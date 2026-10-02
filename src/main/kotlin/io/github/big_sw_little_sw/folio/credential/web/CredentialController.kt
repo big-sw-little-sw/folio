@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.credential.web
 
 import io.github.big_sw_little_sw.folio.credential.Credential
 import io.github.big_sw_little_sw.folio.credential.CredentialKey
+import io.github.big_sw_little_sw.folio.credential.CredentialName
 import io.github.big_sw_little_sw.folio.credential.CredentialService
 import io.github.big_sw_little_sw.folio.credential.CredentialStatus
 import io.github.big_sw_little_sw.folio.credential.KeyStatus
@@ -21,6 +22,7 @@ import java.net.URI
 data class CredentialResponse(
     val id: String,
     val gitInstance: String,
+    val name: String,
     val status: CredentialStatus,
     /** Oldest first. */
     val keys: List<KeyResponse>,
@@ -34,13 +36,14 @@ data class KeyResponse(
     val fingerprint: String,
 )
 
-/** [gitInstance] is a name from `folio.git.instances`. */
+/** [gitInstance] is a name from `folio.git.instances`; [name] is unique per instance (ADR 0029). */
 data class CreateCredentialRequest(
     val gitInstance: String,
+    val name: String,
 )
 
-/** [keyId] is the pending key the administrator registered with the Git service. */
-data class ActivateKeyRequest(
+/** [keyId] names the credential's pending key, to activate or discard. */
+data class PendingKeyRequest(
     val keyId: String,
 )
 
@@ -53,7 +56,7 @@ class CredentialController(
     fun create(
         @RequestBody request: CreateCredentialRequest,
     ): ResponseEntity<CredentialResponse> {
-        val credential = credentials.create(request.gitInstance)
+        val credential = credentials.create(request.gitInstance, CredentialName(request.name))
         return ResponseEntity
             .created(URI.create("$CREDENTIALS/${credential.id.toApiId()}"))
             .body(credential.toResponse())
@@ -76,8 +79,15 @@ class CredentialController(
     @PostMapping("/{id}:activate")
     fun activate(
         @PathVariable id: String,
-        @RequestBody request: ActivateKeyRequest,
+        @RequestBody request: PendingKeyRequest,
     ): CredentialResponse = credentials.activate(id.toCredentialId(), request.keyId.toKeyId()).toResponse()
+
+    /** Retires the pending key without activating it. */
+    @PostMapping("/{id}:discard")
+    fun discard(
+        @PathVariable id: String,
+        @RequestBody request: PendingKeyRequest,
+    ): CredentialResponse = credentials.discard(id.toCredentialId(), request.keyId.toKeyId()).toResponse()
 
     /** Emergency replacement: a new key is active at once. */
     @PostMapping("/{id}:replace")
@@ -94,6 +104,7 @@ class CredentialController(
         CredentialResponse(
             id.toApiId(),
             gitInstance,
+            name.value,
             status,
             keys.map {
                 it.toResponse()

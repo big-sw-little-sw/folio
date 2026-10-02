@@ -4,7 +4,7 @@ import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 
 /**
  * Who a rule grants to. The text form is `public`, `authenticated`, `user:<subject>`, `group:<group>` or
- * `application:<id>`, the same form bootstrap admins use (ADR 0002). IDs are the mapped JWT claim values.
+ * `application:<id>`, the same form super admins use (ADR 0002). IDs are the mapped JWT claim values.
  */
 sealed interface Subject {
     fun matches(principal: ApplicationPrincipal): Boolean

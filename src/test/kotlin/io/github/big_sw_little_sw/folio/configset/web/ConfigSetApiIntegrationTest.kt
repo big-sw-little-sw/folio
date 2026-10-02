@@ -2,7 +2,8 @@ package io.github.big_sw_little_sw.folio.configset.web
 
 import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.credential.uniqueCredentialName
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
 import org.hamcrest.Matchers.startsWith
@@ -39,7 +40,7 @@ class ConfigSetApiIntegrationTest(
     @Autowired private val mvc: MockMvc,
     @Autowired private val jdbc: JdbcClient,
 ) {
-    private val admin = token(BOOTSTRAP_ADMIN)
+    private val admin = token(SUPER_ADMIN)
     private val alice = token("alice", "editors")
 
     private lateinit var credentialId: String
@@ -49,7 +50,8 @@ class ConfigSetApiIntegrationTest(
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from namespace_closure").update()
         jdbc.sql("delete from namespace").update()
-        credentialId = createdId(send(POST, CREDENTIALS, """{"gitInstance": "example"}"""))
+        val credential = """{"gitInstance": "example", "name": "${uniqueCredentialName()}"}"""
+        credentialId = createdId(send(POST, CREDENTIALS, credential))
     }
 
     @Test
@@ -80,7 +82,7 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
-    fun `a bootstrap admin gets, lists, renames, moves and deletes ConfigSets`() {
+    fun `a super admin gets, lists, renames, moves and deletes ConfigSets`() {
         val development = namespace(null, "development")
         val production = namespace(null, "production")
         val serviceA = configSet(development, "service-a")
@@ -143,7 +145,7 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
-    fun `a bootstrap admin adds, lists and removes ConfigSet rules`() {
+    fun `a super admin adds, lists and removes ConfigSet rules`() {
         val serviceA = configSet(namespace(null, "production"), "service-a")
         val rules = "$CONFIG_SETS/$serviceA/rules"
 
@@ -220,14 +222,29 @@ class ConfigSetApiIntegrationTest(
     @Test
     fun `a move needs move on the ConfigSet and create on the target namespace`() {
         val target = namespace(null, "target")
-        val serviceA = configSet(namespace(null, "production"), "service-a")
-        grant(CONFIG_SETS, serviceA, "CONFIG_SET_MOVE", "user:alice")
+        val production = namespace(null, "production")
+        val serviceA = configSet(production, "service-a")
+        grant(NAMESPACES, production, "CONFIG_SET_MOVE", "user:alice")
         val move = """{"namespaceId": "$target"}"""
 
         send(POST, "$CONFIG_SETS/$serviceA:move", move, alice).andExpectProblem(403)
 
         grant(NAMESPACES, target, "CONFIG_SET_CREATE", "user:alice")
         send(POST, "$CONFIG_SETS/$serviceA:move", move, alice).andExpect { status { isOk() } }
+    }
+
+    @Test
+    fun `moving a ConfigSet with rules of its own without policy update on the target gives 403`() {
+        val target = namespace(null, "target")
+        val production = namespace(null, "production")
+        val serviceA = configSet(production, "service-a")
+        grant(NAMESPACES, production, "CONFIG_SET_MOVE", "user:alice")
+        grant(NAMESPACES, target, "CONFIG_SET_CREATE", "user:alice")
+        grant(CONFIG_SETS, serviceA, "CONFIG_SET_VIEW", "user:bob")
+
+        send(POST, "$CONFIG_SETS/$serviceA:move", """{"namespaceId": "$target"}""", alice)
+            .andExpectProblem(403)
+            .andExpect { jsonPath("$.detail") { value("Permission POLICY_UPDATE denied") } }
     }
 
     @Test

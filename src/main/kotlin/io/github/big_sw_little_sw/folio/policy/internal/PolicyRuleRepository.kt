@@ -41,6 +41,16 @@ class PolicyRuleRepository(
             .groupBy({ it.first }, { it.second })
     }
 
+    /** Whether any of [resources] has a rule of its own, for any action. */
+    fun existsOnAny(resources: Collection<ResourceRef>): Boolean =
+        resources.groupBy { it.column() }.any { (column, refs) ->
+            jdbc
+                .sql("select exists (select 1 from policy_rule where $column in (:ids))")
+                .param("ids", refs.map { it.id })
+                .query(Boolean::class.java)
+                .single()
+        }
+
     /** Rules on [resource], ordered by action name. */
     fun findByResource(resource: ResourceRef): List<Rule> =
         jdbc

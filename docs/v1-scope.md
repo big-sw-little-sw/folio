@@ -40,9 +40,10 @@ where v1 has a real implementation behind them.
 - Subjects: public, any authenticated, user, group, application.
 - Nearest-rule inheritance, default deny.
 - Decision explanation endpoint for administrators.
-- **Bootstrap admins** from configuration (`folio.bootstrap.admins`): these subjects are allowed every
+- **Super admins** from configuration (`folio.super-admins`): these subjects are allowed every
   action everywhere, regardless of rules, so the first namespaces and policies can be created without a UI
-  and rules cannot lock out this recovery path ([ADR 0008](adr/0008-bootstrap-admins-ahead-of-rules.md)).
+  and rules cannot lock out this recovery path ([ADR 0008](adr/0008-bootstrap-admins-ahead-of-rules.md),
+  [ADR 0028](adr/0028-super-admins.md)).
 
 ### Security
 - JWT validation through the Spring OAuth2 resource server.
@@ -59,7 +60,8 @@ where v1 has a real implementation behind them.
   and root path exist.
 
 ### Credentials
-- Credentials are scoped to a Git service instance and referenced by ConfigSets by stable ID.
+- Credentials are scoped to a Git service instance and referenced by ConfigSets by stable ID. Each has a name,
+  unique per instance ([ADR 0029](adr/0029-credential-names.md)).
 - **Folio generates Ed25519 key pairs.** Only the public key (OpenSSH format) is ever returned.
   Private keys are never uploaded, downloaded or written to disk unencrypted.
 - A credential holds key pairs as versions: `PENDING`, `ACTIVE` or `RETIRED`. At most one `ACTIVE`
@@ -68,6 +70,8 @@ where v1 has a real implementation behind them.
   1. Generate a `PENDING` key pair and return its public key; sync keeps using the `ACTIVE` key.
   2. Activate it, optionally verifying access with `ls-remote` first. The previous key becomes
      `RETIRED` and its ciphertext is wiped; its public key and fingerprint are kept for audit.
+- Discard a `PENDING` key without activating it; it becomes `RETIRED` like a replaced key
+  ([ADR 0030](adr/0030-discarding-a-pending-key.md)).
 - Emergency replacement: generate and activate immediately.
 - Disable a credential.
 

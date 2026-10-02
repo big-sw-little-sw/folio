@@ -5,6 +5,7 @@ import io.github.big_sw_little_sw.folio.namespace.internal.NamespaceRepository
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.policy.PolicyService
 import io.github.big_sw_little_sw.folio.policy.ResourceRef
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -19,6 +20,7 @@ class NamespaceService(
     private val closure: NamespaceClosureRepository,
     private val tree: NamespaceTree,
     private val policy: PolicyService,
+    private val events: ApplicationEventPublisher,
 ) {
     /** Creates a namespace under [parentId], or at the root if it is null. Requires create on the parent. */
     @Transactional
@@ -47,7 +49,9 @@ class NamespaceService(
 
     /**
      * Moves the namespace and its subtree under [newParentId], or to the root if it is null.
-     * Requires move on the namespace and create on the new parent, as if creating it there.
+     * Requires move on the namespace and create on the new parent, as if creating it there. If the subtree's
+     * namespaces have rules of their own, also requires policy update on the new parent; listeners of
+     * [NamespaceMoving] check the resources in them the same way (ADR 0031).
      */
     @Transactional
     fun move(
@@ -56,8 +60,13 @@ class NamespaceService(
     ): Namespace {
         tree.lock()
         val moved = existing(id).copy(parentId = newParentId)
+        val targetPath = pathOrRoot(newParentId)
         policy.requireAllowed(Action.NAMESPACE_MOVE, path(id))
-        policy.requireAllowed(Action.NAMESPACE_CREATE, pathOrRoot(newParentId))
+        policy.requireAllowed(Action.NAMESPACE_CREATE, targetPath)
+        val subtree = closure.findSubtree(id)
+        policy.requireAllowedToMoveRules(subtree.map { ResourceRef.NamespaceRef(it.value) }, targetPath)
+        events.publishEvent(NamespaceMoving(subtree, targetPath))
+        // After all authorization, so a caller without rights gets denied rather than a conflict.
         if (newParentId != null && closure.isAncestorOrSelf(id, newParentId)) {
             throw NamespaceMoveIntoOwnSubtreeException(id, newParentId)
         }

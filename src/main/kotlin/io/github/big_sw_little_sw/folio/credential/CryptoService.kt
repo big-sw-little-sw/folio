@@ -20,7 +20,7 @@ data class MasterKeyUsage(
     val keysByVersion: Map<Int, Int>,
 )
 
-/** Master-key rotation (ADR 0020). Authorized at the root like credentials, so bootstrap admins only (ADR 0018). */
+/** Master-key rotation (ADR 0020). Authorized at the root like credentials, so super admins only (ADR 0018). */
 @Service
 class CryptoService(
     private val keys: EncryptedKeyRepository,
@@ -70,7 +70,7 @@ class CryptoService(
     }
 
     private companion object {
-        /** The root above all namespaces; no rules attach there, so only bootstrap admins pass (ADR 0012). */
+        /** The root above all namespaces; no rules attach there, so only super admins pass (ADR 0012). */
         val ROOT = emptyList<ResourceRef>()
     }
 }

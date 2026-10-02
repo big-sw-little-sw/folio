@@ -5,7 +5,7 @@ import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.internal.CryptoProperties
 import io.github.big_sw_little_sw.folio.credential.internal.EncryptedKeyRepository
 import io.github.big_sw_little_sw.folio.credential.internal.PrivateKeyCipher
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -59,7 +59,7 @@ class CryptoIntegrationTest(
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from credential_key").update()
         jdbc.sql("delete from credential").update()
-        authenticateAs(BOOTSTRAP_ADMIN)
+        authenticateAs(SUPER_ADMIN)
     }
 
     @AfterEach
@@ -69,9 +69,9 @@ class CryptoIntegrationTest(
 
     @Test
     fun `re-encryption moves keys under older versions to the active one and keeps them usable`() {
-        val first = credentials.create("example")
+        val first = credentials.create("example", uniqueCredentialName())
         credentials.regenerate(first.id)
-        val second = credentials.create("example")
+        val second = credentials.create("example", uniqueCredentialName())
         val publicKeys = listOf(first, second).associate { it.id to keyPairs.active(it.id).keyPair.public }
         encryptAllUnderVersion1()
         assertEquals(MasterKeyUsage(2, mapOf(1 to 3, 2 to 0)), crypto.usage())
@@ -84,7 +84,7 @@ class CryptoIntegrationTest(
 
     @Test
     fun `re-running re-encryption changes nothing`() {
-        credentials.create("example")
+        credentials.create("example", uniqueCredentialName())
         encryptAllUnderVersion1()
         crypto.reencrypt()
         val before = ciphertexts()
@@ -97,7 +97,7 @@ class CryptoIntegrationTest(
 
     @Test
     fun `concurrent re-encryptions are safe`() {
-        val ids = (1..5).map { credentials.create("example").id }
+        val ids = (1..5).map { credentials.create("example", uniqueCredentialName()).id }
         encryptAllUnderVersion1()
         val threads = 4
         val barrier = CyclicBarrier(threads)
@@ -108,7 +108,7 @@ class CryptoIntegrationTest(
                 (1..threads)
                     .map {
                         executor.submit<MasterKeyUsage> {
-                            authenticateAs(BOOTSTRAP_ADMIN)
+                            authenticateAs(SUPER_ADMIN)
                             barrier.await()
                             crypto.reencrypt()
                         }
@@ -123,7 +123,7 @@ class CryptoIntegrationTest(
 
     @Test
     fun `re-encryption cannot bring back a key retired after it was read`() {
-        val created = credentials.create("example")
+        val created = credentials.create("example", uniqueCredentialName())
         encryptAllUnderVersion1()
         val stored = repository.findNotUnder(2).single()
         val plaintext = previousCipher.decrypt(stored.encrypted, stored.credentialId, stored.id)
@@ -148,7 +148,7 @@ class CryptoIntegrationTest(
 
     @Test
     fun `startup fails naming a master-key version that is not configured`() {
-        credentials.create("example")
+        credentials.create("example", uniqueCredentialName())
         jdbc.sql("update credential_key set master_key_version = 99").update()
         try {
             val failure = assertFailsWith<Exception> { startApplication().close() }

@@ -4,8 +4,8 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 
-/** Matches `folio.bootstrap.admins` in src/test/resources/config/application.yaml. */
-const val BOOTSTRAP_ADMIN = "bootstrap-admin"
+/** Matches `folio.super-admins` in src/test/resources/config/application.yaml. */
+const val SUPER_ADMIN = "super-admin"
 
 /** Authenticates the calling thread with a JWT carrying the default claim names, as the resource server would. */
 fun authenticateAs(
