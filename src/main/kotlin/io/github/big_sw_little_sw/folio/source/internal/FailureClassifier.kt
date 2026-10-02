@@ -4,10 +4,11 @@ import io.github.big_sw_little_sw.folio.source.SourceFailure
 import org.apache.sshd.common.SshConstants
 import org.apache.sshd.common.SshException
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
+import java.io.InterruptedIOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
-import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.concurrent.TimeoutException
 
 /** Exception chains are short; the bound only guards against a pathological one. */
 private const val MAX_CAUSES = 20
@@ -33,8 +34,11 @@ fun classify(
 
 private const val NO_MORE_AUTH_METHODS = SshConstants.SSH2_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE
 
+// Timeouts surface as InterruptedIOException (SocketTimeoutException is one) or as TimeoutException, depending on
+// where they occur.
 private fun Throwable.isUnreachable() =
     this is ConnectException ||
         this is NoRouteToHostException ||
         this is UnknownHostException ||
-        this is SocketTimeoutException
+        this is InterruptedIOException ||
+        this is TimeoutException

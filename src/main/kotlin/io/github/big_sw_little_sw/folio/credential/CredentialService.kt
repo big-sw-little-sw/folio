@@ -44,15 +44,14 @@ class CredentialService(
     }
 
     /**
-     * The credential, if the caller may use it for a ConfigSet's source and it is enabled. Requires
+     * Succeeds if the caller may use the credential for a ConfigSet's source and it is enabled. Requires
      * [Action.CREDENTIAL_USE] at the root, so bootstrap admins only in v1 (ADR 0023).
      */
     @Transactional(readOnly = true)
-    fun requireUsable(id: CredentialId): Credential {
+    fun requireUsable(id: CredentialId) {
         val credential = existing(id)
         policy.requireAllowed(Action.CREDENTIAL_USE, ROOT)
         if (credential.status == CredentialStatus.DISABLED) throw CredentialDisabledException(id)
-        return credential
     }
 
     /** All credentials, oldest first. */

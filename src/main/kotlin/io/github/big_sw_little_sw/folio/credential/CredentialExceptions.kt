@@ -38,3 +38,12 @@ class KeyNotPendingException(
     val credentialId: CredentialId,
     val keyId: KeyId,
 ) : CredentialException("Key ${keyId.value} is not the pending key of credential ${credentialId.value}")
+
+/**
+ * The credential's Git instance was removed from `folio.git.instances` after the credential was created, so it cannot
+ * reach any Git service (ADR 0027).
+ */
+class GitInstanceNotConfiguredException(
+    val id: CredentialId,
+    val name: String,
+) : CredentialException("Git instance '$name' of credential ${id.value} is not configured")
