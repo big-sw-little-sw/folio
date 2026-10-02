@@ -36,6 +36,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 
 /** The onboarding check, fetches and reads against a real SSH Git server (ADR 0004). */
 @Tag("integration")
@@ -203,6 +204,26 @@ class SourceAccessIntegrationTest(
     }
 
     @Test
+    fun `listed files carry their size and the blob ID that a read of them returns`() {
+        val configSet = configSet()
+        sources.fetch(id(configSet), configSet.source)
+
+        val app =
+            sources
+                .list(
+                    id(configSet),
+                    configSet.source,
+                    RevisionRef.Latest,
+                ).first { it.path.value == "app.yaml" }
+        val latest = sources.read(id(configSet), configSet.source, app.path, RevisionRef.Latest)
+        val first = sources.read(id(configSet), configSet.source, app.path, RevisionRef.Commit(commits.first()))
+
+        assertEquals(2, app.size)
+        assertEquals(app.blobId, latest.blobId)
+        assertNotEquals(app.blobId, first.blobId)
+    }
+
+    @Test
     fun `a second fetch moves the tip to new commits`() {
         val configSet = configSet()
         sources.fetch(id(configSet), configSet.source)
@@ -286,13 +307,13 @@ class SourceAccessIntegrationTest(
     private fun list(
         configSet: ConfigSet,
         revision: RevisionRef,
-    ) = sources.list(id(configSet), configSet.source, revision).map { it.value }
+    ) = sources.list(id(configSet), configSet.source, revision).map { it.path.value }
 
     private fun read(
         configSet: ConfigSet,
         path: String,
         revision: RevisionRef,
-    ) = String(sources.read(id(configSet), configSet.source, SourcePath.parse(path), revision))
+    ) = String(sources.read(id(configSet), configSet.source, SourcePath.parse(path), revision).bytes)
 
     private fun id(configSet: ConfigSet) = configSet.id.value
 
