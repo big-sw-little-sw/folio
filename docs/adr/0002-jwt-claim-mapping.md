@@ -1,6 +1,6 @@
 # 0002. JWT claim mapping
 
-Status: Accepted (2026-09-30)
+Status: Accepted (2026-09-30). Amended by ADR 0028: bootstrap admins are renamed super admins (`folio.super-admins`).
 
 ## Context
 

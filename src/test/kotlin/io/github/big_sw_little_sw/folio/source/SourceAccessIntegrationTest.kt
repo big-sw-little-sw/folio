@@ -11,7 +11,7 @@ import io.github.big_sw_little_sw.folio.credential.KeyStatus
 import io.github.big_sw_little_sw.folio.namespace.Namespace
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
 import io.github.big_sw_little_sw.folio.namespace.Slug
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import io.github.big_sw_little_sw.folio.source.internal.SourceProperties
 import org.junit.jupiter.api.AfterEach
@@ -59,7 +59,7 @@ class SourceAccessIntegrationTest(
         jdbc.sql("delete from namespace").update()
         SshGitServer.revokeAll()
         commits = SshGitServer.createRepository("configs")
-        authenticateAs(BOOTSTRAP_ADMIN)
+        authenticateAs(SUPER_ADMIN)
         namespace = namespaces.create(null, Slug("production"))
         credential = credentials.create("test-server")
         SshGitServer.authorize(credential.key(KeyStatus.ACTIVE))

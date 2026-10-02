@@ -5,7 +5,7 @@ import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.internal.CryptoProperties
 import io.github.big_sw_little_sw.folio.credential.internal.EncryptedKeyRepository
 import io.github.big_sw_little_sw.folio.credential.internal.PrivateKeyCipher
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -59,7 +59,7 @@ class CryptoIntegrationTest(
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from credential_key").update()
         jdbc.sql("delete from credential").update()
-        authenticateAs(BOOTSTRAP_ADMIN)
+        authenticateAs(SUPER_ADMIN)
     }
 
     @AfterEach
@@ -108,7 +108,7 @@ class CryptoIntegrationTest(
                 (1..threads)
                     .map {
                         executor.submit<MasterKeyUsage> {
-                            authenticateAs(BOOTSTRAP_ADMIN)
+                            authenticateAs(SUPER_ADMIN)
                             barrier.await()
                             crypto.reencrypt()
                         }

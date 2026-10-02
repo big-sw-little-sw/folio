@@ -40,9 +40,10 @@ where v1 has a real implementation behind them.
 - Subjects: public, any authenticated, user, group, application.
 - Nearest-rule inheritance, default deny.
 - Decision explanation endpoint for administrators.
-- **Bootstrap admins** from configuration (`folio.bootstrap.admins`): these subjects are allowed every
+- **Super admins** from configuration (`folio.super-admins`): these subjects are allowed every
   action everywhere, regardless of rules, so the first namespaces and policies can be created without a UI
-  and rules cannot lock out this recovery path ([ADR 0008](adr/0008-bootstrap-admins-ahead-of-rules.md)).
+  and rules cannot lock out this recovery path ([ADR 0008](adr/0008-bootstrap-admins-ahead-of-rules.md),
+  [ADR 0028](adr/0028-super-admins.md)).
 
 ### Security
 - JWT validation through the Spring OAuth2 resource server.

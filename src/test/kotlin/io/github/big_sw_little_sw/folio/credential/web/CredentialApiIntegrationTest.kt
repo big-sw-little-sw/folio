@@ -4,7 +4,7 @@ import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
 import io.github.big_sw_little_sw.folio.credential.toCredentialId
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
 import org.hamcrest.Matchers.startsWith
@@ -41,7 +41,7 @@ class CredentialApiIntegrationTest(
     @Autowired private val jdbc: JdbcClient,
     @Autowired private val keyPairs: CredentialKeyPairs,
 ) {
-    private val admin = token(BOOTSTRAP_ADMIN)
+    private val admin = token(SUPER_ADMIN)
     private val alice = token("alice")
 
     @BeforeEach
@@ -187,7 +187,7 @@ class CredentialApiIntegrationTest(
     }
 
     @Test
-    fun `without bootstrap admin rights every endpoint denies with 403`() {
+    fun `without super admin rights every endpoint denies with 403`() {
         val id = credential()
         val keyId = keyIds(send(GET, "$CREDENTIALS/$id", "")).single()
 

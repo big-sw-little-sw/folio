@@ -12,7 +12,7 @@ import java.security.KeyPairGenerator
 
 /**
  * Credentials and their key lifecycle (ADR 0017). Credentials sit outside the namespace tree, so every operation
- * is authorized at the root, where only bootstrap admins hold actions in v1 (ADR 0018). Lookups come before
+ * is authorized at the root, where only super admins hold actions in v1 (ADR 0018). Lookups come before
  * authorization, so a missing credential gives not found rather than denied (ADR 0010).
  *
  * Every key change locks the credential row first. Changes to one credential then run one at a time: two
@@ -45,7 +45,7 @@ class CredentialService(
 
     /**
      * Succeeds if the caller may use the credential for a ConfigSet's source and it is enabled. Requires
-     * [Action.CREDENTIAL_USE] at the root, so bootstrap admins only in v1 (ADR 0023).
+     * [Action.CREDENTIAL_USE] at the root, so super admins only in v1 (ADR 0023).
      */
     @Transactional(readOnly = true)
     fun requireUsable(id: CredentialId) {
@@ -136,7 +136,7 @@ class CredentialService(
         credentials.findById(id) ?: throw CredentialNotFoundException(id)
 
     private companion object {
-        /** The root above all namespaces; no rules attach there, so only bootstrap admins pass (ADR 0012). */
+        /** The root above all namespaces; no rules attach there, so only super admins pass (ADR 0012). */
         val ROOT = emptyList<ResourceRef>()
     }
 }

@@ -3,7 +3,7 @@ package io.github.big_sw_little_sw.folio.credential
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.internal.OpenSshPublicKey
 import io.github.big_sw_little_sw.folio.policy.PermissionDeniedException
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -41,7 +41,7 @@ class CredentialServiceIntegrationTest(
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from credential_key").update()
         jdbc.sql("delete from credential").update()
-        authenticateAs(BOOTSTRAP_ADMIN)
+        authenticateAs(SUPER_ADMIN)
     }
 
     @AfterEach
@@ -151,7 +151,7 @@ class CredentialServiceIntegrationTest(
                 (1..threads)
                     .map {
                         executor.submit<Result<Credential>> {
-                            authenticateAs(BOOTSTRAP_ADMIN)
+                            authenticateAs(SUPER_ADMIN)
                             barrier.await()
                             runCatching { service.regenerate(created.id) }
                         }
@@ -173,7 +173,7 @@ class CredentialServiceIntegrationTest(
         try {
             val replacements =
                 executor.submit {
-                    authenticateAs(BOOTSTRAP_ADMIN)
+                    authenticateAs(SUPER_ADMIN)
                     repeat(ROUNDS) { service.replace(created.id) }
                 }
             repeat(ROUNDS) { assertTrue(signsFor(keyPairs.active(created.id).keyPair)) }

@@ -2,7 +2,7 @@ package io.github.big_sw_little_sw.folio.configset.web
 
 import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
 import org.hamcrest.Matchers.startsWith
@@ -39,7 +39,7 @@ class ConfigSetApiIntegrationTest(
     @Autowired private val mvc: MockMvc,
     @Autowired private val jdbc: JdbcClient,
 ) {
-    private val admin = token(BOOTSTRAP_ADMIN)
+    private val admin = token(SUPER_ADMIN)
     private val alice = token("alice", "editors")
 
     private lateinit var credentialId: String
@@ -80,7 +80,7 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
-    fun `a bootstrap admin gets, lists, renames, moves and deletes ConfigSets`() {
+    fun `a super admin gets, lists, renames, moves and deletes ConfigSets`() {
         val development = namespace(null, "development")
         val production = namespace(null, "production")
         val serviceA = configSet(development, "service-a")
@@ -143,7 +143,7 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
-    fun `a bootstrap admin adds, lists and removes ConfigSet rules`() {
+    fun `a super admin adds, lists and removes ConfigSet rules`() {
         val serviceA = configSet(namespace(null, "production"), "service-a")
         val rules = "$CONFIG_SETS/$serviceA/rules"
 
