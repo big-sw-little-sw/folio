@@ -8,8 +8,10 @@ import io.github.big_sw_little_sw.folio.namespace.NamespaceService
 import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SshGitServer
 import io.github.big_sw_little_sw.folio.sync.internal.SyncProperties
+import io.github.big_sw_little_sw.folio.sync.internal.SyncRecorder
 import io.github.big_sw_little_sw.folio.sync.internal.SyncStateRepository
 import io.github.big_sw_little_sw.folio.sync.internal.Synchronizer
+import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -37,6 +39,8 @@ class SyncLeaseIntegrationTest(
     @Autowired private val synchronizer: Synchronizer,
     @Autowired private val states: SyncStateRepository,
     @Autowired private val configSetSources: ConfigSetSources,
+    @Autowired private val recorder: SyncRecorder,
+    @Autowired private val meters: MeterRegistry,
     @Autowired private val sources: SourceAccess,
     @Autowired private val properties: SyncProperties,
     @Autowired configSets: ConfigSetService,
@@ -45,7 +49,7 @@ class SyncLeaseIntegrationTest(
     @Autowired jdbc: JdbcClient,
 ) {
     private val fixture = SyncFixture(configSets, credentials, namespaces, jdbc, "leases")
-    private val other = Synchronizer(states, configSetSources, sources, properties)
+    private val other = Synchronizer(states, configSetSources, sources, recorder, properties, meters)
     private lateinit var commits: List<String>
 
     @BeforeEach

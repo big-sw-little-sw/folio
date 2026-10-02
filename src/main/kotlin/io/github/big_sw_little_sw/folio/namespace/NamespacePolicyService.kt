@@ -6,17 +6,19 @@ import io.github.big_sw_little_sw.folio.policy.PolicyService
 import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.policy.Rule
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 /**
  * Rules on namespaces. The policy module owns rules but not the tree, so this service supplies each
- * namespace's path. [PolicyService] authorizes every call.
+ * namespace's path. [PolicyService] authorizes every call. Rule writes publish a [NamespaceEvent].
  */
 @Service
 class NamespacePolicyService(
     private val tree: NamespaceTree,
     private val policy: PolicyService,
+    private val events: ApplicationEventPublisher,
 ) {
     @Transactional(readOnly = true)
     fun rules(id: NamespaceId): List<Rule> = policy.rules(path(id))
@@ -31,7 +33,9 @@ class NamespacePolicyService(
         rule: Rule,
     ): Rule {
         tree.lock()
-        return policy.putRule(path(id), rule)
+        val put = policy.putRule(path(id), rule)
+        events.publishEvent(NamespaceRulePut(id, tree.slugPath(id), put))
+        return put
     }
 
     @Transactional
@@ -41,6 +45,7 @@ class NamespacePolicyService(
     ) {
         tree.lock()
         policy.deleteRule(path(id), action)
+        events.publishEvent(NamespaceRuleDeleted(id, tree.slugPath(id), action))
     }
 
     @Transactional(readOnly = true)

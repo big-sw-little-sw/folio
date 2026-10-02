@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.credential
 
 import io.github.big_sw_little_sw.folio.FolioApplication
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.audit.AuditRecords
 import io.github.big_sw_little_sw.folio.credential.internal.CryptoProperties
 import io.github.big_sw_little_sw.folio.credential.internal.EncryptedKeyRepository
 import io.github.big_sw_little_sw.folio.credential.internal.PrivateKeyCipher
@@ -80,6 +81,29 @@ class CryptoIntegrationTest(
 
         assertEquals(MasterKeyUsage(2, mapOf(1 to 0, 2 to 3)), usage)
         publicKeys.forEach { (id, publicKey) -> assertTrue(signsWith(id, publicKey)) }
+    }
+
+    @Test
+    fun `a re-encryption pass writes one audit record with counts per master-key version`() {
+        repeat(2) { credentials.create("example", uniqueCredentialName()) }
+        encryptAllUnderVersion1()
+
+        crypto.reencrypt()
+        crypto.reencrypt()
+
+        val (rerun, pass) = AuditRecords(jdbc).ofMasterKeyRing(2)
+        assertEquals("MASTER_KEYS_REENCRYPTED", pass.action)
+        assertEquals(SUPER_ADMIN, pass.actorSubject)
+        assertEquals(null, pass.resourceId)
+        assertEquals(
+            mapOf(
+                "activeVersion" to 2,
+                "reencryptedByVersion" to mapOf("1" to 2),
+                "keysByVersion" to mapOf("1" to 0, "2" to 2),
+            ),
+            pass.details,
+        )
+        assertEquals(emptyMap<String, Int>(), rerun.details["reencryptedByVersion"])
     }
 
     @Test

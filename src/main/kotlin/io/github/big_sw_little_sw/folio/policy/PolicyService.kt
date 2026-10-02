@@ -4,6 +4,7 @@ import io.github.big_sw_little_sw.folio.policy.internal.PolicyRuleRepository
 import io.github.big_sw_little_sw.folio.policy.internal.SuperAdminProperties
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 import io.github.big_sw_little_sw.folio.security.CurrentPrincipal
+import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -12,18 +13,22 @@ import org.springframework.transaction.annotation.Transactional
  * callers pass the target's `path`: the namespaces from a root namespace down, then the ConfigSet if the
  * target is one, or an empty list for the root above all namespaces. Expected failures are
  * [PolicyException] subtypes.
+ *
+ * Decisions about the current caller are counted by action, result and reason; explanations and [isPublic] are not
+ * (ADR 0039).
  */
 @Service
 class PolicyService(
     private val repository: PolicyRuleRepository,
     private val currentPrincipal: CurrentPrincipal,
     private val superAdmins: SuperAdminProperties,
+    private val meters: MeterRegistry,
 ) {
     @Transactional(readOnly = true)
     fun isAllowed(
         action: Action,
         path: List<ResourceRef>,
-    ): Boolean = decision(currentPrincipal.get(), action, path).allowed
+    ): Boolean = authorize(currentPrincipal.get(), action, path)
 
     /** Throws [NotAuthenticatedException] for anonymous callers and [PermissionDeniedException] for others. */
     @Transactional(readOnly = true)
@@ -32,7 +37,7 @@ class PolicyService(
         path: List<ResourceRef>,
     ) {
         val principal = currentPrincipal.get()
-        if (decision(principal, action, path).allowed) return
+        if (authorize(principal, action, path)) return
         throw when (principal) {
             ApplicationPrincipal.Anonymous -> NotAuthenticatedException(action)
             is ApplicationPrincipal.Authenticated -> PermissionDeniedException(action)
@@ -46,6 +51,9 @@ class PolicyService(
     fun requireAuthenticated(action: Action) {
         if (currentPrincipal.get() == ApplicationPrincipal.Anonymous) throw NotAuthenticatedException(action)
     }
+
+    /** Whether [principal] is a configured super admin, whose every decision comes from that status (ADR 0028). */
+    fun isSuperAdmin(principal: ApplicationPrincipal): Boolean = superAdmins.subjects.any { it.matches(principal) }
 
     /** Whether everyone, anonymous callers included, may do [action]: a `public` rule grants it (ADR 0035). */
     @Transactional(readOnly = true)
@@ -116,9 +124,33 @@ class PolicyService(
         return path.last()
     }
 
+    /** Decides for the current caller and counts the decision. */
+    private fun authorize(
+        principal: ApplicationPrincipal,
+        action: Action,
+        path: List<ResourceRef>,
+    ): Boolean {
+        val decision = decision(principal, action, path)
+        val result = if (decision.allowed) "allowed" else "denied"
+        meters.counter(DECISIONS, "action", action.name, "result", result, "reason", decision.reasonTag()).increment()
+        return decision.allowed
+    }
+
+    private fun Decision.reasonTag() =
+        when (this) {
+            is Decision.SuperAdmin -> "super_admin"
+            is Decision.Granted -> "rule"
+            is Decision.NotGranted -> "not_granted"
+            Decision.NoRule -> "no_rule"
+        }
+
     private fun decision(
         principal: ApplicationPrincipal,
         action: Action,
         path: List<ResourceRef>,
     ): Decision = decide(principal, path, repository.findSubjects(action, path), superAdmins.subjects)
+
+    private companion object {
+        const val DECISIONS = "folio.authorization.decisions"
+    }
 }

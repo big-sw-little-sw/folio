@@ -4,6 +4,9 @@ import io.github.big_sw_little_sw.folio.configset.ConfigSetId
 import io.github.big_sw_little_sw.folio.configset.ConfigSetSources
 import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
+import io.github.big_sw_little_sw.folio.source.SourceDefinition
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -15,19 +18,25 @@ import java.util.UUID
  * transaction into this instance's cache, then record the outcome only if the lease is still held. A failure is
  * recorded as its source failure code and never stops other ConfigSets.
  *
- * Logs carry at most a ConfigSet ID, a failure code and a duration.
+ * Logs carry at most a ConfigSet ID, a failure code and a duration. Metrics count recorded attempts by outcome and
+ * failure code and time every fetch (ADR 0039).
  */
 @Service
 class Synchronizer(
     private val states: SyncStateRepository,
     private val configSets: ConfigSetSources,
     private val sources: SourceAccess,
+    private val recorder: SyncRecorder,
     private val properties: SyncProperties,
+    private val meters: MeterRegistry,
 ) {
     /** The lease owner for this process; a new one on every start. */
     val instanceId: UUID = UUID.randomUUID()
 
     private val leaseDuration: Duration = leaseDuration(sources.fetchDeadline)
+
+    private val fetches: Timer =
+        Timer.builder("folio.sync.fetch.duration").description("Sync fetches, failed ones included").register(meters)
 
     /** Leases up to [limit] due ConfigSets to this instance, most overdue first, never one of [excluding]. */
     @Transactional
@@ -54,21 +63,40 @@ class Synchronizer(
         val started = System.nanoTime()
         // A ConfigSet deleted since the claim took its state with it.
         val source = configSets.find(lease.configSetId) ?: return false
-        val recorded =
-            try {
-                val revision = sources.fetch(lease.configSetId.value, source)
-                states.recordSuccess(lease, revision, delayAfter(0))
-            } catch (e: SourceAccessFailedException) {
-                states.recordFailure(lease, e.failure, delayAfter(lease.consecutiveFailures + 1))
+        val result = fetches.record<FetchResult> { fetch(lease, source) }
+        val delay =
+            when (result) {
+                is FetchResult.Fetched -> delayAfter(0)
+                is FetchResult.Failed -> delayAfter(lease.consecutiveFailures + 1)
             }
+        val outcome = recorder.record(lease, result, delay)
         val millis = Duration.ofNanos(System.nanoTime() - started).toMillis()
-        if (recorded) {
-            log.debug("Sync of ConfigSet {} took {} ms", lease.configSetId.value, millis)
-        } else {
+        if (outcome == null) {
             // Deleted during the fetch, or the lease was lost; the two look the same here.
             log.info("Sync of ConfigSet {} was not recorded after {} ms", lease.configSetId.value, millis)
+            return false
         }
-        return recorded
+        count(outcome, result)
+        log.debug("Sync of ConfigSet {} took {} ms", lease.configSetId.value, millis)
+        return true
+    }
+
+    private fun fetch(
+        lease: SyncLease,
+        source: SourceDefinition,
+    ): FetchResult =
+        try {
+            FetchResult.Fetched(sources.fetch(lease.configSetId.value, source))
+        } catch (e: SourceAccessFailedException) {
+            FetchResult.Failed(e.failure)
+        }
+
+    private fun count(
+        outcome: AttemptOutcome,
+        result: FetchResult,
+    ) {
+        val code = (result as? FetchResult.Failed)?.failure?.name ?: NO_FAILURE
+        meters.counter(ATTEMPTS, "outcome", outcome.tag, "code", code).increment()
     }
 
     private fun delayAfter(consecutiveFailures: Int) =
@@ -76,5 +104,7 @@ class Synchronizer(
 
     private companion object {
         val log = LoggerFactory.getLogger(Synchronizer::class.java)
+        const val ATTEMPTS = "folio.sync.attempts"
+        const val NO_FAILURE = "none"
     }
 }
