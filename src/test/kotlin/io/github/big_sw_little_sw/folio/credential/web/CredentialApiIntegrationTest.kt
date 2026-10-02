@@ -78,6 +78,9 @@ class CredentialApiIntegrationTest(
         send(GET, "$CREDENTIALS/$id", "").andExpect { jsonPath("$.name") { value("payments-bot") } }
         send(GET, CREDENTIALS, "").andExpect { jsonPath("$[*].name") { value(contains("payments-bot")) } }
         send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "payments-bot"}""").andExpectProblem(409)
+        send(POST, CREDENTIALS, """{"gitInstance": "other", "name": "payments-bot"}""").andExpect {
+            status { isCreated() }
+        }
     }
 
     @Test

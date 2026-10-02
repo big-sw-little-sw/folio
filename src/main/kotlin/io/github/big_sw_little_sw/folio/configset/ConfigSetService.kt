@@ -16,6 +16,7 @@ import io.github.big_sw_little_sw.folio.source.SourceCheck
 import io.github.big_sw_little_sw.folio.source.SourceDefinition
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 
 /**
@@ -101,6 +102,7 @@ class ConfigSetService(
 
     /** The ConfigSets in a moving namespace subtree carry their own rules along, as on a ConfigSet move (ADR 0031). */
     @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
     fun onNamespaceMoving(event: NamespaceMoving) {
         val moved = configSets.findIdsByNamespaces(event.subtree).map { ResourceRef.ConfigSetRef(it.value) }
         policy.requireAllowedToMoveRules(moved, event.targetPath)

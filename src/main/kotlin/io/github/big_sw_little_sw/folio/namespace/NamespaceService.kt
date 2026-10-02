@@ -63,12 +63,13 @@ class NamespaceService(
         val targetPath = pathOrRoot(newParentId)
         policy.requireAllowed(Action.NAMESPACE_MOVE, path(id))
         policy.requireAllowed(Action.NAMESPACE_CREATE, targetPath)
-        if (newParentId != null && closure.isAncestorOrSelf(id, newParentId)) {
-            throw NamespaceMoveIntoOwnSubtreeException(id, newParentId)
-        }
         val subtree = closure.findSubtree(id)
         policy.requireAllowedToMoveRules(subtree.map { ResourceRef.NamespaceRef(it.value) }, targetPath)
         events.publishEvent(NamespaceMoving(subtree, targetPath))
+        // After all authorization, so a caller without rights gets denied rather than a conflict.
+        if (newParentId != null && closure.isAncestorOrSelf(id, newParentId)) {
+            throw NamespaceMoveIntoOwnSubtreeException(id, newParentId)
+        }
         namespaces.update(moved)
         closure.moveSubtree(id, newParentId)
         return moved

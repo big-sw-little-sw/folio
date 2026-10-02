@@ -149,11 +149,12 @@ class ConfigSetAuthorizationIntegrationTest(
     }
 
     @Test
-    fun `moving a namespace that holds a ConfigSet with rules of its own also needs policy update on the target`() {
+    fun `moving a namespace with a ConfigSet with rules of its own below it also needs policy update on the target`() {
         val a = asAdmin { namespace("a") }
         val b = asAdmin { namespace("b") }
         val inner = asAdmin { namespaces.create(a.id, Slug("inner")) }
-        val serviceA = asAdmin { create(inner) }
+        // In a descendant of the moved namespace, not in the moved namespace itself.
+        val serviceA = asAdmin { create(namespaces.create(inner.id, Slug("deep"))) }
         asAdmin {
             grantOnNamespace(a, Action.NAMESPACE_MOVE)
             grantOnNamespace(b, Action.NAMESPACE_CREATE)
