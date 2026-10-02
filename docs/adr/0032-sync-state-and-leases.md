@@ -31,9 +31,11 @@ revision and record sync state. Several Folio instances share one database, each
   random ID per process start) and `lease_until`, and commits. The fetch runs outside any transaction. The result is
   recorded in one statement only if `lease_owner` and `lease_until` still match the claim, so neither another
   instance nor an earlier claim of the same instance can overwrite a newer lease. A lease lasts the fetch deadline plus
-  a two-minute margin. The deadline is enforced on the wall clock and covers connecting, `ls-remote`, the transfer and
-  waiting for the fetch lock (ADR 0033), so a sync is done fetching by the deadline; the margin covers loading the
-  ConfigSet, the size check, recording, and a database or JVM pause. While leased, `next_due_at` equals `lease_until`,
+  a three-minute margin. The deadline is enforced on the wall clock for the TCP connect, `ls-remote`, the transfer,
+  delta resolution and waiting for the fetch lock (ADR 0033). SSH key exchange and authentication (up to 2 minutes)
+  and opening a command channel (up to 30 seconds) are not cut, so fetching ends at most 2.5 minutes after the
+  deadline. The remaining 30 seconds cover loading the ConfigSet, the size check and recording. While leased,
+  `next_due_at` equals `lease_until`,
   so a crashed instance's ConfigSets become due when their leases expire. Times come from the database clock, so
   instance clock skew does not matter.
 - **Never twice in one instance.** The poller keeps the leases it is running and excludes those ConfigSets from its
@@ -59,10 +61,12 @@ revision and record sync state. Several Folio instances share one database, each
 - One ConfigSet's failure never stops others; each records its own code.
 - An unexpected exception during a sync records no attempt. The poller releases the lease so the ConfigSet is due again
   after the interval, with no failure code and no backoff, and logs the ConfigSet ID and the exception's type. If the
-  release fails too (a database outage, say), the lease expires instead.
+  release fails too (a database outage, say), the lease expires instead. Either way the fetch slot is returned and the
+  ConfigSet is no longer counted as running, so the instance keeps syncing.
 - On shutdown, the poller waits ten seconds for running syncs, then releases their leases due at once before
   interrupting them, so an interrupted sync records neither a failure nor backoff. Sync threads are daemons.
-- A sync can outlast its lease only if recording is delayed past the margin, such as by a long database pause. Another
-  instance may then fetch the same ConfigSet into its own cache at the same time; the late result is not recorded.
+- A sync can outlast its lease only if the size check and recording take longer than the 30 seconds the margin leaves
+  them, such as during a long database or JVM pause. Another instance may then fetch the same ConfigSet into its own
+  cache at the same time; the late result is not recorded.
 - Per-ConfigSet intervals, `ls-remote` polling and webhooks are not built; each changes how `next_due_at` is set, not
   the lease.

@@ -11,14 +11,21 @@ that outlives its lease lets another instance fetch the same ConfigSet at the sa
 
 ## Decision
 
-- **Deadline.** `folio.git.fetch-deadline` (default 5 minutes) is a wall-clock bound on each fetch, from before its
-  `ls-remote` to the end of the transfer, including waiting for another fetch of the same ConfigSet in this process.
-  The source module enforces it, so the onboarding check is bounded too; that is why it sits under `folio.git` with
-  the cache directory rather than under `folio.sync`.
-  - Each operation gets its own session factory wrapper. Connects get no more than the time left.
+- **Deadline.** `folio.git.fetch-deadline` (default 5 minutes) is a wall-clock deadline for each fetch, from before
+  its `ls-remote` to the end of the transfer, including waiting for another fetch of the same ConfigSet in this
+  process. The source module enforces it, so the onboarding check is bounded too; that is why it sits under `folio.git`
+  with the cache directory rather than under `folio.sync`.
+  - Each operation gets its own session factory wrapper. TCP connects get no more than the time left, and no session
+    is handed out after the deadline.
   - A watchdog fires at the deadline and closes the input and error streams of every SSH command the operation started,
     then destroys it. JGit's blocked read ends at once, whatever the server sends or withholds. Commands started after
-    the deadline are cut as they start, and sessions are no longer handed out.
+    the deadline are cut as they start.
+  - The deadline is also the fetch's progress monitor, whose `isCancelled()` turns true at the deadline, so work JGit
+    does without reading from the connection, such as resolving deltas and the connectivity check, stops too.
+  - Not cut: SSH key exchange and authentication, which sshd bounds with its 2-minute authentication timeout, and
+    opening the command channel, which JGit bounds with 30 seconds. A session that starts them just before the deadline
+    can therefore run up to 2.5 minutes past it before its command is cut as it starts. Bounding them would need sshd
+    session properties that JGit's session factory does not expose.
   - Closing the session would be simpler, but JGit's `SshdSession.disconnect` clears its fields without
     synchronization and is not safe from another thread, and `SshdSessionFactory.close` does not close live sessions.
     `Process.destroy` alone closes the channel gracefully, which waits for the server.
@@ -49,8 +56,9 @@ that outlives its lease lets another instance fetch the same ConfigSet at the sa
 
 ## Consequences
 
-- A fetch, including the onboarding check, ends within the deadline plus the time to close its streams and record the
-  result, whatever the server does.
+- Once its SSH sessions are established, a fetch, including the onboarding check, ends within the deadline plus the
+  time to close its streams, whatever the server sends. In the worst case, a session still authenticating at the
+  deadline, it ends within the deadline plus 2.5 minutes. The sync lease allows for that (ADR 0032).
 - A large repository can still be transferred in full before the size check discards it; the deadline bounds how long
   that takes. Each retry, after backoff, transfers it again.
 - Once a repository is discarded for size, this instance's cache no longer holds the last synced revision. A reader
