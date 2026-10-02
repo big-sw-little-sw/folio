@@ -23,6 +23,7 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -34,7 +35,8 @@ import kotlin.test.assertTrue
  */
 @Tag("integration")
 @Import(TestcontainersConfiguration::class)
-@SpringBootTest(properties = ["folio.consumption.max-file-size=4B"])
+// A fetch slot for each concurrent reader, so that none of them is turned away before the lock.
+@SpringBootTest(properties = ["folio.consumption.max-file-size=4B", "folio.consumption.max-concurrent-fetches=6"])
 @AutoConfigureMockMvc
 class ConsumptionFetchIntegrationTest(
     @Autowired mvc: MockMvc,
@@ -59,28 +61,31 @@ class ConsumptionFetchIntegrationTest(
 
     @Test
     fun `concurrent reads of a revision the cache lacks fetch it once`() {
+        val start = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(READERS)
         val statuses =
             try {
-                pool
-                    .invokeAll(
-                        List(READERS) {
+                val reads =
+                    List(READERS) {
+                        pool.submit(
                             Callable {
+                                start.await()
                                 fixture
                                     .get("${fixture.url}/files/app.yaml")
                                     .andReturn()
                                     .response.status
-                            }
-                        },
-                    ).map { it.get() }
+                            },
+                        )
+                    }
+                start.countDown()
+                reads.map { it.get() }
             } finally {
                 pool.shutdown()
             }
 
-        // Reads beyond the fetch slots fail fast with 503; the others wait for the one fetch and are served.
-        assertTrue(200 in statuses, "$statuses")
-        assertTrue(statuses.all { it == 200 || it == 503 }, "$statuses")
-        assertEquals(2, SshGitServer.loggedCommands(LOG))
+        // Every reader has a fetch slot; all but one wait for the one fetch and find the commit after it.
+        assertTrue(statuses.count { it == 200 } >= 2, "$statuses")
+        assertEquals(2, SshGitServer.loggedCommands(LOG), "one fetch is its ls-remote and the fetch itself")
     }
 
     @Test
