@@ -33,6 +33,16 @@ class NamespaceTree(
     @Transactional(readOnly = true)
     fun policyPath(id: NamespaceId): List<ResourceRef> = closure.findPath(id).map { ResourceRef.NamespaceRef(it.value) }
 
+    /**
+     * The slugs of [id]'s namespaces from the root namespace down to [id] itself. Throws [NamespaceNotFoundException]
+     * if [id] does not exist.
+     */
+    @Transactional(readOnly = true)
+    fun slugPath(id: NamespaceId): List<Slug> {
+        val namespace = namespaces.findById(id) ?: throw NamespaceNotFoundException(id)
+        return namespaces.findAncestors(id).map { it.slug } + namespace.slug
+    }
+
     /** The namespace reached by following [slugs] from the root, or null if there is none. */
     @Transactional(readOnly = true)
     fun findByPath(slugs: List<Slug>): Namespace? {
