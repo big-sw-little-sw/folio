@@ -15,9 +15,10 @@ class StoredKey(
     val encrypted: EncryptedKey,
 )
 
-/** A credential's active key with the credential's status and the key's public key, as one consistent read. */
-class ActiveKey(
+/** A usable key with its credential's status and Git instance and the key's public key, as one consistent read. */
+class UsableKey(
     val credentialStatus: CredentialStatus,
+    val gitInstance: String,
     val publicKey: String,
     val stored: StoredKey,
 )
@@ -32,25 +33,13 @@ class EncryptedKeyRepository(
      * one. A single statement reads from one snapshot, so a concurrent activation or replacement cannot pair
      * the status, public key and ciphertext of different moments.
      */
-    fun findActive(credentialId: CredentialId): ActiveKey? =
-        jdbc
-            .sql(
-                """
-                select c.status as credential_status, k.public_key,
-                       k.id, k.credential_id, k.algorithm, k.master_key_version, k.salt, k.nonce, k.ciphertext
-                from credential c
-                join credential_key k on k.credential_id = c.id and k.status = 'ACTIVE'
-                where c.id = :credentialId
-                """.trimIndent(),
-            ).param("credentialId", credentialId.value)
-            .query { rs, _ ->
-                ActiveKey(
-                    CredentialStatus.valueOf(rs.getString("credential_status")),
-                    rs.getString("public_key"),
-                    rs.toStoredKey(),
-                )
-            }.optional()
-            .orElse(null)
+    fun findActive(credentialId: CredentialId): UsableKey? = findUsable(credentialId, "k.status = 'ACTIVE'", null)
+
+    /** The key [keyId] if it is the credential's pending key, or null; read as one snapshot like [findActive]. */
+    fun findPending(
+        credentialId: CredentialId,
+        keyId: KeyId,
+    ): UsableKey? = findUsable(credentialId, "k.status = 'PENDING' and k.id = :keyId", keyId)
 
     /** Keys whose private key is encrypted under any master-key version other than [version]. */
     fun findNotUnder(version: Int): List<StoredKey> =
@@ -97,6 +86,35 @@ class EncryptedKeyRepository(
             ).query { rs, _ -> rs.getInt("master_key_version") to rs.getInt("keys") }
             .list()
             .toMap()
+
+    private fun findUsable(
+        credentialId: CredentialId,
+        keyCondition: String,
+        keyId: KeyId?,
+    ): UsableKey? {
+        val statement =
+            jdbc
+                .sql(
+                    """
+                    select c.status as credential_status, c.git_instance, k.public_key,
+                           k.id, k.credential_id, k.algorithm, k.master_key_version, k.salt, k.nonce, k.ciphertext
+                    from credential c
+                    join credential_key k on k.credential_id = c.id and $keyCondition
+                    where c.id = :credentialId
+                    """.trimIndent(),
+                ).param("credentialId", credentialId.value)
+        if (keyId != null) statement.param("keyId", keyId.value)
+        return statement
+            .query { rs, _ ->
+                UsableKey(
+                    CredentialStatus.valueOf(rs.getString("credential_status")),
+                    rs.getString("git_instance"),
+                    rs.getString("public_key"),
+                    rs.toStoredKey(),
+                )
+            }.optional()
+            .orElse(null)
+    }
 
     private fun ResultSet.toStoredKey() =
         StoredKey(

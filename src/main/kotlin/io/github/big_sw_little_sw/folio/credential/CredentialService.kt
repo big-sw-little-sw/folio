@@ -1,7 +1,6 @@
 package io.github.big_sw_little_sw.folio.credential
 
 import io.github.big_sw_little_sw.folio.credential.internal.CredentialRepository
-import io.github.big_sw_little_sw.folio.credential.internal.GitProperties
 import io.github.big_sw_little_sw.folio.credential.internal.OpenSshPublicKey
 import io.github.big_sw_little_sw.folio.credential.internal.PrivateKeyCipher
 import io.github.big_sw_little_sw.folio.policy.Action
@@ -24,14 +23,14 @@ import java.security.KeyPairGenerator
 class CredentialService(
     private val credentials: CredentialRepository,
     private val cipher: PrivateKeyCipher,
-    private val git: GitProperties,
+    private val instances: GitInstances,
     private val policy: PolicyService,
 ) {
     /** Creates a credential for [gitInstance] with a first key that is active at once. */
     @Transactional
     fun create(gitInstance: String): Credential {
         policy.requireAllowed(Action.CREDENTIAL_MANAGE, ROOT)
-        if (gitInstance !in git.instances) throw UnknownGitInstanceException(gitInstance)
+        if (instances.find(gitInstance) == null) throw UnknownGitInstanceException(gitInstance)
         val id = credentials.insert(gitInstance)
         generate(id, KeyStatus.ACTIVE)
         return existing(id)
@@ -41,6 +40,18 @@ class CredentialService(
     fun get(id: CredentialId): Credential {
         val credential = existing(id)
         policy.requireAllowed(Action.CREDENTIAL_VIEW, ROOT)
+        return credential
+    }
+
+    /**
+     * The credential, if the caller may use it for a ConfigSet's source and it is enabled. Requires
+     * [Action.CREDENTIAL_USE] at the root, so bootstrap admins only in v1 (ADR 0023).
+     */
+    @Transactional(readOnly = true)
+    fun requireUsable(id: CredentialId): Credential {
+        val credential = existing(id)
+        policy.requireAllowed(Action.CREDENTIAL_USE, ROOT)
+        if (credential.status == CredentialStatus.DISABLED) throw CredentialDisabledException(id)
         return credential
     }
 

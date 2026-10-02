@@ -3,6 +3,7 @@ package io.github.big_sw_little_sw.folio.credential.web
 import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
+import io.github.big_sw_little_sw.folio.credential.toCredentialId
 import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
@@ -45,6 +46,7 @@ class CredentialApiIntegrationTest(
 
     @BeforeEach
     fun deleteAll() {
+        jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from credential_key").update()
         jdbc.sql("delete from credential").update()
     }
@@ -77,7 +79,10 @@ class CredentialApiIntegrationTest(
                 send(POST, "$CREDENTIALS/$id:regenerate", ""),
                 send(POST, "$CREDENTIALS/$id:replace", ""),
             ).map { it.andReturn().response.contentAsString }
-        val pkcs8 = keyPairs.active(id.toCredentialId()).private.encoded
+        val pkcs8 =
+            keyPairs
+                .active(id.toCredentialId())
+                .keyPair.private.encoded
         val seed = pkcs8.copyOfRange(pkcs8.size - 32, pkcs8.size)
 
         bodies.forEach { body ->
