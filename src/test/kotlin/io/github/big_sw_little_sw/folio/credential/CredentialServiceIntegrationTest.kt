@@ -38,6 +38,7 @@ class CredentialServiceIntegrationTest(
 ) {
     @BeforeEach
     fun deleteAll() {
+        jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from credential_key").update()
         jdbc.sql("delete from credential").update()
         authenticateAs(BOOTSTRAP_ADMIN)
@@ -52,7 +53,7 @@ class CredentialServiceIntegrationTest(
     fun `the active key pair decrypts, matches the public key and signs`() {
         val credential = service.create("example")
 
-        val keyPair = keyPairs.active(credential.id)
+        val keyPair = keyPairs.active(credential.id).keyPair
 
         assertEquals(OpenSshPublicKey.decode(credential.keys.single().publicKey), keyPair.public)
         assertTrue(signsFor(keyPair))
@@ -61,7 +62,10 @@ class CredentialServiceIntegrationTest(
     @Test
     fun `the private key is stored only encrypted`() {
         val credential = service.create("example")
-        val pkcs8 = keyPairs.active(credential.id).private.encoded
+        val pkcs8 =
+            keyPairs
+                .active(credential.id)
+                .keyPair.private.encoded
         val seed = HexFormat.of().formatHex(pkcs8.copyOfRange(pkcs8.size - 32, pkcs8.size))
 
         // bytea columns appear in hex, so the seed would show as its hex digits.
@@ -76,7 +80,7 @@ class CredentialServiceIntegrationTest(
         val created = service.create("example")
         val oldKey = created.keys.single()
         val pending = service.regenerate(created.id).keys.single { it.status == KeyStatus.PENDING }
-        assertEquals(oldKey.publicKey, OpenSshPublicKey.of(keyPairs.active(created.id).public).text)
+        assertEquals(oldKey.publicKey, OpenSshPublicKey.of(keyPairs.active(created.id).keyPair.public).text)
 
         val activated = service.activate(created.id, pending.id)
 
@@ -85,17 +89,17 @@ class CredentialServiceIntegrationTest(
             activated.keys,
         )
         assertEquals(5, wipedColumns(oldKey.id))
-        assertEquals(pending.publicKey, OpenSshPublicKey.of(keyPairs.active(created.id).public).text)
+        assertEquals(pending.publicKey, OpenSshPublicKey.of(keyPairs.active(created.id).keyPair.public).text)
     }
 
     @Test
     fun `emergency replacement switches the active key pair at once`() {
         val created = service.create("example")
-        val before = keyPairs.active(created.id)
+        val before = keyPairs.active(created.id).keyPair
 
         val replaced = service.replace(created.id)
 
-        val after = keyPairs.active(created.id)
+        val after = keyPairs.active(created.id).keyPair
         assertNotEquals(before.public, after.public)
         assertEquals(
             OpenSshPublicKey.decode(replaced.keys.single { it.status == KeyStatus.ACTIVE }.publicKey),
@@ -110,7 +114,7 @@ class CredentialServiceIntegrationTest(
 
         service.disable(created.id)
 
-        assertFailsWith<CredentialDisabledException> { keyPairs.active(created.id) }
+        assertFailsWith<CredentialDisabledException> { keyPairs.active(created.id).keyPair }
         assertFailsWith<CredentialDisabledException> { service.regenerate(created.id) }
     }
 
@@ -131,8 +135,8 @@ class CredentialServiceIntegrationTest(
             .param("to", second.id.value)
             .update()
 
-        assertTrue(signsFor(keyPairs.active(first.id)))
-        assertFailsWith<AEADBadTagException> { keyPairs.active(second.id) }
+        assertTrue(signsFor(keyPairs.active(first.id).keyPair))
+        assertFailsWith<AEADBadTagException> { keyPairs.active(second.id).keyPair }
     }
 
     @Test
@@ -172,7 +176,7 @@ class CredentialServiceIntegrationTest(
                     authenticateAs(BOOTSTRAP_ADMIN)
                     repeat(ROUNDS) { service.replace(created.id) }
                 }
-            repeat(ROUNDS) { assertTrue(signsFor(keyPairs.active(created.id))) }
+            repeat(ROUNDS) { assertTrue(signsFor(keyPairs.active(created.id).keyPair)) }
             replacements.get(1, TimeUnit.MINUTES)
         } finally {
             executor.shutdown()

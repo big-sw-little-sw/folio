@@ -1,6 +1,6 @@
 # 0018. Authorizing credential and crypto operations
 
-Status: Accepted (2026-10-01)
+Status: Accepted (2026-10-01). Extended by ADR 0023, which adds `CREDENTIAL_USE`.
 
 ## Context
 

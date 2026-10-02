@@ -9,6 +9,7 @@ import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetPathException
 import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
 import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialNotFoundException
+import io.github.big_sw_little_sw.folio.credential.GitInstanceNotConfiguredException
 import io.github.big_sw_little_sw.folio.credential.InvalidCredentialIdException
 import io.github.big_sw_little_sw.folio.credential.InvalidKeyIdException
 import io.github.big_sw_little_sw.folio.credential.KeyNotPendingException
@@ -26,6 +27,14 @@ import io.github.big_sw_little_sw.folio.policy.NotAuthenticatedException
 import io.github.big_sw_little_sw.folio.policy.PermissionDeniedException
 import io.github.big_sw_little_sw.folio.policy.PolicyException
 import io.github.big_sw_little_sw.folio.policy.RuleWithoutSubjectsException
+import io.github.big_sw_little_sw.folio.source.InvalidBranchException
+import io.github.big_sw_little_sw.folio.source.InvalidCommitIdException
+import io.github.big_sw_little_sw.folio.source.InvalidRepositoryPathException
+import io.github.big_sw_little_sw.folio.source.InvalidSourcePathException
+import io.github.big_sw_little_sw.folio.source.RevisionNotFoundException
+import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
+import io.github.big_sw_little_sw.folio.source.SourceException
+import io.github.big_sw_little_sw.folio.source.SourceFileNotFoundException
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
@@ -100,6 +109,33 @@ class ProblemDetailsAdvice {
 
             is KeyNotPendingException -> {
                 problem(HttpStatus.CONFLICT, "Key is not the credential's pending key")
+            }
+
+            is GitInstanceNotConfiguredException -> {
+                problem(HttpStatus.CONFLICT, "The credential's Git instance is not configured")
+            }
+        }
+
+    @ExceptionHandler
+    fun source(exception: SourceException): ProblemDetail =
+        when (exception) {
+            is InvalidRepositoryPathException,
+            is InvalidBranchException,
+            is InvalidSourcePathException,
+            is InvalidCommitIdException,
+            -> {
+                problem(HttpStatus.BAD_REQUEST, exception.message)
+            }
+
+            is RevisionNotFoundException, is SourceFileNotFoundException -> {
+                problem(HttpStatus.NOT_FOUND, exception.message)
+            }
+
+            // The fixed summary and code only; never the transport output behind them (ADR 0027).
+            is SourceAccessFailedException -> {
+                problem(HttpStatus.BAD_GATEWAY, exception.failure.summary).apply {
+                    setProperty("code", exception.failure.name)
+                }
             }
         }
 

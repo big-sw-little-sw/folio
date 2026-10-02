@@ -22,7 +22,7 @@ where v1 has a real implementation behind them.
 | Authentication | OAuth2 resource server (JWT bearer tokens) only |
 | Client for v1 | Admin and consumption HTTP APIs, used through curl, checked-in `.http` files and springdoc's Swagger UI |
 | Leases | PostgreSQL `SELECT … FOR UPDATE SKIP LOCKED`. No ShedLock |
-| Crypto | JDK only: HKDF-SHA256 (Java 25 KDF API) and AES-256-GCM. No Bouncy Castle |
+| Crypto | JDK only for Folio's own crypto: HKDF-SHA256 (Java 25 KDF API) and AES-256-GCM. Bouncy Castle is used only as Apache sshd's Ed25519 provider for Git SSH. |
 
 ---
 
@@ -51,7 +51,7 @@ where v1 has a real implementation behind them.
 
 ### Git source
 - SSH transport through JGit with **mandatory host-key verification**.
-- Trusted host keys come from deployment configuration (`folio.git.known-hosts`), per Git instance.
+- Trusted host keys come from deployment configuration (`folio.git.instances.<name>.host-keys`, ADR 0025), per Git instance.
 - Local bare-repository cache per source; the cache is disposable.
 - File listing and reads at latest or an exact commit, beneath the ConfigSet root path.
 - Path normalisation; absolute paths and traversal segments are rejected.

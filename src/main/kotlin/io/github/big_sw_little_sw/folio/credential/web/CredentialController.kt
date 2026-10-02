@@ -5,6 +5,9 @@ import io.github.big_sw_little_sw.folio.credential.CredentialKey
 import io.github.big_sw_little_sw.folio.credential.CredentialService
 import io.github.big_sw_little_sw.folio.credential.CredentialStatus
 import io.github.big_sw_little_sw.folio.credential.KeyStatus
+import io.github.big_sw_little_sw.folio.credential.toApiId
+import io.github.big_sw_little_sw.folio.credential.toCredentialId
+import io.github.big_sw_little_sw.folio.credential.toKeyId
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable

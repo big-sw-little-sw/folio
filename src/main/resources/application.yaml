@@ -5,6 +5,12 @@ spring:
     # Framework errors (malformed JSON, type mismatches) get RFC 9457 bodies like ProblemDetailsAdvice gives.
     problemdetails:
       enabled: true
+logging:
+  level:
+    # JGit and Apache sshd log exceptions whose messages can quote server output; Folio logs only failure codes
+    # instead (ADR 0027). Turning these on for debugging can write Git transport output to the logs.
+    org.apache.sshd: off
+    org.eclipse.jgit: off
 # Deployments set (ADR 0002):
 # - spring.security.oauth2.resourceserver.jwt.issuer-uri: the one trusted issuer.
 # - spring.security.oauth2.resourceserver.jwt.audiences: required; startup fails without it. Tokens whose
@@ -14,4 +20,8 @@ spring:
 #   Each positive version maps to a base64 secret of at least 32 bytes, for example `openssl rand -base64 32`.
 #   Supply them through the deployment's secret mechanism, never in this file or the database.
 # - folio.git.instances: the Git service instances credentials belong to, by name (ADR 0016), for example
-#   `github: {host: github.com}`; the port defaults to 22.
+#   `github: {host: github.com, host-keys: ["ssh-ed25519 AAAA…"]}`. The port defaults to 22 and the SSH user to
+#   `git`. host-keys lists the trusted host keys as OpenSSH public key lines, at least one; they are the only keys
+#   Folio accepts from the server (ADR 0025). Take them from the provider's published fingerprints, not from a
+#   first connection.
+# - folio.git.cache-directory: required; an absolute directory for the disposable repository cache (ADR 0024).

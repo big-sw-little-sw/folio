@@ -1,6 +1,8 @@
 package io.github.big_sw_little_sw.folio.configset
 
 import io.github.big_sw_little_sw.folio.configset.internal.ConfigSetRepository
+import io.github.big_sw_little_sw.folio.credential.CredentialService
+import io.github.big_sw_little_sw.folio.credential.KeyId
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
 import io.github.big_sw_little_sw.folio.namespace.NamespaceNotFoundException
 import io.github.big_sw_little_sw.folio.namespace.NamespaceTree
@@ -8,6 +10,9 @@ import io.github.big_sw_little_sw.folio.namespace.Slug
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.policy.PolicyService
 import io.github.big_sw_little_sw.folio.policy.ResourceRef
+import io.github.big_sw_little_sw.folio.source.SourceAccess
+import io.github.big_sw_little_sw.folio.source.SourceCheck
+import io.github.big_sw_little_sw.folio.source.SourceDefinition
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -24,16 +29,40 @@ class ConfigSetService(
     private val configSets: ConfigSetRepository,
     private val tree: NamespaceTree,
     private val policy: PolicyService,
+    private val credentials: CredentialService,
+    private val sources: SourceAccess,
 ) {
-    /** Requires create on the namespace (ADR 0014). */
+    /**
+     * Requires create on the namespace (ADR 0014), and use of the source's credential, which must be enabled
+     * (ADR 0023). Does not contact the Git service; [check] does.
+     */
     @Transactional
     fun create(
         namespaceId: NamespaceId,
         slug: Slug,
+        source: SourceDefinition,
     ): ConfigSet {
         tree.lock()
         policy.requireAllowed(Action.CONFIG_SET_CREATE, tree.policyPath(namespaceId))
-        return configSets.insert(namespaceId, slug)
+        credentials.requireUsable(source.credentialId)
+        return configSets.insert(namespaceId, slug, source)
+    }
+
+    /**
+     * The onboarding check (ADR 0027): whether the source's credential reaches the repository, the branch exists and
+     * the root path is a directory at its tip. With [keyId], checks that pending key of the credential instead of the
+     * active one. Requires view on the ConfigSet and use of its credential (ADR 0023).
+     *
+     * Deliberately not transactional: it talks to the Git service, which must not hold a database connection.
+     */
+    fun check(
+        id: ConfigSetId,
+        keyId: KeyId?,
+    ): SourceCheck {
+        val configSet = existing(id)
+        policy.requireAllowed(Action.CONFIG_SET_VIEW, path(configSet))
+        credentials.requireUsable(configSet.source.credentialId)
+        return sources.check(id.value, configSet.source, keyId)
     }
 
     @Transactional

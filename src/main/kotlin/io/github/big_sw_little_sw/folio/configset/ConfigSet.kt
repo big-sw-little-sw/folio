@@ -3,6 +3,7 @@ package io.github.big_sw_little_sw.folio.configset
 import io.github.big_sw_little_sw.folio.namespace.InvalidSlugException
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
 import io.github.big_sw_little_sw.folio.namespace.Slug
+import io.github.big_sw_little_sw.folio.source.SourceDefinition
 import java.util.UUID
 
 @JvmInline
@@ -10,11 +11,15 @@ value class ConfigSetId(
     val value: UUID,
 )
 
-/** Identity is the [id]; namespace and slug change on move and rename. Slice 5 adds the Git source. */
+/**
+ * Identity is the [id]; namespace and slug change on move and rename. The [source] is set at creation and does not
+ * change in v1 (ADR 0022).
+ */
 data class ConfigSet(
     val id: ConfigSetId,
     val namespaceId: NamespaceId,
     val slug: Slug,
+    val source: SourceDefinition,
 )
 
 /**

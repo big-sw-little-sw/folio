@@ -1,6 +1,7 @@
 # 0021. Credential module and shared API IDs
 
-Status: Accepted (2026-10-01). Amends ADR 0007 and ADR 0015.
+Status: Accepted (2026-10-01). Amends ADR 0007 and ADR 0015. Amended by ADR 0023: the `cred_` and `key_`
+conversions move to the credential module's public API.
 
 ## Context
 

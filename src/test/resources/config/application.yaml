@@ -19,6 +19,10 @@ folio:
       2: uv8GMrwyjtZpqi4eruxcrHoo+hdO74ZX+uLGen3rDio=
     active-key-version: 2
   git:
+    # cache-directory: set per test run by build.gradle.kts.
     instances:
       example:
         host: git.example.test
+        # A placeholder: no test connects to this instance.
+        host-keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea
