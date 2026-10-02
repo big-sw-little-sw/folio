@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.configset.web
 
 import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.credential.uniqueCredentialName
 import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
@@ -49,7 +50,8 @@ class ConfigSetApiIntegrationTest(
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from namespace_closure").update()
         jdbc.sql("delete from namespace").update()
-        credentialId = createdId(send(POST, CREDENTIALS, """{"gitInstance": "example"}"""))
+        val credential = """{"gitInstance": "example", "name": "${uniqueCredentialName()}"}"""
+        credentialId = createdId(send(POST, CREDENTIALS, credential))
     }
 
     @Test

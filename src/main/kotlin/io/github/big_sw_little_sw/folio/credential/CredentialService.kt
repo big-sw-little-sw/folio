@@ -28,10 +28,13 @@ class CredentialService(
 ) {
     /** Creates a credential for [gitInstance] with a first key that is active at once. */
     @Transactional
-    fun create(gitInstance: String): Credential {
+    fun create(
+        gitInstance: String,
+        name: CredentialName,
+    ): Credential {
         policy.requireAllowed(Action.CREDENTIAL_MANAGE, ROOT)
         if (instances.find(gitInstance) == null) throw UnknownGitInstanceException(gitInstance)
-        val id = credentials.insert(gitInstance)
+        val id = credentials.insert(gitInstance, name)
         generate(id, KeyStatus.ACTIVE)
         return existing(id)
     }

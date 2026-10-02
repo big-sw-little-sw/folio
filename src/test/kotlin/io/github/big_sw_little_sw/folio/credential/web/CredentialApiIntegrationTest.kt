@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
 import io.github.big_sw_little_sw.folio.credential.toCredentialId
+import io.github.big_sw_little_sw.folio.credential.uniqueCredentialName
 import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
@@ -53,11 +54,12 @@ class CredentialApiIntegrationTest(
 
     @Test
     fun `create returns 201 with an active key's OpenSSH public key and fingerprint`() {
-        send(POST, CREDENTIALS, """{"gitInstance": "example"}""").andExpect {
+        send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "payments-bot"}""").andExpect {
             status { isCreated() }
             header { string(HttpHeaders.LOCATION, matchesPattern("$CREDENTIALS/cred_[0-9a-f]{32}")) }
             jsonPath("$.id") { value(matchesPattern("cred_[0-9a-f]{32}")) }
             jsonPath("$.gitInstance") { value("example") }
+            jsonPath("$.name") { value("payments-bot") }
             jsonPath("$.status") { value("ENABLED") }
             jsonPath("$.keys.length()") { value(1) }
             jsonPath("$.keys[0].id") { value(matchesPattern("key_[0-9a-f]{32}")) }
@@ -67,6 +69,15 @@ class CredentialApiIntegrationTest(
             }
             jsonPath("$.keys[0].fingerprint") { value(matchesPattern("SHA256:[A-Za-z0-9+/]{43}")) }
         }
+    }
+
+    @Test
+    fun `get and list return the name, which is unique per Git instance`() {
+        val id = credential("payments-bot")
+
+        send(GET, "$CREDENTIALS/$id", "").andExpect { jsonPath("$.name") { value("payments-bot") } }
+        send(GET, CREDENTIALS, "").andExpect { jsonPath("$[*].name") { value(contains("payments-bot")) } }
+        send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "payments-bot"}""").andExpectProblem(409)
     }
 
     @Test
@@ -167,10 +178,12 @@ class CredentialApiIntegrationTest(
     }
 
     @Test
-    fun `an unknown Git instance, invalid IDs and missing fields give 400`() {
+    fun `an unknown Git instance, invalid names and IDs and missing fields give 400`() {
         val id = credential()
 
-        send(POST, CREDENTIALS, """{"gitInstance": "unknown"}""").andExpectProblem(400)
+        send(POST, CREDENTIALS, """{"gitInstance": "unknown", "name": "bot"}""").andExpectProblem(400)
+        send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "Payments Bot"}""").andExpectProblem(400)
+        send(POST, CREDENTIALS, """{"gitInstance": "example"}""").andExpectProblem(400)
         send(POST, CREDENTIALS, "{}").andExpectProblem(400)
         send(GET, "$CREDENTIALS/cred_123", "").andExpectProblem(400)
         send(GET, "$CREDENTIALS/${id.replace("cred_", "key_")}", "").andExpectProblem(400)
@@ -231,7 +244,7 @@ class CredentialApiIntegrationTest(
         id: String,
         keyId: String,
     ) = listOf(
-        Triple(POST, CREDENTIALS, """{"gitInstance": "example"}"""),
+        Triple(POST, CREDENTIALS, """{"gitInstance": "example", "name": "other"}"""),
         Triple(GET, CREDENTIALS, ""),
         Triple(GET, "$CREDENTIALS/$id", ""),
         Triple(POST, "$CREDENTIALS/$id:regenerate", ""),
@@ -242,9 +255,9 @@ class CredentialApiIntegrationTest(
         Triple(POST, "$CRYPTO:reencrypt", ""),
     )
 
-    private fun credential(): String {
+    private fun credential(name: String = uniqueCredentialName().value): String {
         val body =
-            send(POST, CREDENTIALS, """{"gitInstance": "example"}""")
+            send(POST, CREDENTIALS, """{"gitInstance": "example", "name": "$name"}""")
                 .andExpect { status { isCreated() } }
                 .andReturn()
                 .response.contentAsString

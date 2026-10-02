@@ -1,6 +1,6 @@
 # 0017. Credential key lifecycle
 
-Status: Accepted (2026-10-01)
+Status: Accepted (2026-10-01). Amended by ADR 0029: a credential has a name.
 
 ## Context
 
