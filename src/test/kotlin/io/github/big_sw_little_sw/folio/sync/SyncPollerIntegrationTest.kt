@@ -1,10 +1,14 @@
 package io.github.big_sw_little_sw.folio.sync
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.configset.ConfigSet
 import io.github.big_sw_little_sw.folio.configset.ConfigSetService
+import io.github.big_sw_little_sw.folio.configset.ConfigSetSources
 import io.github.big_sw_little_sw.folio.credential.CredentialService
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
+import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SshGitServer
+import io.github.big_sw_little_sw.folio.sync.internal.SyncLease
 import io.github.big_sw_little_sw.folio.sync.internal.SyncPoller
 import io.github.big_sw_little_sw.folio.sync.internal.SyncProperties
 import io.github.big_sw_little_sw.folio.sync.internal.SyncStateRepository
@@ -15,6 +19,7 @@ import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DataAccessResourceFailureException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -33,6 +38,8 @@ class SyncPollerIntegrationTest(
     @Autowired private val synchronizer: Synchronizer,
     @Autowired private val states: SyncStateRepository,
     @Autowired private val properties: SyncProperties,
+    @Autowired private val configSetSources: ConfigSetSources,
+    @Autowired private val sources: SourceAccess,
     @Autowired configSets: ConfigSetService,
     @Autowired credentials: CredentialService,
     @Autowired namespaces: NamespaceService,
@@ -96,6 +103,35 @@ class SyncPollerIntegrationTest(
     }
 
     @Test
+    fun `a sync that fails and cannot even release its lease still returns its slot`() {
+        val configSet = fixture.configSet(fixture.authorizedCredential())
+        val broken =
+            object : Synchronizer(states, configSetSources, sources, properties) {
+                override fun sync(lease: SyncLease): Boolean = throw IllegalStateException("sync failed")
+
+                override fun release(
+                    lease: SyncLease,
+                    delay: Duration,
+                ) = throw DataAccessResourceFailureException("release failed")
+            }
+        val poller = SyncPoller(broken, properties.copy(maxConcurrentFetches = 1))
+        try {
+            poller.poll()
+            fixture.expireLease(configSet)
+
+            // With the only slot lost, or the ConfigSet still counted as running, no later poll would claim it.
+            val end = System.nanoTime() + Duration.ofSeconds(AWAIT_SECONDS).toNanos()
+            while (!isLeased(configSet)) {
+                check(System.nanoTime() - end < 0) { "The ConfigSet was never claimed again" }
+                Thread.sleep(AWAIT_STEP_MILLIS)
+                poller.poll()
+            }
+        } finally {
+            poller.destroy()
+        }
+    }
+
+    @Test
     fun `shutdown releases the leases of syncs still running, due at once and without a failure`() {
         val configSet = fixture.configSet(fixture.authorizedCredential(SshGitServer.delayed(SLOWER_THAN_SHUTDOWN)))
         val poller = SyncPoller(synchronizer, properties)
@@ -108,6 +144,13 @@ class SyncPollerIntegrationTest(
         assertNull(state.lastAttemptAt)
         assertEquals(0, state.consecutiveFailures)
     }
+
+    private fun isLeased(configSet: ConfigSet): Boolean =
+        jdbc
+            .sql("select lease_until > now() from sync_state where config_set_id = :id")
+            .param("id", configSet.id.value)
+            .query(Boolean::class.java)
+            .single()
 
     /** Waits for the poller's syncs to reach [expected] leases; they end on their own, so the bound is generous. */
     private fun awaitLeasedCount(expected: Int) {

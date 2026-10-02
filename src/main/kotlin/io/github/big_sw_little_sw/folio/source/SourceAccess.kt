@@ -152,7 +152,7 @@ class SourceAccess(
             return connections.run(credential, deadline) { transport ->
                 requireBranch(url, source.branch, transport)
                 cache.fetching(configSetId, source.branch, deadline.remaining()) {
-                    val tip = fetchBranch(it, url, source.branch, transport)
+                    val tip = fetchBranch(it, url, source.branch, transport, deadline)
                     requireWithinSize(configSetId)
                     tip
                 }
@@ -200,6 +200,7 @@ class SourceAccess(
         url: String,
         branch: Branch,
         transport: TransportConfigCallback,
+        deadline: FetchDeadline,
     ): String {
         Git
             .wrap(repository)
@@ -209,6 +210,7 @@ class SourceAccess(
             .setTagOpt(TagOpt.NO_TAGS)
             .setCheckFetchedObjects(true)
             .setTimeout(TIMEOUT_SECONDS)
+            .setProgressMonitor(deadline)
             .setTransportConfigCallback(transport)
             .call()
         return checkNotNull(repository.exactRef(branch.ref)) { "Fetched branch is missing" }.objectId.name

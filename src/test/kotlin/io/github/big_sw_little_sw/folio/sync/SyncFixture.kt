@@ -57,7 +57,10 @@ class SyncFixture(
         SshGitServer.authorize(credential.keys.single { it.status == KeyStatus.ACTIVE }.publicKey, command)
     }
 
-    fun configSet(credential: Credential): ConfigSet {
+    fun configSet(
+        credential: Credential,
+        repository: String = this.repository,
+    ): ConfigSet {
         val source =
             SourceDefinition(
                 credential.id,

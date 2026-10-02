@@ -5,8 +5,7 @@ import io.github.big_sw_little_sw.folio.apiid.parseApiId
 
 private const val PREFIX = "cfg_"
 
-// Public so that HTTP layers of other modules, such as sync, can accept and return ConfigSet IDs (ADR 0032).
-
+/** Public, with [toConfigSetId], so that HTTP layers of other modules, such as sync, use ConfigSet IDs (ADR 0032). */
 fun ConfigSetId.toApiId(): String = formatApiId(PREFIX, value)
 
 fun String.toConfigSetId(): ConfigSetId =

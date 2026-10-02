@@ -60,8 +60,13 @@ class DeadlineSessions(
     }
 
     private fun cut(command: Process) {
+        // Separately, so that a failure to close one still closes the other.
         try {
             command.inputStream.close()
+        } catch (_: IOException) {
+            // Already closed.
+        }
+        try {
             command.errorStream.close()
         } catch (_: IOException) {
             // Already closed.

@@ -3,11 +3,13 @@ package io.github.big_sw_little_sw.folio.sync.internal
 import io.github.big_sw_little_sw.folio.configset.ConfigSetId
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.DisposableBean
+import org.springframework.dao.DataAccessException
 import org.springframework.stereotype.Component
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
@@ -42,7 +44,13 @@ class SyncPoller(
             // Only polls take slots, and a poll claims no more than are free, so this does not block.
             slots.acquire()
             running[lease.configSetId] = lease
-            executor.execute { sync(lease) }
+            try {
+                executor.execute { sync(lease) }
+            } catch (_: RejectedExecutionException) {
+                // Shutting down: hand the ConfigSet back, due at once, for this or another instance.
+                done(lease)
+                release(lease, Duration.ZERO)
+            }
         }
     }
 
@@ -50,6 +58,7 @@ class SyncPoller(
      * An unexpected exception leaves no attempt recorded. The lease is released so the ConfigSet is due again after
      * the interval rather than after the lease expires; there is no failure code to record and no backoff. The
      * exception itself reaches the thread's handler, which logs its type: catching it here would need a catch-all.
+     * The slot and the running entry are returned whatever happens, or the instance would slowly stop syncing.
      */
     private fun sync(lease: SyncLease) {
         var finished = false
@@ -57,12 +66,34 @@ class SyncPoller(
             synchronizer.sync(lease)
             finished = true
         } finally {
-            if (!finished) {
-                log.error("Sync of ConfigSet {} failed unexpectedly", lease.configSetId.value)
-                synchronizer.release(lease, properties.interval)
+            try {
+                if (!finished) {
+                    log.error("Sync of ConfigSet {} failed unexpectedly", lease.configSetId.value)
+                    release(lease, properties.interval)
+                }
+            } finally {
+                done(lease)
             }
-            running.remove(lease.configSetId, lease)
-            slots.release()
+        }
+    }
+
+    private fun done(lease: SyncLease) {
+        running.remove(lease.configSetId, lease)
+        slots.release()
+    }
+
+    /**
+     * A failed release leaves the lease to expire. It is logged and not thrown, so that an exception already on its way
+     * keeps its type in the log.
+     */
+    private fun release(
+        lease: SyncLease,
+        delay: Duration,
+    ) {
+        try {
+            synchronizer.release(lease, delay)
+        } catch (e: DataAccessException) {
+            log.error("Releasing the lease of ConfigSet {} failed: {}", lease.configSetId.value, e.javaClass.name)
         }
     }
 
@@ -72,9 +103,12 @@ class SyncPoller(
      */
     override fun destroy() {
         executor.shutdown()
-        if (executor.awaitTermination(SHUTDOWN_GRACE.toMillis(), TimeUnit.MILLISECONDS)) return
-        running.values.forEach { synchronizer.release(it, Duration.ZERO) }
-        executor.shutdownNow()
+        try {
+            if (executor.awaitTermination(SHUTDOWN_GRACE.toMillis(), TimeUnit.MILLISECONDS)) return
+            running.values.forEach { release(it, Duration.ZERO) }
+        } finally {
+            executor.shutdownNow()
+        }
     }
 
     private companion object {
