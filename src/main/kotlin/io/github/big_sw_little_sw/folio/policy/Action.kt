@@ -27,6 +27,9 @@ enum class Action {
     CREDENTIAL_VIEW,
     CREDENTIAL_MANAGE,
 
+    /** Attaching a credential to a ConfigSet's source and checking access with it (ADR 0023). */
+    CREDENTIAL_USE,
+
     /** Master-key usage and re-encryption. */
     CRYPTO_MANAGE,
 }

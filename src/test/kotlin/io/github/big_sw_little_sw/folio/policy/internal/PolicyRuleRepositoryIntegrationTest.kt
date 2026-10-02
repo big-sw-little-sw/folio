@@ -184,12 +184,26 @@ class PolicyRuleRepositoryIntegrationTest(
     private fun insertConfigSet(
         namespace: ResourceRef.NamespaceRef,
         slug: String,
-    ) = ResourceRef.ConfigSetRef(
-        jdbc
-            .sql("insert into config_set (namespace_id, slug) values (:namespaceId, :slug) returning id")
-            .param("namespaceId", namespace.id)
-            .param("slug", slug)
-            .query(UUID::class.java)
-            .single(),
-    )
+    ): ResourceRef.ConfigSetRef {
+        // A source needs a credential row; policy never reads it, so it needs no key.
+        val credentialId =
+            jdbc
+                .sql("insert into credential (git_instance, status) values ('example', 'ENABLED') returning id")
+                .query(UUID::class.java)
+                .single()
+        return ResourceRef.ConfigSetRef(
+            jdbc
+                .sql(
+                    """
+                    insert into config_set (namespace_id, slug, credential_id, repository_path, branch, root_path)
+                    values (:namespaceId, :slug, :credentialId, 'org/repo.git', 'main', '')
+                    returning id
+                    """.trimIndent(),
+                ).param("namespaceId", namespace.id)
+                .param("slug", slug)
+                .param("credentialId", credentialId)
+                .query(UUID::class.java)
+                .single(),
+        )
+    }
 }

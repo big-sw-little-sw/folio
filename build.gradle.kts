@@ -34,6 +34,7 @@ dependencies {
     implementation(libs.springdoc.openapi.webmvc.ui)
     implementation(libs.jgit)
     implementation(libs.jgit.ssh.apache)
+    runtimeOnly(libs.bouncycastle.bcprov)
     implementation("org.springframework.modulith:spring-modulith-starter-core")
     implementation("org.springframework.modulith:spring-modulith-starter-insight")
     implementation("tools.jackson.module:jackson-module-kotlin")
@@ -92,6 +93,17 @@ tasks.test {
     useJUnitPlatform {
         excludeTags("integration")
     }
+}
+
+// Each test run gets a fresh repository cache under the build directory (ADR 0024).
+tasks.withType<Test>().configureEach {
+    val cacheDirectory =
+        layout.buildDirectory
+            .dir("folio-test-cache/$name")
+            .get()
+            .asFile
+    systemProperty("folio.git.cache-directory", cacheDirectory.absolutePath)
+    doFirst { cacheDirectory.deleteRecursively() }
 }
 
 tasks.register<Test>("integrationTest") {
