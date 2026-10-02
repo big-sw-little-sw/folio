@@ -102,7 +102,7 @@ class SourceAccess(
         configSetId: UUID,
         source: SourceDefinition,
         revision: RevisionRef,
-    ): List<SourcePath> =
+    ): List<SourceFile> =
         reading(configSetId, revision) { repository ->
             val commit = resolve(repository, source, revision)
             val root = subtree(repository, commit, source.rootPath) ?: return@reading emptyList()
@@ -112,18 +112,22 @@ class SourceAccess(
                 // Git allows names that are not valid paths here, such as ones with a backslash; they cannot be read.
                 generateSequence { if (walk.next()) walk else null }
                     .filter { it.getFileMode(0).isRegularFile() }
-                    .mapNotNull { SourcePath.parseOrNull(it.pathString) }
-                    .toList()
+                    .mapNotNull { file ->
+                        SourcePath.parseOrNull(file.pathString)?.let { path ->
+                            val id = file.getObjectId(0)
+                            SourceFile(path, id.name, walk.objectReader.getObjectSize(id, Constants.OBJ_BLOB))
+                        }
+                    }.toList()
             }
         }
 
-    /** The raw bytes of the regular file at [path] beneath the root path at [revision]. */
+    /** The raw bytes of the regular file at [path] beneath the root path at [revision], with its blob ID. */
     fun read(
         configSetId: UUID,
         source: SourceDefinition,
         path: SourcePath,
         revision: RevisionRef,
-    ): ByteArray =
+    ): SourceContent =
         reading(configSetId, revision) { repository ->
             val commit = resolve(repository, source, revision)
             val fullPath = source.rootPath.resolve(path)
@@ -133,7 +137,8 @@ class SourceAccess(
                 TreeWalk.forPath(repository, fullPath.value, commit.tree) ?: throw SourceFileNotFoundException(path)
             walk.use {
                 if (!it.getFileMode(0).isRegularFile()) throw SourceFileNotFoundException(path)
-                repository.open(it.getObjectId(0), Constants.OBJ_BLOB).bytes
+                val id = it.getObjectId(0)
+                SourceContent(id.name, repository.open(id, Constants.OBJ_BLOB).bytes)
             }
         }
 
