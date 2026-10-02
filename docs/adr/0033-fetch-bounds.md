@@ -30,6 +30,11 @@ that outlives its lease lets another instance fetch the same ConfigSet at the sa
   fetch, still holding the fetch lock, Folio sums the sizes of the repository's regular files, without following
   symbolic links. A repository over the limit is deleted and the fetch fails with `REPOSITORY_TOO_LARGE`, a new code; the
   last synced revision stays as it was. Together with the deadline this bounds both disk and time.
+- **No automatic gc.** JGit runs an automatic gc after each fetch, by default in a background thread, which creates
+  and removes files in the repository. That races reads, the size check, discarding and the sweep, and a disposable
+  cache does not need it. Before each fetch Folio saves `fetch.autogc = false` and `gc.auto = 0` in the cache
+  repository's own config, unless they are already set; the isolated system reader (ADR 0025) only replaces the system
+  and user configs. The size walk also skips files that vanish while it runs.
 - **Concurrency.** Each instance runs at most `folio.sync.max-concurrent-fetches` sync fetches at once (ADR 0032).
   Onboarding checks are administrator requests and are not counted.
 
