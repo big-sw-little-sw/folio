@@ -1,0 +1,73 @@
+@startuml
+title <size:24>FolioApplication</size>
+
+set separator none
+top to bottom direction
+
+<style>
+  root {
+    BackgroundColor: #ffffff
+    FontColor: #444444
+  }
+</style>
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Component>
+
+System_Boundary("FolioApplication_boundary", "FolioApplication", $tags="") {
+  Container_Boundary("FolioApplication.FolioApplication_boundary", "FolioApplication", $tags="") {
+    Component(FolioApplication.FolioApplication.Sync, "Sync", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Audit, "Audit", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Consumption, "Consumption", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Web, "Web", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Apiid, "Apiid", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Security, "Security", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Policy, "Policy", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Credential, "Credential", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Namespace, "Namespace", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Source, "Source", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Configset, "Configset", $techn="Module", $descr="", $tags="", $link="")
+  }
+
+}
+
+Rel(FolioApplication.FolioApplication.Audit, FolioApplication.FolioApplication.Configset, "listens to", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Audit, FolioApplication.FolioApplication.Credential, "listens to", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Audit, FolioApplication.FolioApplication.Namespace, "listens to", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Audit, FolioApplication.FolioApplication.Policy, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Audit, FolioApplication.FolioApplication.Security, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Audit, FolioApplication.FolioApplication.Source, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Audit, FolioApplication.FolioApplication.Sync, "listens to", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Apiid, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Credential, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Namespace, "listens to", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Namespace, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Policy, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Security, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Configset, FolioApplication.FolioApplication.Source, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Consumption, FolioApplication.FolioApplication.Configset, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Consumption, FolioApplication.FolioApplication.Policy, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Consumption, FolioApplication.FolioApplication.Source, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Consumption, FolioApplication.FolioApplication.Sync, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Credential, FolioApplication.FolioApplication.Apiid, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Credential, FolioApplication.FolioApplication.Policy, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Namespace, FolioApplication.FolioApplication.Apiid, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Namespace, FolioApplication.FolioApplication.Policy, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Namespace, FolioApplication.FolioApplication.Security, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Policy, FolioApplication.FolioApplication.Security, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Source, FolioApplication.FolioApplication.Credential, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Configset, "listens to", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Configset, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Policy, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Sync, FolioApplication.FolioApplication.Source, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Web, FolioApplication.FolioApplication.Configset, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Web, FolioApplication.FolioApplication.Consumption, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Web, FolioApplication.FolioApplication.Credential, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Web, FolioApplication.FolioApplication.Namespace, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Web, FolioApplication.FolioApplication.Policy, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Web, FolioApplication.FolioApplication.Source, "depends on", $techn="", $tags="", $link="")
+
+SHOW_LEGEND(true)
+hide stereotypes
+@enduml

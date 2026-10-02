@@ -3,8 +3,9 @@ package io.github.big_sw_little_sw.folio.audit.internal
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import tools.jackson.databind.json.JsonMapper
+import java.time.Duration
 
-/** The `audit_event` table. Records are only inserted; v1 has no reads and no pruning (ADR 0038). */
+/** The `audit_event` table. Records are inserted and pruned, never read or changed (ADR 0038, ADR 0041). */
 @Repository
 class AuditRepository(
     private val jdbc: JdbcClient,
@@ -38,6 +39,29 @@ class AuditRepository(
             .param("details", json.writeValueAsString(entry.details))
             .update()
     }
+
+    /**
+     * Deletes up to [limit] records that occurred more than [retention] ago by the database clock, oldest first, and
+     * returns how many. Rows another instance's pruning is deleting are skipped, not waited for.
+     */
+    fun deleteOlderThan(
+        retention: Duration,
+        limit: Int,
+    ): Int =
+        jdbc
+            .sql(
+                """
+                delete from audit_event where id in (
+                    select id from audit_event
+                    where occurred_at < now() - :retentionMillis * interval '1 millisecond'
+                    order by occurred_at
+                    limit :limit
+                    for update skip locked
+                )
+                """.trimIndent(),
+            ).param("retentionMillis", retention.toMillis())
+            .param("limit", limit)
+            .update()
 
     private fun actorType(actor: Actor) =
         when (actor) {

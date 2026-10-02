@@ -12,13 +12,37 @@ import io.github.big_sw_little_sw.folio.source.SourceCache
 import io.github.big_sw_little_sw.folio.sync.SyncedRevisions
 import org.junit.jupiter.api.Test
 import org.springframework.modulith.core.ApplicationModules
+import org.springframework.modulith.docs.Documenter
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import java.nio.file.Path
+import kotlin.io.path.Path
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 
 class ModularityTests {
+    private val modules = ApplicationModules.of(FolioApplication::class.java)
+
     @Test
     fun `application modules respect their boundaries`() {
-        ApplicationModules.of(FolioApplication::class.java).verify()
+        modules.verify()
+    }
+
+    /**
+     * Regenerates the committed module diagrams and canvases; a change shows up in the diff. Modulith writes the
+     * diagrams' relations in an order that differs between runs, so they are sorted to keep the files stable.
+     */
+    @Test
+    fun `module diagrams and canvases are written to the docs`() {
+        Documenter(modules, Documenter.Options.defaults().withOutputFolder(MODULE_DOCS)).writeDocumentation()
+        Path(MODULE_DOCS).listDirectoryEntries("*.puml").forEach(::sortRelations)
+    }
+
+    private fun sortRelations(diagram: Path) {
+        val lines = diagram.readText().split("\n")
+        val relations = lines.filter { it.startsWith("Rel(") }.sorted().iterator()
+        diagram.writeText(lines.joinToString("\n") { if (it.startsWith("Rel(")) relations.next() else it })
     }
 
     /**
@@ -63,4 +87,8 @@ class ModularityTests {
             .areAnnotatedWith(RestController::class.java)
             .or()
             .areAnnotatedWith(RestControllerAdvice::class.java)
+
+    private companion object {
+        const val MODULE_DOCS = "docs/modules"
+    }
 }
