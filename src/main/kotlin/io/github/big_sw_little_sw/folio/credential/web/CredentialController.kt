@@ -42,8 +42,8 @@ data class CreateCredentialRequest(
     val name: String,
 )
 
-/** [keyId] is the pending key the administrator registered with the Git service. */
-data class ActivateKeyRequest(
+/** [keyId] names the credential's pending key, to activate or discard. */
+data class PendingKeyRequest(
     val keyId: String,
 )
 
@@ -79,8 +79,15 @@ class CredentialController(
     @PostMapping("/{id}:activate")
     fun activate(
         @PathVariable id: String,
-        @RequestBody request: ActivateKeyRequest,
+        @RequestBody request: PendingKeyRequest,
     ): CredentialResponse = credentials.activate(id.toCredentialId(), request.keyId.toKeyId()).toResponse()
+
+    /** Retires the pending key without activating it. */
+    @PostMapping("/{id}:discard")
+    fun discard(
+        @PathVariable id: String,
+        @RequestBody request: PendingKeyRequest,
+    ): CredentialResponse = credentials.discard(id.toCredentialId(), request.keyId.toKeyId()).toResponse()
 
     /** Emergency replacement: a new key is active at once. */
     @PostMapping("/{id}:replace")

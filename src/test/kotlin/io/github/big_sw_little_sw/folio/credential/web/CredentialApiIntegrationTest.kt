@@ -142,6 +142,33 @@ class CredentialApiIntegrationTest(
     }
 
     @Test
+    fun `discard retires the pending key, after which a new key can be generated`() {
+        val id = credential()
+        val pendingKey = keyIds(send(POST, "$CREDENTIALS/$id:regenerate", "")).last()
+
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpect {
+            status { isOk() }
+            jsonPath("$.keys[*].status") { value(contains("ACTIVE", "RETIRED")) }
+            jsonPath("$.keys[1].id") { value(pendingKey) }
+        }
+        send(POST, "$CREDENTIALS/$id:regenerate", "").andExpect {
+            status { isOk() }
+            jsonPath("$.keys[*].status") { value(contains("ACTIVE", "RETIRED", "PENDING")) }
+        }
+    }
+
+    @Test
+    fun `discarding a key that is not the pending key gives 409`() {
+        val id = credential()
+        val activeKey = keyIds(send(GET, "$CREDENTIALS/$id", "")).single()
+
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$activeKey"}""").andExpectProblem(409)
+        val pendingKey = keyIds(send(POST, "$CREDENTIALS/$id:regenerate", "")).last()
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpect { status { isOk() } }
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpectProblem(409)
+    }
+
+    @Test
     fun `emergency replacement activates a new key at once and retires the active and pending keys`() {
         val id = credential()
         send(POST, "$CREDENTIALS/$id:regenerate", "")
@@ -165,6 +192,7 @@ class CredentialApiIntegrationTest(
         send(POST, "$CREDENTIALS/$id:regenerate", "").andExpectProblem(409)
         send(POST, "$CREDENTIALS/$id:replace", "").andExpectProblem(409)
         send(POST, "$CREDENTIALS/$id:activate", """{"keyId": "$pendingKey"}""").andExpectProblem(409)
+        send(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$pendingKey"}""").andExpectProblem(409)
     }
 
     @Test
@@ -249,6 +277,7 @@ class CredentialApiIntegrationTest(
         Triple(GET, "$CREDENTIALS/$id", ""),
         Triple(POST, "$CREDENTIALS/$id:regenerate", ""),
         Triple(POST, "$CREDENTIALS/$id:activate", """{"keyId": "$keyId"}"""),
+        Triple(POST, "$CREDENTIALS/$id:discard", """{"keyId": "$keyId"}"""),
         Triple(POST, "$CREDENTIALS/$id:replace", ""),
         Triple(POST, "$CREDENTIALS/$id:disable", ""),
         Triple(GET, CRYPTO, ""),
