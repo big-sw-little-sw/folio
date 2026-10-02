@@ -17,6 +17,12 @@ folio:
       1: GcMeb3J13AAREi3DzgyshZL/FL08vOuyK77HkB095U4=
       2: uv8GMrwyjtZpqi4eruxcrHoo+hdO74ZX+uLGen3rDio=
     active-key-version: 2
+  sync:
+    # Tests drive sync directly; the scheduled poll and cache sweep must not run during a test run. Test contexts share
+    # one cache directory but not their databases, so a sweep would remove other contexts' repositories.
+    poll-interval: 1h
+    interval: 1h
+    max-backoff: 8h
   git:
     # cache-directory: set per test run by build.gradle.kts.
     instances:

@@ -11,6 +11,7 @@ import org.eclipse.jgit.transport.CredentialsProvider
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.sshd.ServerKeyDatabase
 import org.eclipse.jgit.transport.sshd.SshdSessionFactoryBuilder
+import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
 import java.io.File
 import java.net.InetSocketAddress
@@ -19,6 +20,8 @@ import java.security.KeyPair
 import java.security.PublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * SSH sessions for JGit with one credential's key and one instance's trusted host keys, and nothing from the
@@ -29,16 +32,32 @@ import java.security.spec.X509EncodedKeySpec
 class SshConnections(
     private val hostKeys: TrustedHostKeys,
     properties: SourceProperties,
-) {
+) : DisposableBean {
     // Empty and never written: JGit resolves `~` and `~/.ssh` against it instead of the process user's home.
     private val home: File = Files.createDirectories(properties.cacheDirectory.resolve("ssh-home")).toFile()
 
+    // Daemon: an enforcement still scheduled must not keep the JVM alive. Cancelled enforcements, one per finished
+    // operation, are removed at once rather than held until their deadline.
+    private val watchdog =
+        ScheduledThreadPoolExecutor(
+            1,
+            Thread
+                .ofPlatform()
+                .name("folio-fetch-deadline")
+                .daemon()
+                .factory(),
+        ).apply {
+            removeOnCancelPolicy = true
+        }
+
     /**
      * Runs [operation], whose JGit commands must apply the callback it receives so they connect with [credential].
-     * Throws [SourceAccessFailedException] with the classified failure if a command fails.
+     * Throws [SourceAccessFailedException] with the classified failure if a command fails. At [deadline], the commands
+     * of [operation] are cut, so it ends with `DEADLINE_EXCEEDED` (ADR 0033).
      */
     fun <T> run(
         credential: CredentialKeyPair,
+        deadline: FetchDeadline,
         operation: (TransportConfigCallback) -> T,
     ): T {
         val database = TrustedKeyDatabase(hostKeys.of(credential.gitInstance))
@@ -56,15 +75,22 @@ class SshConnections(
                 // Set to null rather than left unset, which would load an agent connector through the ServiceLoader.
                 .setConnectorFactory(null)
                 .build(null)
+        val sessions = DeadlineSessions(factory, deadline)
+        val enforcement = watchdog.schedule(sessions::expire, deadline.remaining().toNanos(), TimeUnit.NANOSECONDS)
         try {
-            return operation { (it as SshTransport).sshSessionFactory = factory }
+            return operation { (it as SshTransport).sshSessionFactory = sessions }
         } catch (e: GitAPIException) {
-            throw SourceAccessFailedException(classify(e, database.rejected))
+            throw SourceAccessFailedException(classify(e, database.rejected, deadline.exceeded))
         } catch (e: JGitInternalException) {
-            throw SourceAccessFailedException(classify(e, database.rejected))
+            throw SourceAccessFailedException(classify(e, database.rejected, deadline.exceeded))
         } finally {
+            enforcement.cancel(false)
             factory.close()
         }
+    }
+
+    override fun destroy() {
+        watchdog.shutdownNow()
     }
 
     /**

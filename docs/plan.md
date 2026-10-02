@@ -76,18 +76,21 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Sync gets the credential's active key pair from `CredentialKeyPairs.active`.
   - Integration tests run against an SSH Git server in Testcontainers (ADR 0004).
 
-- [ ] **6. Sync**
-  - Polling scheduler requests sync for due ConfigSets; fetches run on a bounded executor.
+- [x] **6. Sync**
+  - Polling scheduler requests sync for due ConfigSets; fetches run on a bounded executor (ADR 0032).
   - Per-source leases with `SELECT … FOR UPDATE SKIP LOCKED`; a source is never fetched concurrently.
   - Fetch-based change detection against the last seen revision.
   - Sync state: last seen and synced revisions, attempt and success times, error code, safe summary,
     consecutive failures.
   - Manual sync through the admin API.
-  - Remove the cache directories of deleted ConfigSets (ADR 0024).
-  - Bound each fetch: total deadline, repository size limit, and a cap on concurrent fetches.
+  - Remove the cache directories of deleted ConfigSets (ADR 0024, ADR 0034).
+  - Bound each fetch: a wall-clock deadline, a repository size limit checked on disk after each fetch, and a cap on
+    concurrent fetches (ADR 0033).
 
 - [ ] **7. Consumption API**
   - ConfigSet metadata, file listing, raw file reads and revision listing; `latest` and exact-revision reads.
+  - `latest` is the last synced revision from the database, not the cache's branch tip. Caches are per instance
+    (ADR 0032): a read on an instance whose cache lacks that commit fetches on demand before serving it.
   - ETags with `If-None-Match` / `304`; immutable caching for exact revisions, short caching for latest.
   - `X-Config-Revision` and `X-Config-Validation-Status` headers.
   - Validation status for YAML, JSON and properties files; malformed files are still served raw.
