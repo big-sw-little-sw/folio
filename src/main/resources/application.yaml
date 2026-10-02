@@ -37,6 +37,7 @@ logging:
 #   responses about `latest` and shared caches keep public exact revisions, which private caches keep for a year;
 #   max-concurrent-fetches (default 2) on-demand fetches per instance for reads; max-file-size (default 10MB) of a
 #   served file.
+# - folio.audit.retention (default 90d): audit records older than this are deleted once a day (ADR 0041).
 # - management.server.port (default 8081): the port of the actuator endpoints, health and prometheus, which the
 #   application port does not serve. Keep it off the public network: /actuator/prometheus needs no token, so that
 #   scrapers can reach it. Liveness and readiness probes must target this port (ADR 0040).
