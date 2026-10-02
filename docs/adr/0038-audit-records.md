@@ -1,6 +1,7 @@
 # 0038. Audit records
 
-Status: Accepted (2026-10-02). Amends ADR 0031, ADR 0032 and ADR 0034.
+Status: Accepted (2026-10-02). Amends ADR 0031, ADR 0032 and ADR 0034. Amended by ADR 0041: records are deleted after a
+retention, 90 days by default.
 
 ## Context
 
@@ -75,5 +76,5 @@ own records.
 ## Open questions
 
 - An audit read API: who may read records, filters and pagination.
-- Retention and pruning.
+- Retention and pruning: decided by ADR 0041.
 - Auditing the onboarding check and sync's use of credentials (design 23.4).
