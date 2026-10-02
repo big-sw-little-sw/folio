@@ -3,6 +3,8 @@ package io.github.big_sw_little_sw.folio.configset.web
 import io.github.big_sw_little_sw.folio.configset.ConfigSet
 import io.github.big_sw_little_sw.folio.configset.ConfigSetPath
 import io.github.big_sw_little_sw.folio.configset.ConfigSetService
+import io.github.big_sw_little_sw.folio.configset.toApiId
+import io.github.big_sw_little_sw.folio.configset.toConfigSetId
 import io.github.big_sw_little_sw.folio.credential.toApiId
 import io.github.big_sw_little_sw.folio.credential.toCredentialId
 import io.github.big_sw_little_sw.folio.credential.toKeyId

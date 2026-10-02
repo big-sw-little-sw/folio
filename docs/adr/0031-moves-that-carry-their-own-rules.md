@@ -1,6 +1,7 @@
 # 0031. Moves that carry their own rules
 
-Status: Accepted (2026-10-01). Amends ADR 0012 and ADR 0014.
+Status: Accepted (2026-10-01). Amends ADR 0012 and ADR 0014. Amended by ADR 0034: after-commit reactions in a
+downstream module also use events.
 
 ## Context
 

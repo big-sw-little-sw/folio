@@ -60,8 +60,64 @@ object SshGitServer {
     /** `[host]:port`, as a known_hosts file names this server. */
     val knownHostsName: String get() = "[${container.host}]:${container.getMappedPort(SSH_PORT)}"
 
-    fun authorize(publicKey: String) {
-        exec("sh", "-c", "echo '$publicKey' >> /home/git/.ssh/authorized_keys")
+    /**
+     * Authorizes [publicKey]. With [command], every command the key runs, ls-remote and fetch alike, runs inside it
+     * as `$SSH_ORIGINAL_COMMAND`; see [delayed] and [throttled].
+     */
+    fun authorize(
+        publicKey: String,
+        command: String? = null,
+    ) {
+        val options = if (command == null) "" else "command=\"${command.replace("\"", "\\\"")}\" "
+        exec("sh", "-c", "echo '$options$publicKey' >> /home/git/.ssh/authorized_keys")
+    }
+
+    /** Starts each command [seconds] late, sending nothing meanwhile. */
+    fun delayed(seconds: Int) = "sleep $seconds; eval \"\$SSH_ORIGINAL_COMMAND\""
+
+    /**
+     * Passes each command's output on at most [bytes] a second, in one read of up to [bytes] per second: the connection
+     * is never idle for long, so JGit's idle timeout never fires, but anything longer than [bytes] takes seconds.
+     */
+    fun throttled(bytes: Int) =
+        "eval \"\$SSH_ORIGINAL_COMMAND\" | " +
+            "while [ \"\$(dd bs=$bytes count=1 2>/dev/null | tee /dev/fd/3 | wc -c)\" -gt 0 ]; do sleep 1; done 3>&1"
+
+    /**
+     * Creates the bare repository `/repos/<name>.git` with one commit on `main` whose `config/big.bin` holds [bytes]
+     * random, so incompressible, bytes. Returns the commit ID.
+     */
+    fun createLargeRepository(
+        name: String,
+        bytes: Int,
+    ): String {
+        val script =
+            """
+            set -e
+            work=${'$'}(mktemp -d)
+            cd ${'$'}work
+            git init -q -b main
+            git config user.email test@folio.test
+            git config user.name test
+            mkdir config
+            head -c $bytes /dev/urandom > config/big.bin
+            git add -A
+            git commit -q -m big
+            rm -rf /repos/$name.git
+            git clone -q --bare . /repos/$name.git
+            chown -R git:git /repos/$name.git
+            git rev-parse HEAD
+            """.trimIndent()
+        return exec("sh", "-c", script).trim()
+    }
+
+    /** Deletes the branch `main` of `/repos/<name>.git`. */
+    fun deleteMain(name: String) {
+        exec(
+            "sh",
+            "-c",
+            "git config --global --add safe.directory '*' && git -C /repos/$name.git update-ref -d refs/heads/main",
+        )
     }
 
     /** A new key pair, generated in the container: the OpenSSH private key file and the public key line. */
