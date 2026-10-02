@@ -119,14 +119,54 @@ class ConfigSetAuthorizationIntegrationTest(
     @Test
     fun `a move needs move on the ConfigSet and create on the target namespace`() {
         val target = asAdmin { namespace("target") }
-        val serviceA = asAdmin { create(namespace("source")) }
-        asAdmin { grantOnConfigSet(serviceA, Action.CONFIG_SET_MOVE) }
+        val source = asAdmin { namespace("source") }
+        val serviceA = asAdmin { create(source) }
+        // Granted on the namespace: without rules of its own, the ConfigSet needs no policy update on the target.
+        asAdmin { grantOnNamespace(source, Action.CONFIG_SET_MOVE) }
         authenticateAs("alice")
         assertFailsWith<PermissionDeniedException> { service.move(serviceA.id, target.id) }
 
         asAdmin { grantOnNamespace(target, Action.CONFIG_SET_CREATE) }
         authenticateAs("alice")
         assertEquals(target.id, service.move(serviceA.id, target.id).namespaceId)
+    }
+
+    @Test
+    fun `moving a ConfigSet with rules of its own also needs policy update on the target namespace`() {
+        val target = asAdmin { namespace("target") }
+        val serviceA = asAdmin { create(namespace("source")) }
+        asAdmin {
+            grantOnConfigSet(serviceA, Action.CONFIG_SET_MOVE)
+            grantOnNamespace(target, Action.CONFIG_SET_CREATE)
+        }
+        authenticateAs("alice")
+        val withoutUpdate = assertFailsWith<PermissionDeniedException> { service.move(serviceA.id, target.id) }
+        assertEquals(Action.POLICY_UPDATE, withoutUpdate.action)
+
+        asAdmin { grantOnNamespace(target, Action.POLICY_UPDATE) }
+        authenticateAs("alice")
+        assertEquals(target.id, service.move(serviceA.id, target.id).namespaceId)
+    }
+
+    @Test
+    fun `moving a namespace that holds a ConfigSet with rules of its own also needs policy update on the target`() {
+        val a = asAdmin { namespace("a") }
+        val b = asAdmin { namespace("b") }
+        val inner = asAdmin { namespaces.create(a.id, Slug("inner")) }
+        val serviceA = asAdmin { create(inner) }
+        asAdmin {
+            grantOnNamespace(a, Action.NAMESPACE_MOVE)
+            grantOnNamespace(b, Action.NAMESPACE_CREATE)
+            policies.putRule(serviceA.id, Rule(Action.CONFIG_SET_VIEW, setOf(Subject.User("bob"))))
+        }
+        authenticateAs("alice")
+        val withoutUpdate = assertFailsWith<PermissionDeniedException> { namespaces.move(inner.id, b.id) }
+        assertEquals(Action.POLICY_UPDATE, withoutUpdate.action)
+        assertEquals(a.id, asAdmin { namespaces.get(inner.id) }.parentId)
+
+        asAdmin { grantOnNamespace(b, Action.POLICY_UPDATE) }
+        authenticateAs("alice")
+        assertEquals(b.id, namespaces.move(inner.id, b.id).parentId)
     }
 
     @Test

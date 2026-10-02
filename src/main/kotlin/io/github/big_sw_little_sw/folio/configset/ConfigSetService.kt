@@ -4,6 +4,7 @@ import io.github.big_sw_little_sw.folio.configset.internal.ConfigSetRepository
 import io.github.big_sw_little_sw.folio.credential.CredentialService
 import io.github.big_sw_little_sw.folio.credential.KeyId
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
+import io.github.big_sw_little_sw.folio.namespace.NamespaceMoving
 import io.github.big_sw_little_sw.folio.namespace.NamespaceNotFoundException
 import io.github.big_sw_little_sw.folio.namespace.NamespaceTree
 import io.github.big_sw_little_sw.folio.namespace.Slug
@@ -13,6 +14,7 @@ import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SourceCheck
 import io.github.big_sw_little_sw.folio.source.SourceDefinition
+import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -77,7 +79,10 @@ class ConfigSetService(
         return renamed
     }
 
-    /** Requires move on the ConfigSet and create in the target namespace, as if creating it there (ADR 0014). */
+    /**
+     * Requires move on the ConfigSet and create in the target namespace, as if creating it there (ADR 0014). If the
+     * ConfigSet has rules of its own, also requires policy update on the target namespace (ADR 0031).
+     */
     @Transactional
     fun move(
         id: ConfigSetId,
@@ -85,11 +90,20 @@ class ConfigSetService(
     ): ConfigSet {
         tree.lock()
         val configSet = existing(id)
+        val targetPath = tree.policyPath(namespaceId)
         policy.requireAllowed(Action.CONFIG_SET_MOVE, path(configSet))
-        policy.requireAllowed(Action.CONFIG_SET_CREATE, tree.policyPath(namespaceId))
+        policy.requireAllowed(Action.CONFIG_SET_CREATE, targetPath)
+        policy.requireAllowedToMoveRules(listOf(ResourceRef.ConfigSetRef(id.value)), targetPath)
         val moved = configSet.copy(namespaceId = namespaceId)
         configSets.update(moved)
         return moved
+    }
+
+    /** The ConfigSets in a moving namespace subtree carry their own rules along, as on a ConfigSet move (ADR 0031). */
+    @EventListener
+    fun onNamespaceMoving(event: NamespaceMoving) {
+        val moved = configSets.findIdsByNamespaces(event.subtree).map { ResourceRef.ConfigSetRef(it.value) }
+        policy.requireAllowedToMoveRules(moved, event.targetPath)
     }
 
     /** Deletes the ConfigSet and its rules. */

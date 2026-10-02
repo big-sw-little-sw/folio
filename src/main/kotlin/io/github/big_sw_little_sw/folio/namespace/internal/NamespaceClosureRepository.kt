@@ -52,6 +52,14 @@ class NamespaceClosureRepository(
             // Every namespace has a closure row for itself, so no rows means no namespace.
             .ifEmpty { throw NamespaceNotFoundException(id) }
 
+    /** [id] and all its descendants. */
+    fun findSubtree(id: NamespaceId): List<NamespaceId> =
+        jdbc
+            .sql("select descendant_id from namespace_closure where ancestor_id = :id")
+            .param("id", id.value)
+            .query { rs, _ -> NamespaceId(rs.getObject("descendant_id", UUID::class.java)) }
+            .list()
+
     fun isAncestorOrSelf(
         ancestorId: NamespaceId,
         descendantId: NamespaceId,

@@ -90,6 +90,31 @@ class NamespaceAuthorizationIntegrationTest(
     }
 
     @Test
+    fun `moving a subtree with rules of its own also needs policy update on the new parent`() {
+        val source = asAdmin { createWithRule("source", Action.NAMESPACE_MOVE, Subject.User("alice")) }
+        val target = asAdmin { createWithRule("target", Action.NAMESPACE_CREATE, Subject.User("alice")) }
+        val ai = asAdmin { service.create(source.id, Slug("ai")) }
+        val hive = asAdmin { service.create(ai.id, Slug("hive")) }
+        val ml = asAdmin { service.create(source.id, Slug("ml")) }
+        asAdmin {
+            policies.putRule(hive.id, Rule(Action.NAMESPACE_VIEW, setOf(Subject.User("bob"))))
+            policies.putRule(ml.id, Rule(Action.NAMESPACE_VIEW, setOf(Subject.User("bob"))))
+        }
+        authenticateAs("alice")
+
+        // Rules on a descendant and on the moved namespace itself.
+        listOf(ai, ml).forEach {
+            val denied = assertFailsWith<PermissionDeniedException> { service.move(it.id, target.id) }
+            assertEquals(Action.POLICY_UPDATE, denied.action)
+        }
+
+        asAdmin { policies.putRule(target.id, Rule(Action.POLICY_UPDATE, setOf(Subject.User("alice")))) }
+        authenticateAs("alice")
+        assertEquals(target.id, service.move(ai.id, target.id).parentId)
+        assertEquals(target.id, service.move(ml.id, target.id).parentId)
+    }
+
+    @Test
     fun `create on the new parent without move on the namespace is denied`() {
         val ai = asAdmin { service.create(null, Slug("ai")) }
         val target = asAdmin { createWithRule("target", Action.NAMESPACE_CREATE, Subject.User("alice")) }

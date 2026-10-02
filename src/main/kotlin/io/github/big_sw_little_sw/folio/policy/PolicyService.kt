@@ -39,6 +39,19 @@ class PolicyService(
         }
     }
 
+    /**
+     * For a move of [moved] under the resource whose path is [targetPath]: if any of [moved] has rules of its own,
+     * requires [Action.POLICY_UPDATE] on the target. Moved rules sit nearer than the target's and could lock out its
+     * policy administrators (ADR 0031).
+     */
+    @Transactional(readOnly = true)
+    fun requireAllowedToMoveRules(
+        moved: Collection<ResourceRef>,
+        targetPath: List<ResourceRef>,
+    ) {
+        if (repository.existsOnAny(moved)) requireAllowed(Action.POLICY_UPDATE, targetPath)
+    }
+
     /** How [action] on the target would be decided for [principal]. Requires [Action.POLICY_VIEW]. */
     @Transactional(readOnly = true)
     fun explain(

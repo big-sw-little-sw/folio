@@ -222,8 +222,9 @@ class ConfigSetApiIntegrationTest(
     @Test
     fun `a move needs move on the ConfigSet and create on the target namespace`() {
         val target = namespace(null, "target")
-        val serviceA = configSet(namespace(null, "production"), "service-a")
-        grant(CONFIG_SETS, serviceA, "CONFIG_SET_MOVE", "user:alice")
+        val production = namespace(null, "production")
+        val serviceA = configSet(production, "service-a")
+        grant(NAMESPACES, production, "CONFIG_SET_MOVE", "user:alice")
         val move = """{"namespaceId": "$target"}"""
 
         send(POST, "$CONFIG_SETS/$serviceA:move", move, alice).andExpectProblem(403)
