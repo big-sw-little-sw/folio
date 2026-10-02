@@ -2,6 +2,9 @@
 
 Status: Accepted (2026-09-30). Amended by ADR 0028: bootstrap admins are renamed super admins (`folio.super-admins`).
 
+Amendment (2026-10-01): Use separate client registrations for workloads; `application:` subjects match any token whose
+application claim has that value, including user tokens issued through the same client.
+
 ## Context
 
 Identity providers put user, group and application IDs in different JWT claims. Microsoft Entra
