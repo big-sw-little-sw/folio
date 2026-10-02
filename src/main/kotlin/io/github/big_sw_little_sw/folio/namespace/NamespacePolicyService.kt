@@ -38,14 +38,16 @@ class NamespacePolicyService(
         return put
     }
 
+    /** Deleting a rule that does not exist succeeds and publishes nothing. */
     @Transactional
     fun deleteRule(
         id: NamespaceId,
         action: Action,
     ) {
         tree.lock()
-        policy.deleteRule(path(id), action)
-        events.publishEvent(NamespaceRuleDeleted(id, tree.slugPath(id), action))
+        if (policy.deleteRule(path(id), action)) {
+            events.publishEvent(NamespaceRuleDeleted(id, tree.slugPath(id), action))
+        }
     }
 
     @Transactional(readOnly = true)

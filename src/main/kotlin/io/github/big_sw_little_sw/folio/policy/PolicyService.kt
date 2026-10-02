@@ -107,15 +107,15 @@ class PolicyService(
         return rule
     }
 
-    /** Removes the target's rule for [action], if any, so the action inherits again. */
+    /** Removes the target's rule for [action], if any, so the action inherits again. Returns whether there was one. */
     @Transactional
     fun deleteRule(
         path: List<ResourceRef>,
         action: Action,
-    ) {
+    ): Boolean {
         val target = ruleTarget(path)
         requireAllowed(Action.POLICY_UPDATE, path)
-        repository.delete(target, action)
+        return repository.delete(target, action)
     }
 
     /** The resource a rule operation acts on. */

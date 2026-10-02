@@ -42,6 +42,7 @@ class ConfigSetPolicyService(
         return put
     }
 
+    /** Deleting a rule that does not exist succeeds and publishes nothing. */
     @Transactional
     fun deleteRule(
         id: ConfigSetId,
@@ -49,8 +50,9 @@ class ConfigSetPolicyService(
     ) {
         tree.lock()
         val configSet = existing(id)
-        policy.deleteRule(policyPath(configSet), action)
-        events.publishEvent(ConfigSetRuleDeleted(id, path(configSet), action))
+        if (policy.deleteRule(policyPath(configSet), action)) {
+            events.publishEvent(ConfigSetRuleDeleted(id, path(configSet), action))
+        }
     }
 
     @Transactional(readOnly = true)

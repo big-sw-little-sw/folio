@@ -47,7 +47,7 @@ data class AuditEntry(
     val resourceType: ResourceType,
     val resourceId: UUID?,
     val path: String?,
-    val details: Map<String, Any?> = emptyMap(),
+    val details: Map<String, Any?>,
 )
 
 /** Who did it. A [Caller]'s [superAdmin] says whether it is a configured super admin. */

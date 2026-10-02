@@ -24,8 +24,9 @@ own records.
 - **Same transaction.** A record commits with its operation, and a failed insert rolls the operation back. Denied and
   conflicting operations throw before they publish, so they leave no record. Two operations are not one transaction:
   - Re-encryption commits per row (ADR 0020). The pass publishes one event at the end, in a transaction of its own, with
-    the number of keys it moved off each master-key version and the remaining usage. If that insert fails, the request
-    fails and the keys stay re-encrypted; a re-run records again.
+    the number of keys it moved off each master-key version, the remaining usage and `complete`. A key that fails
+    partway still gets a record of the keys done so far with `complete: false`, written before the failure propagates.
+    If the insert itself fails, the request fails and the keys stay re-encrypted; a re-run records again.
   - Sync records an attempt in one statement outside a transaction (ADR 0032). That statement and the outcome's event now
     run in one transaction, and only while the lease is held. The statement returns the previous synced revision and
     failure code with PostgreSQL 18's `RETURNING old.…`. `ConfigSetSources.path` gives sync the ConfigSet's path without
@@ -33,7 +34,8 @@ own records.
 - **What is audited**, with `resource_type` and `action`:
   - `NAMESPACE`: `NAMESPACE_CREATED`, `_RENAMED`, `_MOVED`, `_DELETED`; `CONFIG_SET`: `CONFIG_SET_CREATED`, `_RENAMED`,
     `_MOVED`, `_DELETED`.
-  - `POLICY_RULE_PUT` and `POLICY_RULE_DELETED`, on the namespace or ConfigSet the rule attaches to.
+  - `POLICY_RULE_PUT` and `POLICY_RULE_DELETED`, on the namespace or ConfigSet the rule attaches to. Deleting a rule
+    that does not exist still answers 204 but records nothing.
   - `CREDENTIAL`: `CREDENTIAL_CREATED`, `_KEY_REGENERATED`, `_KEY_ACTIVATED`, `_KEY_DISCARDED`, `_KEY_REPLACED`,
     `_DISABLED`. Disabling a disabled credential changes nothing and records nothing.
   - `MASTER_KEY_RING`: `MASTER_KEYS_REENCRYPTED`, once per pass, with counts per version rather than a record per key.
@@ -44,7 +46,10 @@ own records.
   changes nothing and a failure that repeats the previous code record nothing: every attempt would otherwise write a row
   each interval. The sync state and the attempts metric (ADR 0039) still show them.
 - **Not audited:** reads of any kind (consumption, gets, listings, rule listings), explanations, onboarding checks
-  (`:check`), rules removed by the cascade of a namespace or ConfigSet delete, and attempts that change nothing.
+  (`:check`) and rules removed by the cascade of a namespace or ConfigSet delete. Of the audited operations, three
+  record nothing when they change nothing: deleting a rule that does not exist, disabling a disabled credential, and a
+  sync outcome equal to the previous one. Other writes are recorded even if they change nothing, such as a rename to
+  the same slug or putting a rule identical to the existing one.
 - **Record.** `occurred_at` is `now()`, the database clock at the start of the operation's transaction. The actor is
   `AUTHENTICATED` with the subject and the application ID, `ANONYMOUS`, or `SYSTEM` for sync outcomes; groups are not
   stored. `actor_super_admin` says whether the caller matches `folio.super-admins`; super admins are decided before any
@@ -53,10 +58,10 @@ own records.
   for a delete; renames and moves add `previousPath`. Credentials and the key ring have no path.
 - **Details**, a JSON object: rule writes `ruleAction` and, for puts, the sorted `subjects`; ConfigSet creation the
   source's `credentialId`, `repositoryPath`, `branch` and `rootPath`; credential changes `gitInstance`, `name` and the
-  `keys` whose status the change set, each as `keyId`, `fingerprint` and new `status`; re-encryption `activeVersion`,
-  `reencryptedByVersion` and `keysByVersion`; outcomes the `revision`, `previousRevision`, `failureCode` and
-  `previousFailureCode` that apply. Never public or private keys, ciphertext, master secrets, tokens, transport output
-  or file contents.
+  `keys` whose status the change set, each as `keyId`, `fingerprint` and new `status`; re-encryption `complete`,
+  `activeVersion`, `reencryptedByVersion` and `keysByVersion`; outcomes the `revision`, `previousRevision`,
+  `failureCode` and `previousFailureCode` that apply. Never public or private keys, ciphertext, master secrets, tokens,
+  transport output or file contents.
 - **Storage.** No foreign keys: records outlive the resources they name. One index, `(resource_id, occurred_at)`, serves
   the obvious query, the history of one resource. No read API: operators query the table.
 

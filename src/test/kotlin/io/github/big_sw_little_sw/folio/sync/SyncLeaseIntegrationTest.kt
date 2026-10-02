@@ -1,6 +1,8 @@
 package io.github.big_sw_little_sw.folio.sync
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.audit.AuditRecords
+import io.github.big_sw_little_sw.folio.configset.ConfigSet
 import io.github.big_sw_little_sw.folio.configset.ConfigSetService
 import io.github.big_sw_little_sw.folio.configset.ConfigSetSources
 import io.github.big_sw_little_sw.folio.credential.CredentialService
@@ -49,6 +51,7 @@ class SyncLeaseIntegrationTest(
     @Autowired jdbc: JdbcClient,
 ) {
     private val fixture = SyncFixture(configSets, credentials, namespaces, jdbc, "leases")
+    private val records = AuditRecords(jdbc)
     private val other = Synchronizer(states, configSetSources, sources, recorder, properties, meters)
     private lateinit var commits: List<String>
 
@@ -118,11 +121,16 @@ class SyncLeaseIntegrationTest(
         assertFalse(synchronizer.sync(lost))
         assertNull(checkNotNull(states.find(configSet.id)).lastAttemptAt)
         assertEquals(other.instanceId.toString(), fixture.leaseOwner(configSet))
+        assertEquals(emptyList(), syncRecords(configSet))
 
         assertTrue(other.sync(taken))
         assertEquals(commits.last(), checkNotNull(states.find(configSet.id)).lastSyncedRevision)
         assertNull(fixture.leaseOwner(configSet))
+        assertEquals(listOf("SYNC_REVISION_CHANGED"), syncRecords(configSet))
     }
+
+    private fun syncRecords(configSet: ConfigSet) =
+        records.of(configSet.id.value).map { it.action }.filter { it.startsWith("SYNC_") }
 
     @Test
     fun `a lease claimed again by the same instance replaces the earlier one`() {

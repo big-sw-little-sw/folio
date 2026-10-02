@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio
 
 import io.github.big_sw_little_sw.folio.configset.ConfigSetService
+import io.github.big_sw_little_sw.folio.configset.toApiId
 import io.github.big_sw_little_sw.folio.consumption.ConsumptionFixture
 import io.github.big_sw_little_sw.folio.credential.CredentialService
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
@@ -24,6 +25,7 @@ import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * The metrics of ADR 0039, read from the `MeterRegistry`. Test classes share the registry of a cached context, so each
@@ -88,33 +90,33 @@ class MetricsIntegrationTest(
     }
 
     @Test
-    fun `content reads are timed by route, revision kind and status`() {
+    fun `content reads are timed by Spring by URI template and status, without IDs or paths`() {
         fixture.sync()
         val latest = fixture.commits.last()
         val reads =
             listOf(
-                Read(fixture.url, "metadata", "latest", "200"),
-                Read("${fixture.url}/files", "listing", "latest", "200"),
-                Read("${fixture.url}/files?revision=nope", "listing", "exact", "4xx"),
-                Read("${fixture.url}/files/app.yaml?revision=$latest", "file", "exact", "200"),
-                Read("${fixture.url}/files/missing.yaml", "file", "latest", "4xx"),
-                Read("${fixture.url}/revisions", "revisions", "latest", "200"),
+                Read(fixture.url, CONFIG_SET, "200"),
+                Read("${fixture.url}/files", "$CONFIG_SET/files", "200"),
+                Read("${fixture.url}/files?revision=nope", "$CONFIG_SET/files", "400"),
+                Read("${fixture.url}/files/app.yaml?revision=$latest", "$CONFIG_SET/files/{*path}", "200"),
+                Read("${fixture.url}/revisions", "$CONFIG_SET/revisions", "200"),
             )
-        val counts = reads.map { it.counted() }
         val etag =
             fixture
                 .get("${fixture.url}/files/app.yaml")
                 .andReturn()
                 .response
                 .getHeader(HttpHeaders.ETAG)
-        val notModified = Read("${fixture.url}/files/app.yaml", "file", "latest", "304").counted()
+        val counts = reads.map { it.counted() }
+        val notModified = Read("${fixture.url}/files/app.yaml", "$CONFIG_SET/files/{*path}", "304").counted()
 
         reads.forEach { fixture.get(it.url) }
         fixture.get("${fixture.url}/files/app.yaml", ifNoneMatch = etag)
 
-        counts.forEach { assertEquals(1.0, it.added(), it.tags.toString()) }
+        counts.forEach { assertEquals(1.0, it.added(), it.tags.toList().toString()) }
         assertEquals(1.0, notModified.added())
-        assertEquals(setOf("route", "revision", "status"), tagKeys("folio.consumption.reads"))
+        val uris = meters.find(REQUESTS).meters().map { it.id.getTag("uri") }
+        assertTrue(uris.none { fixture.configSet.id.toApiId() in it.orEmpty() || "app.yaml" in it.orEmpty() })
     }
 
     @Test
@@ -181,16 +183,15 @@ class MetricsIntegrationTest(
 
     private inner class Read(
         val url: String,
-        route: String,
-        revision: String,
+        uri: String,
         status: String,
     ) {
-        private val tags = arrayOf("route", route, "revision", revision, "status", status)
+        private val tags = arrayOf("method", "GET", "uri", uri, "status", status)
 
         fun counted() = TimerCount(tags)
     }
 
-    /** How many times a timer recorded from now on. */
+    /** How many times Spring's request timer recorded from now on. */
     private inner class TimerCount(
         val tags: Array<String>,
     ) {
@@ -200,7 +201,7 @@ class MetricsIntegrationTest(
 
         private fun count() =
             meters
-                .find("folio.consumption.reads")
+                .find(REQUESTS)
                 .tags(*tags)
                 .timer()
                 ?.count()
@@ -209,6 +210,8 @@ class MetricsIntegrationTest(
 
     companion object {
         private const val REPOSITORY = "metrics"
+        private const val REQUESTS = "http.server.requests"
+        private const val CONFIG_SET = "/api/v1/configsets/{id}"
 
         @JvmStatic
         @DynamicPropertySource
