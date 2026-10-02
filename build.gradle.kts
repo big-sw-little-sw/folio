@@ -34,6 +34,7 @@ dependencies {
     implementation(libs.springdoc.openapi.webmvc.ui)
     implementation(libs.jgit)
     implementation(libs.jgit.ssh.apache)
+    runtimeOnly(libs.bouncycastle.bcprov)
     implementation("org.springframework.modulith:spring-modulith-starter-core")
     implementation("org.springframework.modulith:spring-modulith-starter-insight")
     implementation("tools.jackson.module:jackson-module-kotlin")
