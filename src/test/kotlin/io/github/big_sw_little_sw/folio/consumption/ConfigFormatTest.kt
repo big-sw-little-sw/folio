@@ -57,8 +57,14 @@ class ConfigFormatTest {
         assertEquals(ValidationStatus.INVALID, yaml("marker: !!${Instantiated::class.java.name} {}\n"))
         assertEquals(ValidationStatus.INVALID, yaml("gadget: $gadget\n"))
         assertFalse(Instantiated.created)
-        // Standard tags only label scalars and collections.
+        // Standard tags only label scalars and collections, and local tags such as CloudFormation's stay labels.
         assertEquals(ValidationStatus.VALID, yaml("a: !!str 1\nb: !!map {c: !!int 2}\n"))
+        assertEquals(ValidationStatus.VALID, yaml("bucket: !Ref MyBucket\nname: !Sub '\${AWS::StackName}-x'\n"))
+    }
+
+    @Test
+    fun `duplicate YAML keys are accepted, since parsing does not construct mappings`() {
+        assertEquals(ValidationStatus.VALID, yaml("a: 1\na: 2\n"))
     }
 
     @Test

@@ -26,6 +26,10 @@ class SyncedRevisions(
     @Transactional(readOnly = true)
     fun latest(id: ConfigSetId): String? = states.find(id)?.lastSyncedRevision
 
+    /** The source failure code of the most recent sync attempt if it failed, otherwise null. */
+    @Transactional(readOnly = true)
+    fun lastErrorCode(id: ConfigSetId): String? = states.find(id)?.errorCode
+
     /** Whether [commitId] was ever the synced revision of [id]. */
     @Transactional(readOnly = true)
     fun contains(

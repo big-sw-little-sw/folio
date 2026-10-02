@@ -29,3 +29,6 @@ class UnknownRevisionException(
 class RevisionNotAvailableException(
     val commitId: String,
 ) : ConsumptionException("Revision '$commitId' is no longer available")
+
+/** A read needs an on-demand fetch, but this instance already runs as many as it may (ADR 0036). */
+class TooManyFetchesException : ConsumptionException("Too many fetches are running; try again shortly")

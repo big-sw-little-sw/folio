@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.consumption
 
 import io.github.big_sw_little_sw.folio.configset.ConfigSet
 import io.github.big_sw_little_sw.folio.configset.toApiId
+import io.github.big_sw_little_sw.folio.namespace.toApiId
 import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.sync.SyncFixture
 import io.github.big_sw_little_sw.folio.sync.internal.Synchronizer
@@ -32,10 +33,13 @@ class ConsumptionFixture(
     /** The consumption URL of the ConfigSet. */
     val url: String get() = "/api/v1/configsets/${configSet.id.toApiId()}"
 
-    /** Recreates the repository and a ConfigSet on it that has not synced yet; the thread ends unauthenticated. */
-    fun reset() {
+    /**
+     * Recreates the repository and a ConfigSet on it that has not synced yet, whose key runs its Git commands inside
+     * [command] if given. The thread ends unauthenticated.
+     */
+    fun reset(command: String? = null) {
         commits = sync.reset()
-        configSet = sync.configSet(sync.authorizedCredential())
+        configSet = sync.configSet(sync.authorizedCredential(command))
         SecurityContextHolder.clearContext()
     }
 
@@ -61,8 +65,24 @@ class ConsumptionFixture(
         action: String,
         vararg subjects: String,
     ) {
+        putRule("/api/v1/admin/configsets/${configSet.id.toApiId()}", action, subjects)
+    }
+
+    /** Grants [action] on the ConfigSet's namespace to [subjects], as the super admin; the ConfigSet inherits it. */
+    fun grantOnNamespace(
+        action: String,
+        vararg subjects: String,
+    ) {
+        putRule("/api/v1/admin/namespaces/${configSet.namespaceId.toApiId()}", action, subjects)
+    }
+
+    private fun putRule(
+        resource: String,
+        action: String,
+        subjects: Array<out String>,
+    ) {
         mvc
-            .put("/api/v1/admin/configsets/${configSet.id.toApiId()}/rules/$action") {
+            .put("$resource/rules/$action") {
                 with(ADMIN)
                 contentType = MediaType.APPLICATION_JSON
                 content = """{"subjects": [${subjects.joinToString { "\"$it\"" }}]}"""

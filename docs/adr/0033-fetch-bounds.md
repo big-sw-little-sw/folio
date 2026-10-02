@@ -1,6 +1,7 @@
 # 0033. Fetch bounds
 
-Status: Accepted (2026-10-01). Amends ADR 0027.
+Status: Accepted (2026-10-01). Amends ADR 0027. Amended by ADR 0036: the fetch lock is taken before the ls-remote, and
+reads fetch on demand within their own bounds.
 
 ## Context
 

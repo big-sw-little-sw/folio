@@ -3,16 +3,18 @@ package io.github.big_sw_little_sw.folio.consumption
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class CachingTest {
     private val exact = RevisionSelector.Exact("a".repeat(40))
     private val latestMaxAge = Duration.ofSeconds(30)
 
     @Test
-    fun `exact revisions are immutable for a year, shared only when public`() {
+    fun `exact revisions are immutable for a year, but shared caches revalidate public ones sooner`() {
         assertEquals(
-            "public, max-age=31536000, immutable",
+            "public, max-age=31536000, s-maxage=30, immutable",
             CachePolicy.of(exact, shared = true, latestMaxAge).headerValue,
         )
         assertEquals(
@@ -26,6 +28,16 @@ class CachingTest {
         assertEquals("public, max-age=30", CachePolicy.of(RevisionSelector.Latest, true, latestMaxAge).headerValue)
         assertEquals("private, max-age=30", CachePolicy.of(RevisionSelector.Latest, false, latestMaxAge).headerValue)
         assertEquals("private, max-age=0", CachePolicy.of(RevisionSelector.Latest, false, Duration.ZERO).headerValue)
+    }
+
+    @Test
+    fun `If-None-Match matches the tag, weak or strong, in a list, or as a wildcard`() {
+        assertTrue(matchesIfNoneMatch("\"abc\"", "abc"))
+        assertTrue(matchesIfNoneMatch("W/\"abc\"", "abc"))
+        assertTrue(matchesIfNoneMatch("\"x\", \"abc\"", "abc"))
+        assertTrue(matchesIfNoneMatch("*", "abc"))
+        assertFalse(matchesIfNoneMatch(null, "abc"))
+        assertFalse(matchesIfNoneMatch("\"abcd\"", "abc"))
     }
 
     @Test

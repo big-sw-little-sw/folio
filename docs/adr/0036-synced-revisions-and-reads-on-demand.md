@@ -1,13 +1,14 @@
 # 0036. Synced revisions and reads on demand
 
-Status: Accepted (2026-10-02). Amends ADR 0032.
+Status: Accepted (2026-10-02). Amends ADR 0024, ADR 0032 and ADR 0033.
 
 ## Context
 
 ADR 0032 makes the database the truth about sync and each instance's cache disposable, and leaves reads on an instance
 whose cache lacks the synced commit to slice 7. A cache's branch tip is not the synced revision: the onboarding check
 fetches too, and a fetched tip may not be recorded. The consumption API needs `latest`, a rule for which exact
-revisions it serves, and a revision listing.
+revisions it serves, and a revision listing. Reads can come from anonymous callers under a `public` rule, so a read that
+fetches must not let callers make an instance fetch without limit.
 
 ## Decision
 
@@ -23,13 +24,30 @@ revisions it serves, and a revision listing.
 - `SyncedRevisions` is the sync module's API for this. Like `ConfigSetSources`, it does not authorize, and no HTTP layer
   may use it.
 - The consumption API always reads an exact commit, never `RevisionRef.Latest`. If this instance's cache lacks it, the
-  read fetches the branch with `SourceAccess.fetch`, under the per-ConfigSet lock and the fetch deadline, and reads
-  again. A commit still missing gives 404, "no longer available".
+  read fetches on demand, bounded as follows, and reads again:
+  - **One fetch per ConfigSet.** The per-ConfigSet fetch lock is now taken before the ls-remote, not only around the
+    transfer, so sync, the onboarding check and reads never open SSH sessions for the same ConfigSet at once.
+    `SourceAccess.fetchIfMissing` checks the cache again once it holds the lock, so a read that waited for another
+    fetch usually finds the commit and fetches nothing.
+  - **Short waits.** A read waits at most 5 seconds for another fetch of the same ConfigSet, then gets 503 with
+    `Retry-After`. Sync and the check still wait up to their deadline (ADR 0033).
+  - **Capped.** At most `folio.consumption.max-concurrent-fetches` (default 2) on-demand fetches run at once per
+    instance. A read beyond that gets 503 at once rather than queueing on a request thread.
+  - **Missing commits are remembered.** A commit still missing after a fetch, such as one force-pushed away, is not
+    fetched for again on this instance for a minute, the default sync interval; reads get 404 "no longer available"
+    meanwhile. The memory is per instance and keeps only unexpired entries.
+  - **No fetch for a repository over the size limit.** While the last sync failed with `REPOSITORY_TOO_LARGE`, a read
+    that needs a fetch fails with that code (502) without fetching: the fetch would download the repository and discard
+    it again (ADR 0033).
 
 ## Consequences
 
-- Any caller allowed to read, anonymous ones under a `public` rule included, can cause a fetch on an instance whose
-  cache lacks the revision. Concurrent reads queue on the fetch lock.
-- A synced commit that leaves the branch, such as after a force push, stays readable on instances that still hold it.
-  Elsewhere it is 404, and every read of it fetches again.
+- Each instance runs at most `max-concurrent-fetches` on-demand fetches plus its sync fetches, and at most one fetch per
+  ConfigSet at a time.
+- Under load from many ConfigSets with cold caches, reads get 503 until fetches complete; clients retry after
+  `Retry-After`.
+- A synced commit that leaves the branch stays readable on instances that still hold it; elsewhere it is 404, with at
+  most one fetch per minute per instance.
+- A fetch that fails, rather than finding the commit missing, is not remembered: the next read fetches again, within the
+  cap.
 - The table keeps one row per synced revision and is not pruned in v1.
