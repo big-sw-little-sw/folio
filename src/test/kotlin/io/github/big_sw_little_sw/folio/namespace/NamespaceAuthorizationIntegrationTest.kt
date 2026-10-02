@@ -6,7 +6,7 @@ import io.github.big_sw_little_sw.folio.policy.NotAuthenticatedException
 import io.github.big_sw_little_sw.folio.policy.PermissionDeniedException
 import io.github.big_sw_little_sw.folio.policy.Rule
 import io.github.big_sw_little_sw.folio.policy.Subject
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -99,7 +99,7 @@ class NamespaceAuthorizationIntegrationTest(
     }
 
     @Test
-    fun `only bootstrap admins create at or move to the root`() {
+    fun `only super admins create at or move to the root`() {
         val engineering = asAdmin { createWithRule("engineering", Action.NAMESPACE_MOVE, Subject.User("alice")) }
         val ai = asAdmin { service.create(engineering.id, Slug("ai")) }
         authenticateAs("alice")
@@ -128,7 +128,7 @@ class NamespaceAuthorizationIntegrationTest(
     }
 
     private fun <T> asAdmin(block: () -> T): T {
-        authenticateAs(BOOTSTRAP_ADMIN)
+        authenticateAs(SUPER_ADMIN)
         try {
             return block()
         } finally {

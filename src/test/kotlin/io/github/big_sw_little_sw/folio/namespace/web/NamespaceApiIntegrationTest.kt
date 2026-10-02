@@ -2,7 +2,7 @@ package io.github.big_sw_little_sw.folio.namespace.web
 
 import com.jayway.jsonpath.JsonPath
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.matchesPattern
 import org.hamcrest.Matchers.startsWith
@@ -36,7 +36,7 @@ class NamespaceApiIntegrationTest(
     @Autowired private val mvc: MockMvc,
     @Autowired private val jdbc: JdbcClient,
 ) {
-    private val admin = token(BOOTSTRAP_ADMIN)
+    private val admin = token(SUPER_ADMIN)
     private val alice = token("alice", "editors")
 
     @BeforeEach
@@ -55,7 +55,7 @@ class NamespaceApiIntegrationTest(
     }
 
     @Test
-    fun `a bootstrap admin creates namespaces whose prefixed IDs round-trip`() {
+    fun `a super admin creates namespaces whose prefixed IDs round-trip`() {
         val engineering = create(null, "engineering")
         val ai = create(engineering, "ai")
 
@@ -81,7 +81,7 @@ class NamespaceApiIntegrationTest(
     }
 
     @Test
-    fun `a bootstrap admin renames, moves and deletes namespaces`() {
+    fun `a super admin renames, moves and deletes namespaces`() {
         val engineering = create(null, "engineering")
         val platform = create(null, "platform")
         val ai = create(engineering, "ai")
@@ -109,7 +109,7 @@ class NamespaceApiIntegrationTest(
     }
 
     @Test
-    fun `a bootstrap admin adds, lists and removes rules`() {
+    fun `a super admin adds, lists and removes rules`() {
         val engineering = create(null, "engineering")
         val rules = "$NAMESPACES/$engineering/rules"
 
@@ -189,7 +189,7 @@ class NamespaceApiIntegrationTest(
     }
 
     @Test
-    fun `explain reports default deny and bootstrap admins`() {
+    fun `explain reports default deny and super admins`() {
         val engineering = create(null, "engineering")
 
         explain(engineering, """{"action": "NAMESPACE_DELETE", "principal": {"subject": "alice"}}""").andExpect {
@@ -197,11 +197,11 @@ class NamespaceApiIntegrationTest(
             jsonPath("$.reason") { value("NO_RULE") }
             jsonPath("$.policySource") { doesNotExist() }
         }
-        explain(engineering, """{"action": "NAMESPACE_DELETE", "principal": {"subject": "$BOOTSTRAP_ADMIN"}}""")
+        explain(engineering, """{"action": "NAMESPACE_DELETE", "principal": {"subject": "$SUPER_ADMIN"}}""")
             .andExpect {
                 jsonPath("$.allowed") { value(true) }
-                jsonPath("$.reason") { value("BOOTSTRAP_ADMIN") }
-                jsonPath("$.matchedSubject") { value("user:$BOOTSTRAP_ADMIN") }
+                jsonPath("$.reason") { value("SUPER_ADMIN") }
+                jsonPath("$.matchedSubject") { value("user:$SUPER_ADMIN") }
             }
     }
 

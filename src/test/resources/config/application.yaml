@@ -9,9 +9,8 @@ spring:
           issuer-uri: https://issuer.test
           audiences: folio-test
 folio:
-  bootstrap:
-    admins:
-      - user:bootstrap-admin
+  super-admins:
+    - user:super-admin
   crypto:
     # Test-only secrets. Version 1 lets tests create keys under an older version and re-encrypt them.
     master-keys:

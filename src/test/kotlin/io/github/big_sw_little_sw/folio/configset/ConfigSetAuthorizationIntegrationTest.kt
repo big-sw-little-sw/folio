@@ -14,7 +14,7 @@ import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.policy.Rule
 import io.github.big_sw_little_sw.folio.policy.Subject
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import io.github.big_sw_little_sw.folio.source.SourceDefinition
 import org.junit.jupiter.api.AfterEach
@@ -67,7 +67,7 @@ class ConfigSetAuthorizationIntegrationTest(
     }
 
     @Test
-    fun `create needs create on the namespace and use of the credential, which only bootstrap admins hold`() {
+    fun `create needs create on the namespace and use of the credential, which only super admins hold`() {
         val production = asAdmin { namespace("production") }
         authenticateAs("alice")
         val withoutCreate = assertFailsWith<PermissionDeniedException> { create(production) }
@@ -320,7 +320,7 @@ class ConfigSetAuthorizationIntegrationTest(
     }
 
     private fun <T> asAdmin(block: () -> T): T {
-        authenticateAs(BOOTSTRAP_ADMIN)
+        authenticateAs(SUPER_ADMIN)
         try {
             return block()
         } finally {

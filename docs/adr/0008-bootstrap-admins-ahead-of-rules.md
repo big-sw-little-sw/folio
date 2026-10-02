@@ -1,6 +1,6 @@
 # 0008. Bootstrap admins ahead of rules
 
-Status: Accepted (2026-09-30)
+Status: Accepted (2026-09-30). Amended by ADR 0028: bootstrap admins are renamed super admins, with the same semantics.
 
 ## Context
 

@@ -1,7 +1,7 @@
 package io.github.big_sw_little_sw.folio.policy
 
-import io.github.big_sw_little_sw.folio.policy.internal.BootstrapProperties
 import io.github.big_sw_little_sw.folio.policy.internal.PolicyRuleRepository
+import io.github.big_sw_little_sw.folio.policy.internal.SuperAdminProperties
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 import io.github.big_sw_little_sw.folio.security.CurrentPrincipal
 import org.springframework.stereotype.Service
@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional
 class PolicyService(
     private val repository: PolicyRuleRepository,
     private val currentPrincipal: CurrentPrincipal,
-    private val bootstrap: BootstrapProperties,
+    private val superAdmins: SuperAdminProperties,
 ) {
     @Transactional(readOnly = true)
     fun isAllowed(
@@ -92,5 +92,5 @@ class PolicyService(
         principal: ApplicationPrincipal,
         action: Action,
         path: List<ResourceRef>,
-    ): Decision = decide(principal, path, repository.findSubjects(action, path), bootstrap.adminSubjects)
+    ): Decision = decide(principal, path, repository.findSubjects(action, path), superAdmins.subjects)
 }

@@ -23,7 +23,7 @@ enum class Action {
     POLICY_VIEW,
     POLICY_UPDATE,
 
-    // Checked at the root, where only bootstrap admins hold actions in v1 (ADR 0018).
+    // Checked at the root, where only super admins hold actions in v1 (ADR 0018).
     CREDENTIAL_VIEW,
     CREDENTIAL_MANAGE,
 

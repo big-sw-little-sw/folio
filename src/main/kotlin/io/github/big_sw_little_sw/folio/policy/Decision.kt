@@ -6,8 +6,8 @@ import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 sealed interface Decision {
     val allowed: Boolean
 
-    /** Bootstrap admins hold every action everywhere, ahead of any rule (ADR 0008). */
-    data class BootstrapAdmin(
+    /** Super admins hold every action everywhere, ahead of any rule (ADR 0008, ADR 0028). */
+    data class SuperAdmin(
         val subject: Subject,
     ) : Decision {
         override val allowed get() = true
@@ -42,9 +42,9 @@ internal fun decide(
     principal: ApplicationPrincipal,
     path: List<ResourceRef>,
     rules: Map<ResourceRef, List<Subject>>,
-    bootstrapAdmins: Set<Subject>,
+    superAdmins: Set<Subject>,
 ): Decision {
-    bootstrapAdmins.firstOrNull { it.matches(principal) }?.let { return Decision.BootstrapAdmin(it) }
+    superAdmins.firstOrNull { it.matches(principal) }?.let { return Decision.SuperAdmin(it) }
     val nearest = path.lastOrNull { it in rules } ?: return Decision.NoRule
     val subject = rules.getValue(nearest).firstOrNull { it.matches(principal) }
     return if (subject == null) Decision.NotGranted(nearest) else Decision.Granted(nearest, subject)

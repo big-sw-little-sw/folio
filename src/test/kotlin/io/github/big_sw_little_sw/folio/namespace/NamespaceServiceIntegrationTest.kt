@@ -1,7 +1,7 @@
 package io.github.big_sw_little_sw.folio.namespace
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
-import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
+import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -26,10 +26,10 @@ class NamespaceServiceIntegrationTest(
     @Autowired private val service: NamespaceService,
     @Autowired private val jdbc: JdbcClient,
 ) {
-    // Authorization has its own tests; the tree rules run as a bootstrap admin, who may do everything.
+    // Authorization has its own tests; the tree rules run as a super admin, who may do everything.
     @BeforeEach
-    fun authenticateAsBootstrapAdmin() {
-        authenticateAs(BOOTSTRAP_ADMIN)
+    fun authenticateAsSuperAdmin() {
+        authenticateAs(SUPER_ADMIN)
         deleteAllNamespaces()
     }
 
@@ -274,7 +274,7 @@ class NamespaceServiceIntegrationTest(
                     listOf(a to b, b to a)
                         .map { (moved, parent) ->
                             executor.submit<Result<Namespace>> {
-                                authenticateAs(BOOTSTRAP_ADMIN)
+                                authenticateAs(SUPER_ADMIN)
                                 barrier.await()
                                 runCatching { service.move(moved.id, parent.id) }
                             }
