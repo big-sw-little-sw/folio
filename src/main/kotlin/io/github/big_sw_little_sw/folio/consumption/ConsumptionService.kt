@@ -5,6 +5,7 @@ import io.github.big_sw_little_sw.folio.configset.ConfigSetId
 import io.github.big_sw_little_sw.folio.configset.ConfigSetPath
 import io.github.big_sw_little_sw.folio.configset.ConfigSetService
 import io.github.big_sw_little_sw.folio.consumption.internal.ConsumptionProperties
+import io.github.big_sw_little_sw.folio.consumption.internal.OnDemandFetches
 import io.github.big_sw_little_sw.folio.policy.Action
 import io.github.big_sw_little_sw.folio.source.RevisionNotFoundException
 import io.github.big_sw_little_sw.folio.source.RevisionRef
@@ -28,13 +29,23 @@ data class ConfigItemListing(
     val files: List<SourceFile>,
 )
 
-/** A file's raw bytes at [revision], exactly as stored; [format] is null for formats Folio does not know. */
-class ConfigContent(
-    val revision: String,
-    val format: ConfigFormat?,
-    val bytes: ByteArray,
-    val validation: ValidationStatus,
-)
+/** A file read at [revision]: its content, or that the caller's copy is current. */
+sealed interface ConfigFileRead {
+    val revision: String
+
+    /** The raw bytes, exactly as stored; [format] is null for formats Folio does not know. */
+    class Content(
+        override val revision: String,
+        val format: ConfigFormat?,
+        val bytes: ByteArray,
+        val validation: ValidationStatus,
+    ) : ConfigFileRead
+
+    /** `If-None-Match` named the file's entity tag; nothing was loaded. */
+    data class NotModified(
+        override val revision: String,
+    ) : ConfigFileRead
+}
 
 /**
  * The consumption API (design 16): metadata, file listings and raw reads at `latest` or an exact synced revision, and
@@ -42,7 +53,8 @@ class ConfigContent(
  * ConfigSet gives not found (ADR 0010).
  *
  * `latest` is the last synced revision in the database, never this instance's branch tip, and exact reads accept only
- * revisions Folio synced. A revision missing from this instance's cache is fetched on demand (ADR 0032, ADR 0036).
+ * revisions Folio synced. A revision missing from this instance's cache is fetched on demand, within bounds
+ * (ADR 0032, ADR 0036).
  *
  * Deliberately not transactional: an on-demand fetch talks to the Git service, which must not hold a database
  * connection. Each call to another module's service runs in its own transaction.
@@ -52,6 +64,7 @@ class ConsumptionService(
     private val configSets: ConfigSetService,
     private val revisions: SyncedRevisions,
     private val sources: SourceAccess,
+    private val fetches: OnDemandFetches,
     private val properties: ConsumptionProperties,
 ) {
     /** Requires view on the ConfigSet. Cached like `latest`, because it names the latest revision. */
@@ -80,22 +93,28 @@ class ConsumptionService(
         )
     }
 
-    /** Requires item read on the ConfigSet. The blob ID is the entity tag: it is content-addressed. */
+    /**
+     * Requires item read on the ConfigSet. The blob ID is the entity tag: it is content-addressed. When [ifNoneMatch]
+     * names it, the file is neither loaded nor validated. A file over `folio.consumption.max-file-size` is refused.
+     */
     fun read(
         id: ConfigSetId,
         path: SourcePath,
         selector: RevisionSelector,
-    ): Cacheable<ConfigContent> {
+        ifNoneMatch: String?,
+    ): Cacheable<ConfigFileRead> {
         val configSet = configSets.requireAllowed(id, Action.CONFIG_ITEM_READ)
         val commitId = commitOf(id, selector)
-        val content = reading(configSet, commitId) { sources.read(id.value, configSet.source, path, it) }
+        val cache = cachePolicy(configSet, Action.CONFIG_ITEM_READ, selector)
+        val file = reading(configSet, commitId) { sources.find(id.value, configSet.source, path, it) }
+        if (matchesIfNoneMatch(ifNoneMatch, file.blobId)) {
+            return Cacheable(ConfigFileRead.NotModified(commitId), file.blobId, cache)
+        }
+        val bytes =
+            reading(configSet, commitId) { sources.read(id.value, configSet.source, path, it, properties.maxFileBytes) }
         val format = ConfigFormat.of(path.value)
-        val validation = format?.validate(content.bytes) ?: ValidationStatus.UNKNOWN
-        return Cacheable(
-            ConfigContent(commitId, format, content.bytes, validation),
-            content.blobId,
-            cachePolicy(configSet, Action.CONFIG_ITEM_READ, selector),
-        )
+        val validation = format?.validate(bytes) ?: ValidationStatus.UNKNOWN
+        return Cacheable(ConfigFileRead.Content(commitId, format, bytes, validation), file.blobId, cache)
     }
 
     /**
@@ -130,7 +149,7 @@ class ConsumptionService(
 
     /**
      * Runs [read] at [commitId]. Caches are per instance, so this one may lack a revision that another instance
-     * synced; it then fetches the branch, under the source module's lock and deadline, and reads again.
+     * synced; it then fetches on demand and reads again.
      */
     private fun <T> reading(
         configSet: ConfigSet,
@@ -141,7 +160,7 @@ class ConsumptionService(
         return try {
             read(revision)
         } catch (_: RevisionNotFoundException) {
-            sources.fetch(configSet.id.value, configSet.source)
+            if (!fetches.fetch(configSet, revision)) throw RevisionNotAvailableException(commitId)
             try {
                 read(revision)
             } catch (_: RevisionNotFoundException) {

@@ -12,17 +12,20 @@ import io.github.big_sw_little_sw.folio.source.internal.IsolatedSystemReader
 import io.github.big_sw_little_sw.folio.source.internal.RepositoryCache
 import io.github.big_sw_little_sw.folio.source.internal.SourceProperties
 import io.github.big_sw_little_sw.folio.source.internal.SshConnections
+import io.github.big_sw_little_sw.folio.source.internal.commitOf
+import io.github.big_sw_little_sw.folio.source.internal.isRegularFile
+import io.github.big_sw_little_sw.folio.source.internal.regularFileOf
 import io.github.big_sw_little_sw.folio.source.internal.sshUrl
+import io.github.big_sw_little_sw.folio.source.internal.subtreeOf
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.errors.IncorrectObjectTypeException
+import org.eclipse.jgit.errors.LargeObjectException
 import org.eclipse.jgit.errors.MissingObjectException
 import org.eclipse.jgit.lib.Constants
-import org.eclipse.jgit.lib.FileMode
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.revwalk.RevCommit
-import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.TagOpt
 import org.eclipse.jgit.treewalk.TreeWalk
@@ -35,6 +38,8 @@ import java.util.UUID
  * Git access for ConfigSet sources (ADR 0024): the onboarding check, fetching the branch into the ConfigSet's
  * cached bare repository, and reads beneath the root path. Nothing here authorizes; callers do. Reads use only
  * the cache and never contact the Git service.
+ *
+ * Fetches of one ConfigSet run one at a time in this process, from their ls-remote on (ADR 0036).
  *
  * [configSetId] keys the cache. Logs carry at most a ConfigSet ID and a failure code (ADR 0027).
  */
@@ -67,7 +72,10 @@ class SourceAccess(
             } catch (e: SourceAccessFailedException) {
                 return SourceCheck.Failed(e.failure)
             }
-        val rootFound = cache.reading(configSetId) { isDirectory(it, ObjectId.fromString(commitId), source.rootPath) }
+        val rootFound =
+            cache.reading(configSetId) {
+                subtreeOf(it, commitOf(it, ObjectId.fromString(commitId)), source.rootPath) != null
+            }
         if (rootFound == true) return SourceCheck.Passed(commitId)
         log.warn("Source check of ConfigSet {} failed: {}", configSetId, SourceFailure.ROOT_PATH_NOT_FOUND)
         return SourceCheck.Failed(SourceFailure.ROOT_PATH_NOT_FOUND)
@@ -84,14 +92,34 @@ class SourceAccess(
     fun fetch(
         configSetId: UUID,
         source: SourceDefinition,
-    ): String {
-        val credential =
+    ): String = fetch(configSetId, source, activeKey(configSetId, source))
+
+    /**
+     * Makes sure the cache holds [commit], fetching the branch with the active key only if it does not, and returns
+     * whether the cache holds it afterwards. A caller that waited for another fetch of the ConfigSet usually finds the
+     * commit and fetches nothing. Waits at most [wait] for that other fetch, then throws [SourceBusyException]. Fails
+     * like [fetch] otherwise.
+     */
+    fun fetchIfMissing(
+        configSetId: UUID,
+        source: SourceDefinition,
+        commit: RevisionRef.Commit,
+        wait: Duration,
+    ): Boolean {
+        fun holds() =
             try {
-                keyPairs.active(source.credentialId)
-            } catch (e: CredentialException) {
-                throw failed(configSetId, unusable(e))
+                reading(configSetId, commit) { resolve(it, source, commit) }
+                true
+            } catch (_: RevisionNotFoundException) {
+                false
             }
-        return fetch(configSetId, source, credential)
+        return cache.withFetchLock(configSetId, wait) {
+            if (!holds()) {
+                val deadline = FetchDeadline(properties.fetchDeadline)
+                fetchLocked(configSetId, source, activeKey(configSetId, source), deadline)
+            }
+            holds()
+        } ?: throw SourceBusyException()
     }
 
     /** How long one fetch may take; a sync lease must outlast it (ADR 0032). */
@@ -105,13 +133,13 @@ class SourceAccess(
     ): List<SourceFile> =
         reading(configSetId, revision) { repository ->
             val commit = resolve(repository, source, revision)
-            val root = subtree(repository, commit, source.rootPath) ?: return@reading emptyList()
+            val root = subtreeOf(repository, commit, source.rootPath) ?: return@reading emptyList()
             TreeWalk(repository).use { walk ->
                 walk.addTree(root)
                 walk.isRecursive = true
                 // Git allows names that are not valid paths here, such as ones with a backslash; they cannot be read.
                 generateSequence { if (walk.next()) walk else null }
-                    .filter { it.getFileMode(0).isRegularFile() }
+                    .filter { isRegularFile(it.getFileMode(0)) }
                     .mapNotNull { file ->
                         SourcePath.parseOrNull(file.pathString)?.let { path ->
                             val id = file.getObjectId(0)
@@ -121,44 +149,72 @@ class SourceAccess(
             }
         }
 
-    /** The raw bytes of the regular file at [path] beneath the root path at [revision], with its blob ID. */
+    /** The regular file at [path] beneath the root path at [revision]: its blob ID and size, without its content. */
+    fun find(
+        configSetId: UUID,
+        source: SourceDefinition,
+        path: SourcePath,
+        revision: RevisionRef,
+    ): SourceFile =
+        reading(configSetId, revision) { repository ->
+            val blob = blobAt(repository, source, path, revision)
+            SourceFile(path, blob.name, repository.newObjectReader().use { it.getObjectSize(blob, Constants.OBJ_BLOB) })
+        }
+
+    /**
+     * The raw bytes of the regular file at [path] beneath the root path at [revision]. A file larger than [maxBytes]
+     * is refused with [SourceFileTooLargeException] before it is loaded.
+     */
     fun read(
         configSetId: UUID,
         source: SourceDefinition,
         path: SourcePath,
         revision: RevisionRef,
-    ): SourceContent =
+        maxBytes: Int,
+    ): ByteArray =
         reading(configSetId, revision) { repository ->
-            val commit = resolve(repository, source, revision)
-            val fullPath = source.rootPath.resolve(path)
-            // The repository root is a directory, never a file.
-            if (fullPath.isRoot) throw SourceFileNotFoundException(path)
-            val walk =
-                TreeWalk.forPath(repository, fullPath.value, commit.tree) ?: throw SourceFileNotFoundException(path)
-            walk.use {
-                if (!it.getFileMode(0).isRegularFile()) throw SourceFileNotFoundException(path)
-                val id = it.getObjectId(0)
-                SourceContent(id.name, repository.open(id, Constants.OBJ_BLOB).bytes)
+            val blob = blobAt(repository, source, path, revision)
+            val size = repository.newObjectReader().use { it.getObjectSize(blob, Constants.OBJ_BLOB) }
+            if (size > maxBytes) throw SourceFileTooLargeException(path, maxBytes)
+            try {
+                repository.open(blob, Constants.OBJ_BLOB).getCachedBytes(maxBytes)
+            } catch (_: LargeObjectException) {
+                throw SourceFileTooLargeException(path, maxBytes)
             }
         }
 
-    /**
-     * ls-remote first, so that a missing branch is reported as such and nothing is fetched on failure. The deadline
-     * runs from the start, so it covers the ls-remote and waiting for another fetch of the same ConfigSet.
-     */
+    /** The deadline runs from the start, so it covers waiting for another fetch of the same ConfigSet. */
     private fun fetch(
         configSetId: UUID,
         source: SourceDefinition,
         credential: CredentialKeyPair,
     ): String {
-        val url = sshUrl(credential.gitInstance, source.repositoryPath)
         val deadline = FetchDeadline(properties.fetchDeadline)
+        return cache.withFetchLock(configSetId, deadline.remaining()) {
+            fetchLocked(configSetId, source, credential, deadline)
+        } ?: throw failed(configSetId, SourceFailure.DEADLINE_EXCEEDED)
+    }
+
+    /**
+     * Under the fetch lock: ls-remote first, so that a missing branch is reported as such and nothing is fetched on
+     * failure. A repository that grew past the size limit is discarded; the next fetch starts it again from nothing.
+     */
+    private fun fetchLocked(
+        configSetId: UUID,
+        source: SourceDefinition,
+        credential: CredentialKeyPair,
+        deadline: FetchDeadline,
+    ): String {
+        val url = sshUrl(credential.gitInstance, source.repositoryPath)
         try {
             return connections.run(credential, deadline) { transport ->
                 requireBranch(url, source.branch, transport)
-                cache.fetching(configSetId, source.branch, deadline.remaining()) {
+                cache.fetching(configSetId, source.branch) {
                     val tip = fetchBranch(it, url, source.branch, transport, deadline)
-                    requireWithinSize(configSetId)
+                    if (cache.size(configSetId) > properties.maxRepositorySize.toBytes()) {
+                        cache.delete(configSetId)
+                        throw SourceAccessFailedException(SourceFailure.REPOSITORY_TOO_LARGE)
+                    }
                     tip
                 }
             }
@@ -168,12 +224,15 @@ class SourceAccess(
         }
     }
 
-    /** Discards a repository that grew past the size limit; the next fetch starts it again from nothing. */
-    private fun requireWithinSize(configSetId: UUID) {
-        if (cache.size(configSetId) <= properties.maxRepositorySize.toBytes()) return
-        cache.delete(configSetId)
-        throw SourceAccessFailedException(SourceFailure.REPOSITORY_TOO_LARGE)
-    }
+    private fun activeKey(
+        configSetId: UUID,
+        source: SourceDefinition,
+    ): CredentialKeyPair =
+        try {
+            keyPairs.active(source.credentialId)
+        } catch (e: CredentialException) {
+            throw failed(configSetId, unusable(e))
+        }
 
     private fun failed(
         configSetId: UUID,
@@ -235,12 +294,12 @@ class SourceAccess(
         when (revision) {
             RevisionRef.Latest -> {
                 val tip = repository.exactRef(source.branch.ref) ?: throw RevisionNotFoundException(revision)
-                commit(repository, tip.objectId)
+                commitOf(repository, tip.objectId)
             }
 
             is RevisionRef.Commit -> {
                 try {
-                    commit(repository, ObjectId.fromString(revision.id))
+                    commitOf(repository, ObjectId.fromString(revision.id))
                 } catch (_: MissingObjectException) {
                     throw RevisionNotFoundException(revision)
                 } catch (_: IncorrectObjectTypeException) {
@@ -249,33 +308,15 @@ class SourceAccess(
             }
         }
 
-    private fun commit(
+    /** The blob of the regular file at [path] beneath the root path at [revision]. */
+    private fun blobAt(
         repository: Repository,
-        id: ObjectId,
-    ): RevCommit = RevWalk(repository).use { it.parseCommit(id) }
-
-    private fun isDirectory(
-        repository: Repository,
-        commitId: ObjectId,
+        source: SourceDefinition,
         path: SourcePath,
-    ) = subtree(repository, commit(repository, commitId), path) != null
-
-    /** The tree at [path] in [commit], or null if [path] is missing or not a directory. */
-    private fun subtree(
-        repository: Repository,
-        commit: RevCommit,
-        path: SourcePath,
-    ): ObjectId? {
-        if (path.isRoot) return commit.tree
-        return TreeWalk
-            .forPath(
-                repository,
-                path.value,
-                commit.tree,
-            )?.use { if (it.isSubtree) it.getObjectId(0) else null }
-    }
-
-    private fun FileMode.isRegularFile() = this == FileMode.REGULAR_FILE || this == FileMode.EXECUTABLE_FILE
+        revision: RevisionRef,
+    ): ObjectId =
+        regularFileOf(repository, resolve(repository, source, revision), source.rootPath.resolve(path))
+            ?: throw SourceFileNotFoundException(path)
 
     private companion object {
         val log = LoggerFactory.getLogger(SourceAccess::class.java)

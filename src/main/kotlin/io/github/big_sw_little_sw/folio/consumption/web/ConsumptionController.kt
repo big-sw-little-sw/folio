@@ -3,14 +3,17 @@ package io.github.big_sw_little_sw.folio.consumption.web
 import io.github.big_sw_little_sw.folio.configset.toApiId
 import io.github.big_sw_little_sw.folio.configset.toConfigSetId
 import io.github.big_sw_little_sw.folio.consumption.Cacheable
+import io.github.big_sw_little_sw.folio.consumption.ConfigFileRead
 import io.github.big_sw_little_sw.folio.consumption.ConsumptionService
 import io.github.big_sw_little_sw.folio.consumption.RevisionSelector
 import io.github.big_sw_little_sw.folio.source.SourcePath
 import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -80,13 +83,15 @@ class ConsumptionController(
 
     /**
      * The raw bytes, never transformed (design 15.5). Known formats get their media type, anything else
-     * `application/octet-stream`; Spring Security adds `X-Content-Type-Options: nosniff` to every response.
+     * `application/octet-stream`; Spring Security adds `X-Content-Type-Options: nosniff` to every response. The
+     * service compares `If-None-Match` itself, so that a 304 loads nothing.
      */
     @GetMapping("/files/{*path}")
     fun file(
         @PathVariable id: String,
         @PathVariable path: String,
         @RequestParam(defaultValue = RevisionSelector.LATEST) revision: String,
+        @RequestHeader(HttpHeaders.IF_NONE_MATCH, required = false) ifNoneMatch: String?,
     ): ResponseEntity<ByteArray> {
         // The wildcard keeps the leading slash; the rest must already be a normal relative path (ADR 0024).
         val served =
@@ -94,14 +99,23 @@ class ConsumptionController(
                 id.toConfigSetId(),
                 SourcePath.parse(path.removePrefix("/")),
                 RevisionSelector.parse(revision),
+                ifNoneMatch,
             )
-        val content = served.body
-        return cached(served)
-            .header(REVISION_HEADER, content.revision)
-            .header(VALIDATION_HEADER, content.validation.name)
-            .contentType(
-                content.format?.let { MediaType.parseMediaType(it.mediaType) } ?: MediaType.APPLICATION_OCTET_STREAM,
-            ).body(content.bytes)
+        return when (val file = served.body) {
+            is ConfigFileRead.NotModified -> {
+                cached(served, HttpStatus.NOT_MODIFIED).header(REVISION_HEADER, file.revision).build()
+            }
+
+            is ConfigFileRead.Content -> {
+                cached(served)
+                    .header(REVISION_HEADER, file.revision)
+                    .header(VALIDATION_HEADER, file.validation.name)
+                    .contentType(
+                        file.format?.let { MediaType.parseMediaType(it.mediaType) }
+                            ?: MediaType.APPLICATION_OCTET_STREAM,
+                    ).body(file.bytes)
+            }
+        }
     }
 
     @GetMapping("/revisions")
@@ -114,9 +128,12 @@ class ConsumptionController(
         ).body(RevisionListingResponse(served.body.map { RevisionResponse(it.commitId, it.syncedAt) }))
     }
 
-    private fun cached(served: Cacheable<*>): ResponseEntity.BodyBuilder =
+    private fun cached(
+        served: Cacheable<*>,
+        status: HttpStatus = HttpStatus.OK,
+    ): ResponseEntity.BodyBuilder =
         ResponseEntity
-            .ok()
+            .status(status)
             .eTag(served.etag)
             .header(HttpHeaders.CACHE_CONTROL, served.cache.headerValue)
 

@@ -15,7 +15,8 @@ resources (design 23.3). Design 15.4 sketches a validator interface.
 - Parsers already on the classpath; no new dependency:
   - YAML: SnakeYAML (through Spring Boot) composes the node graph of every document and constructs no objects. Its
     defaults reject custom global tags such as `!!java.net.URL`, more than 50 aliases to collections and nesting deeper
-    than 50, so an alias bomb is `INVALID` at once.
+    than 50, so an alias bomb is `INVALID` at once. Local tags such as `!Ref` are only labels and stay `VALID`. Duplicate
+    keys are accepted, since no mapping is built.
   - JSON: Jackson reads exactly one value; trailing content is `INVALID`. Its default stream constraints bound nesting.
   - Properties: `java.util.Properties.load`, which only rejects malformed `\uXXXX` escapes.
 - Files over 3 MB, SnakeYAML's default input limit, are not validated: `UNKNOWN`.
@@ -25,7 +26,7 @@ resources (design 23.3). Design 15.4 sketches a validator interface.
 
 ## Consequences
 
-- A YAML file that uses custom tags is `INVALID`, though it is syntactically YAML. Folio cannot interpret such tags
-  safely.
+- A YAML file with a custom global tag is `INVALID`: SnakeYAML rejects such tags because resolving them is how YAML
+  loading executes code.
 - Consumers who want the status of every file read each file.
 - A format added later is one enum entry.

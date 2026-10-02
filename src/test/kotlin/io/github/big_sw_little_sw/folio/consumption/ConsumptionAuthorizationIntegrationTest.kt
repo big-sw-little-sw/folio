@@ -7,6 +7,7 @@ import io.github.big_sw_little_sw.folio.namespace.NamespaceService
 import io.github.big_sw_little_sw.folio.source.SshGitServer
 import io.github.big_sw_little_sw.folio.sync.SyncFixture
 import io.github.big_sw_little_sw.folio.sync.internal.Synchronizer
+import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.startsWith
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -48,11 +49,12 @@ class ConsumptionAuthorizationIntegrationTest(
     }
 
     @Test
-    fun `anonymous callers without a public rule get 401 with a bearer challenge on every route`() {
+    fun `anonymous callers without a public rule get 401 with a bearer challenge on every route, never cached`() {
         ROUTES.forEach { (route, action) ->
             fixture.get(fixture.url + route, token = null).andExpect {
                 status { isUnauthorized() }
                 header { string(HttpHeaders.WWW_AUTHENTICATE, startsWith("Bearer")) }
+                header { string(HttpHeaders.CACHE_CONTROL, containsString("no-store")) }
                 jsonPath("$.detail") { value("Authentication required for $action") }
             }
         }
@@ -70,7 +72,45 @@ class ConsumptionAuthorizationIntegrationTest(
         }
         fixture.get("${fixture.url}/files/app.yaml?revision=${fixture.commits.last()}", token = null).andExpect {
             status { isOk() }
-            header { string(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable") }
+            header { string(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, s-maxage=30, immutable") }
+        }
+    }
+
+    @Test
+    fun `a public rule inherited from the namespace makes responses public too`() {
+        fixture.grantOnNamespace("CONFIG_ITEM_READ", "public")
+
+        fixture.get("${fixture.url}/files", token = null).andExpect {
+            status { isOk() }
+            header { string(HttpHeaders.CACHE_CONTROL, "public, max-age=30") }
+        }
+    }
+
+    @Test
+    fun `a public view rule alone does not let anonymous callers read files`() {
+        fixture.grant("CONFIG_SET_VIEW", "public")
+
+        fixture.get(fixture.url, token = null).andExpect { status { isOk() } }
+        fixture.get("${fixture.url}/files", token = null).andExpect {
+            status { isUnauthorized() }
+            jsonPath("$.detail") { value("Authentication required for CONFIG_ITEM_READ") }
+        }
+    }
+
+    @Test
+    fun `a matching If-None-Match does not get past authorization`() {
+        val etags =
+            ROUTES.keys.associateWith {
+                fixture
+                    .get(fixture.url + it)
+                    .andReturn()
+                    .response
+                    .getHeader("ETag")
+            }
+
+        etags.forEach { (route, etag) ->
+            fixture.get(fixture.url + route, token = null, ifNoneMatch = etag).andExpect { status { isUnauthorized() } }
+            fixture.get(fixture.url + route, ConsumptionFixture.ALICE, etag).andExpect { status { isForbidden() } }
         }
     }
 
@@ -79,6 +119,7 @@ class ConsumptionAuthorizationIntegrationTest(
         ROUTES.forEach { (route, action) ->
             fixture.get(fixture.url + route, ConsumptionFixture.ALICE).andExpect {
                 status { isForbidden() }
+                header { string(HttpHeaders.CACHE_CONTROL, containsString("no-store")) }
                 jsonPath("$.detail") { value("Permission $action denied") }
             }
         }
@@ -104,13 +145,19 @@ class ConsumptionAuthorizationIntegrationTest(
     fun `anonymous resolve answers a missing and a hidden path with the same 401, a public one with the ConfigSet`() {
         val path = "production/${fixture.configSet.slug.value}"
         val hidden = fixture.get("$RESOLVE?path=$path", token = null).andReturn().response
-        val missing = fixture.get("$RESOLVE?path=production/missing", token = null).andReturn().response
 
         assertEquals(401, hidden.status)
-        assertEquals(hidden.status, missing.status)
-        assertEquals(hidden.getHeader(HttpHeaders.WWW_AUTHENTICATE), missing.getHeader(HttpHeaders.WWW_AUTHENTICATE))
-        // Problem details name the request path in `instance`, which differs by the query only.
-        assertEquals(hidden.contentAsString, missing.contentAsString)
+        // A missing ConfigSet and a missing namespace above it answer alike. Problem details name the request path in
+        // `instance`, which differs by the query only.
+        listOf("production/missing", "missing/${fixture.configSet.slug.value}").forEach {
+            val missing = fixture.get("$RESOLVE?path=$it", token = null).andReturn().response
+            assertEquals(hidden.status, missing.status)
+            assertEquals(
+                hidden.getHeader(HttpHeaders.WWW_AUTHENTICATE),
+                missing.getHeader(HttpHeaders.WWW_AUTHENTICATE),
+            )
+            assertEquals(hidden.contentAsString, missing.contentAsString)
+        }
 
         fixture.grant("CONFIG_SET_VIEW", "public")
         fixture.get("$RESOLVE?path=$path", token = null).andExpect {

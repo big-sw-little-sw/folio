@@ -9,9 +9,3 @@ data class SourceFile(
     val blobId: String,
     val size: Long,
 )
-
-/** A file's raw bytes, exactly as stored, and the ID of their blob. */
-class SourceContent(
-    val blobId: String,
-    val bytes: ByteArray,
-)

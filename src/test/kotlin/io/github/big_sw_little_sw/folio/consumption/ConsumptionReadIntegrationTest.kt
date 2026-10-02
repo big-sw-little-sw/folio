@@ -12,6 +12,7 @@ import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.lib.ObjectInserter
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.containsStringIgnoringCase
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -147,8 +148,11 @@ class ConsumptionReadIntegrationTest(
             }
             fixture.get(url, ifNoneMatch = "\"other\"").andExpect { status { isOk() } }
         }
-        fixture.get("${fixture.url}/files/app.yaml", ifNoneMatch = "\"${blobId("v2")}\"").andExpect {
+        // A 304 for a file loads and validates nothing, so it has no validation status.
+        fixture.get("${fixture.url}/files/app.yaml", ifNoneMatch = "W/\"x\", \"${blobId("v2")}\"").andExpect {
+            status { isNotModified() }
             header { string(REVISION, fixture.commits.last()) }
+            header { doesNotExist(VALIDATION) }
         }
     }
 
@@ -188,17 +192,21 @@ class ConsumptionReadIntegrationTest(
         ).forEach {
             fixture.get("${fixture.url}/files/$it").andExpect {
                 status { isBadRequest() }
-                content { string(not(containsString("readme"))) }
+                // Neither the file outside the root path nor its name comes back.
+                content { string(not(containsStringIgnoringCase("readme"))) }
             }
         }
     }
 
     @Test
-    fun `directories, symlinks and missing files are not found`() {
+    fun `directories, symlinks and missing files are not found, and no cache may store the answer`() {
         fixture.sync()
 
         listOf("", "sub", "link", "missing.yaml", "sub/missing.json").forEach {
-            fixture.get("${fixture.url}/files/$it").andExpect { status { isNotFound() } }
+            fixture.get("${fixture.url}/files/$it").andExpect {
+                status { isNotFound() }
+                header { string(HttpHeaders.CACHE_CONTROL, containsString("no-store")) }
+            }
         }
     }
 

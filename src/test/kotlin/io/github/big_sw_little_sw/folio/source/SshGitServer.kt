@@ -72,6 +72,23 @@ object SshGitServer {
         exec("sh", "-c", "echo '$options$publicKey' >> /home/git/.ssh/authorized_keys")
     }
 
+    /**
+     * Appends each command to the file [log] in the container, waits [seconds], then runs it; see [loggedCommands].
+     * A fetch runs two commands: its ls-remote and the fetch itself.
+     */
+    fun logged(
+        log: String,
+        seconds: Int = 0,
+    ) = "echo \"\$SSH_ORIGINAL_COMMAND\" >> $log; sleep $seconds; eval \"\$SSH_ORIGINAL_COMMAND\""
+
+    /** How many commands [logged] wrote to [log]. */
+    fun loggedCommands(log: String): Int = exec("sh", "-c", "cat $log 2>/dev/null | wc -l").trim().toInt()
+
+    /** Removes [log], so that the account running the commands creates it again. */
+    fun clearLog(log: String) {
+        exec("rm", "-f", log)
+    }
+
     /** Starts each command [seconds] late, sending nothing meanwhile. */
     fun delayed(seconds: Int) = "sleep $seconds; eval \"\$SSH_ORIGINAL_COMMAND\""
 

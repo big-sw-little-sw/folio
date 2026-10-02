@@ -1,15 +1,11 @@
 package io.github.big_sw_little_sw.folio.source.internal
 
 import io.github.big_sw_little_sw.folio.source.Branch
-import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
-import io.github.big_sw_little_sw.folio.source.SourceFailure
 import org.eclipse.jgit.lib.ConfigConstants.CONFIG_FETCH_SECTION
 import org.eclipse.jgit.lib.ConfigConstants.CONFIG_GC_SECTION
 import org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_AUTO
 import org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_AUTOGC
-import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.Repository
-import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.springframework.stereotype.Component
 import java.io.IOException
@@ -54,28 +50,38 @@ class RepositoryCache(
     private fun directory(id: UUID): Path = root.resolve("$id$SUFFIX")
 
     /**
-     * Runs [fetch] on the cached repository of [id], recreating it first if it is missing or unreadable. Waits at most
-     * [wait] for another fetch of [id] in this process, such as an onboarding check, and then fails with
-     * `DEADLINE_EXCEEDED`, so a fetch never outlives its deadline waiting (ADR 0033).
+     * Runs [block] holding the fetch lock of [id], so that fetches of one ConfigSet run one at a time in this process,
+     * from their ls-remote on (ADR 0036). Returns null without running [block] if another fetch held the lock for
+     * [wait].
+     */
+    fun <T : Any> withFetchLock(
+        id: UUID,
+        wait: Duration,
+        block: () -> T,
+    ): T? {
+        val lock = locksOf(id).fetch
+        if (!lock.tryLock(wait.toNanos(), TimeUnit.NANOSECONDS)) return null
+        try {
+            return block()
+        } finally {
+            lock.unlock()
+        }
+    }
+
+    /**
+     * Runs [fetch] on the cached repository of [id], recreating it first if it is missing or unreadable. The caller
+     * holds the fetch lock of [id] ([withFetchLock]).
      */
     fun <T> fetching(
         id: UUID,
         branch: Branch,
-        wait: Duration,
         fetch: (Repository) -> T,
     ): T {
-        val lock = locksOf(id).fetch
-        if (!lock.tryLock(wait.toNanos(), TimeUnit.NANOSECONDS)) {
-            throw SourceAccessFailedException(SourceFailure.DEADLINE_EXCEEDED)
-        }
-        try {
-            val repository = openReadable(id, branch) ?: recreate(id)
-            return repository.use {
-                disableAutoGc(it)
-                fetch(it)
-            }
-        } finally {
-            lock.unlock()
+        check(locksOf(id).fetch.isHeldByCurrentThread) { "Fetching needs the fetch lock" }
+        val repository = openReadable(id, branch) ?: recreate(id)
+        return repository.use {
+            disableAutoGc(it)
+            fetch(it)
         }
     }
 
@@ -179,15 +185,11 @@ class RepositoryCache(
     ): Boolean =
         try {
             val tip = repository.exactRef(branch.ref)
-            repository.objectDatabase.exists() && (tip == null || hasTree(repository, tip.objectId))
+            repository.objectDatabase.exists() &&
+                (tip == null || repository.objectDatabase.has(commitOf(repository, tip.objectId).tree))
         } catch (_: IOException) {
             false
         }
-
-    private fun hasTree(
-        repository: Repository,
-        commitId: ObjectId,
-    ) = repository.objectDatabase.has(RevWalk(repository).use { it.parseCommit(commitId) }.tree)
 
     private fun openExisting(id: UUID): Repository? {
         if (!directory(id).exists()) return null

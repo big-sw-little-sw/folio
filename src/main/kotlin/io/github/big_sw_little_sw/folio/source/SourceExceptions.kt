@@ -36,6 +36,15 @@ class SourceFileNotFoundException(
     val path: SourcePath,
 ) : SourceException("File '$path' not found")
 
+/** The file at [path] is larger than the [maxBytes] a read may load. */
+class SourceFileTooLargeException(
+    val path: SourcePath,
+    val maxBytes: Int,
+) : SourceException("File '$path' is larger than $maxBytes bytes")
+
+/** Another fetch of the ConfigSet held the fetch lock for longer than the caller would wait (ADR 0036). */
+class SourceBusyException : SourceException("Another fetch of the ConfigSet is running")
+
 /** Fetching from the Git service failed; [failure] is the stable code and its fixed, safe summary. */
 class SourceAccessFailedException(
     val failure: SourceFailure,
