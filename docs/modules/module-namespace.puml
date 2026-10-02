@@ -1,0 +1,35 @@
+@startuml
+title <size:24>Namespace</size>
+
+set separator none
+top to bottom direction
+
+<style>
+  root {
+    BackgroundColor: #ffffff
+    FontColor: #444444
+  }
+</style>
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Component>
+
+System_Boundary("FolioApplication_boundary", "FolioApplication", $tags="") {
+  Container_Boundary("FolioApplication.FolioApplication_boundary", "FolioApplication", $tags="") {
+    Component(FolioApplication.FolioApplication.Apiid, "Apiid", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Security, "Security", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Policy, "Policy", $techn="Module", $descr="", $tags="", $link="")
+    Component(FolioApplication.FolioApplication.Namespace, "Namespace", $techn="Module", $descr="", $tags="", $link="")
+  }
+
+}
+
+Rel(FolioApplication.FolioApplication.Namespace, FolioApplication.FolioApplication.Apiid, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Namespace, FolioApplication.FolioApplication.Policy, "uses", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Namespace, FolioApplication.FolioApplication.Security, "depends on", $techn="", $tags="", $link="")
+Rel(FolioApplication.FolioApplication.Policy, FolioApplication.FolioApplication.Security, "uses", $techn="", $tags="", $link="")
+
+SHOW_LEGEND(true)
+hide stereotypes
+@enduml

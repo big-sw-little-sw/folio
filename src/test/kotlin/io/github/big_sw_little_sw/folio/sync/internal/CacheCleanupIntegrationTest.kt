@@ -10,6 +10,7 @@ import io.github.big_sw_little_sw.folio.namespace.Slug
 import io.github.big_sw_little_sw.folio.security.SUPER_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
 import io.github.big_sw_little_sw.folio.source.internal.SourceProperties
+import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -37,6 +38,7 @@ class CacheCleanupIntegrationTest(
     @Autowired private val credentials: CredentialService,
     @Autowired private val namespaces: NamespaceService,
     @Autowired private val jdbc: JdbcClient,
+    @Autowired private val meters: MeterRegistry,
     @Autowired properties: SourceProperties,
 ) {
     private val root: Path = properties.cacheDirectory
@@ -65,7 +67,7 @@ class CacheCleanupIntegrationTest(
     }
 
     @Test
-    fun `the sweep removes repositories of ConfigSets that no longer exist, and nothing else`() {
+    fun `the sweep removes repositories of ConfigSets that no longer exist, nothing else, and measures the rest`() {
         val kept = repositoryOf(configSet())
         val orphan = root.resolve("${UUID.randomUUID()}.git").createDirectories()
         val others =
@@ -82,6 +84,7 @@ class CacheCleanupIntegrationTest(
 
             assertFalse(orphan.exists())
             assertEquals(emptyList(), (others + listOf(kept)).filterNot { it.exists() })
+            assertEquals(1.0, meters.get("folio.source.cache.repositories").gauge().value())
         } finally {
             others.forEach { it.toFile().deleteRecursively() }
         }

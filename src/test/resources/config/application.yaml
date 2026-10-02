@@ -28,6 +28,8 @@ folio:
     poll-interval: 1h
     interval: 1h
     max-backoff: 8h
+  # Not turned off: the daily audit prune still runs 10 minutes after a test context starts. It deletes only records
+  # older than folio.audit.retention, which tests write only on purpose, so it is harmless to them.
   git:
     # cache-directory: set per test run by build.gradle.kts.
     instances:
