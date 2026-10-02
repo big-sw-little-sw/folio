@@ -138,7 +138,7 @@ class ConfigSetController(
             is SourceCheck.Failed -> CheckResponse(false, result.failure, result.failure.summary, null)
         }
 
-    /** A consumption route, outside the admin API; it still needs a token until slice 7. */
+    /** A consumption route, outside the admin API: anonymous callers reach it, so `public` rules apply (ADR 0035). */
     @GetMapping("/api/v1/configsets:resolve")
     fun resolve(
         @RequestParam path: String,

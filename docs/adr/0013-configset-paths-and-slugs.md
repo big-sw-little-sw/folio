@@ -1,6 +1,6 @@
 # 0013. ConfigSet paths and slugs
 
-Status: Accepted (2026-09-30)
+Status: Accepted (2026-09-30). Amended by ADR 0035: anonymous callers get 401 for a missing and a hidden path alike.
 
 ## Context
 

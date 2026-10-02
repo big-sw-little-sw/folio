@@ -87,17 +87,18 @@ same PR. "Done" means every bullet holds and `./gradlew check` is green.
   - Bound each fetch: a wall-clock deadline, a repository size limit checked on disk after each fetch, and a cap on
     concurrent fetches (ADR 0033).
 
-- [ ] **7. Consumption API**
+- [x] **7. Consumption API**
   - ConfigSet metadata, file listing, raw file reads and revision listing; `latest` and exact-revision reads.
   - `latest` is the last synced revision from the database, not the cache's branch tip. Caches are per instance
-    (ADR 0032): a read on an instance whose cache lacks that commit fetches on demand before serving it.
-  - ETags with `If-None-Match` / `304`; immutable caching for exact revisions, short caching for latest.
+    (ADR 0032): a read on an instance whose cache lacks that commit fetches on demand before serving it. Exact reads
+    serve only revisions Folio synced, which the revision listing shows (ADR 0036).
+  - ETags with `If-None-Match` / `304`; immutable caching for exact revisions, short caching for latest (ADR 0035).
   - `X-Config-Revision` and `X-Config-Validation-Status` headers.
-  - Validation status for YAML, JSON and properties files; malformed files are still served raw.
+  - Validation status for YAML, JSON and properties files; malformed files are still served raw (ADR 0037).
   - Reads enforce policy.
   - Consumption routes, including `configsets:resolve` from slice 3, accept anonymous callers so that
     `public` rules apply; until then every route needs a token. For anonymous callers too, resolve must
-    answer a missing path and a path they may not view identically (ADR 0013).
+    answer a missing path and a path they may not view identically (ADR 0013, ADR 0035).
 
 - [ ] **8. Audit and metrics**
   - Audit events table for namespace, ConfigSet, policy, credential, key and crypto operations,

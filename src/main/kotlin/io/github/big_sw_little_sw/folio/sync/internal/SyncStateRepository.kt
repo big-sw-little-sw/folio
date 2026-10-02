@@ -106,8 +106,9 @@ class SyncStateRepository(
 
     /**
      * Records a successful fetch whose branch tip is [revision], and releases the lease. An unchanged tip leaves the
-     * revisions as they were; a new one becomes the synced revision. Returns false, recording nothing, if [lease] is
-     * no longer held.
+     * revisions as they were; a new one becomes the synced revision and is added to `synced_revision`, or moved to the
+     * top if it was synced before (ADR 0036). One statement, so the two never disagree. Returns false, recording
+     * nothing, if [lease] is no longer held.
      */
     fun recordSuccess(
         lease: SyncLease,
@@ -117,15 +118,27 @@ class SyncStateRepository(
         jdbc
             .sql(
                 """
-                update sync_state
-                set last_seen_revision = :revision, last_synced_revision = :revision,
-                    last_attempt_at = now(), last_success_at = now(),
-                    last_error_code = null, last_error_summary = null, consecutive_failures = 0,
-                    $RELEASE
+                with previous as (
+                    select last_synced_revision from sync_state where config_set_id = :id
+                ), recorded as (
+                    update sync_state
+                    set last_seen_revision = :revision, last_synced_revision = :revision,
+                        last_attempt_at = now(), last_success_at = now(),
+                        last_error_code = null, last_error_summary = null, consecutive_failures = 0,
+                        $RELEASE
+                    returning config_set_id
+                ), revision as (
+                    insert into synced_revision (config_set_id, commit_id, synced_at)
+                    select config_set_id, :revision, now() from recorded
+                    where :revision is distinct from (select last_synced_revision from previous)
+                    on conflict (config_set_id, commit_id) do update set synced_at = excluded.synced_at
+                )
+                select count(*) from recorded
                 """.trimIndent(),
             ).param("revision", revision)
             .params(releaseParams(lease, delay))
-            .update() == 1
+            .query(Long::class.java)
+            .single() == 1L
 
     /**
      * Records a failed attempt, keeping the revisions, and releases the lease. Returns false, recording nothing, if

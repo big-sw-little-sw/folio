@@ -72,6 +72,23 @@ object SshGitServer {
         exec("sh", "-c", "echo '$options$publicKey' >> /home/git/.ssh/authorized_keys")
     }
 
+    /**
+     * Appends each command to the file [log] in the container, waits [seconds], then runs it; see [loggedCommands].
+     * A fetch runs two commands: its ls-remote and the fetch itself.
+     */
+    fun logged(
+        log: String,
+        seconds: Int = 0,
+    ) = "echo \"\$SSH_ORIGINAL_COMMAND\" >> $log; sleep $seconds; eval \"\$SSH_ORIGINAL_COMMAND\""
+
+    /** How many commands [logged] wrote to [log]. */
+    fun loggedCommands(log: String): Int = exec("sh", "-c", "cat $log 2>/dev/null | wc -l").trim().toInt()
+
+    /** Removes [log], so that the account running the commands creates it again. */
+    fun clearLog(log: String) {
+        exec("rm", "-f", log)
+    }
+
     /** Starts each command [seconds] late, sending nothing meanwhile. */
     fun delayed(seconds: Int) = "sleep $seconds; eval \"\$SSH_ORIGINAL_COMMAND\""
 
@@ -120,6 +137,19 @@ object SshGitServer {
         )
     }
 
+    /** Resets the branch `main` of `/repos/<name>.git` to [commitId], as a force push would. */
+    fun resetMain(
+        name: String,
+        commitId: String,
+    ) {
+        exec(
+            "sh",
+            "-c",
+            "git config --global --add safe.directory '*' && " +
+                "git -C /repos/$name.git update-ref refs/heads/main $commitId",
+        )
+    }
+
     /** A new key pair, generated in the container: the OpenSSH private key file and the public key line. */
     fun newIdentity(): Pair<String, String> {
         exec("sh", "-c", "rm -f /tmp/identity /tmp/identity.pub && ssh-keygen -q -t ed25519 -N '' -f /tmp/identity")
@@ -162,10 +192,14 @@ object SshGitServer {
         return exec("sh", "-c", script).lines().filter { it.isNotBlank() }
     }
 
-    /** Pushes a commit to `main` of `/repos/<name>.git` that sets `config/app.yaml` to [content]; returns its ID. */
+    /**
+     * Pushes a commit to `main` of `/repos/<name>.git` that sets [file], by default `config/app.yaml`, to [content];
+     * returns its ID. [content] is a printf format without single quotes.
+     */
     fun addCommit(
         name: String,
         content: String,
+        file: String = "config/app.yaml",
     ): String {
         val script =
             """
@@ -177,8 +211,10 @@ object SshGitServer {
             cd ${'$'}work
             git config user.email test@folio.test
             git config user.name test
-            printf '$content' > config/app.yaml
-            git commit -q -am three
+            mkdir -p ${'$'}(dirname $file)
+            printf '$content' > $file
+            git add -A
+            git commit -q -m three
             git push -q origin main
             chown -R git:git /repos/$name.git
             git rev-parse HEAD

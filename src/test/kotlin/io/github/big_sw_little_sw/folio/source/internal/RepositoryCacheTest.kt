@@ -1,8 +1,6 @@
 package io.github.big_sw_little_sw.folio.source.internal
 
 import io.github.big_sw_little_sw.folio.source.Branch
-import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
-import io.github.big_sw_little_sw.folio.source.SourceFailure
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -17,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RepositoryCacheTest {
@@ -27,23 +26,22 @@ class RepositoryCacheTest {
     private val branch = Branch("main")
 
     @Test
-    fun `a fetch waiting for another fetch of the same ConfigSet gives up at its deadline`() {
+    fun `waiting for the fetch lock that another fetch of the same ConfigSet holds gives up after the wait`() {
         val id = UUID.randomUUID()
         val holding = CountDownLatch(1)
         val done = CountDownLatch(1)
         val pool = Executors.newSingleThreadExecutor()
         try {
             pool.execute {
-                cache.fetching(id, branch, Duration.ofSeconds(1)) {
+                cache.withFetchLock(id, Duration.ofSeconds(1)) {
                     holding.countDown()
                     done.await()
                 }
             }
             holding.await()
 
-            val failure =
-                assertFailsWith<SourceAccessFailedException> { cache.fetching(id, branch, Duration.ofMillis(50)) {} }
-            assertEquals(SourceFailure.DEADLINE_EXCEEDED, failure.failure)
+            assertNull(cache.withFetchLock(id, Duration.ofMillis(50)) { "ran" })
+            assertEquals("ran", cache.withFetchLock(UUID.randomUUID(), Duration.ofMillis(50)) { "ran" })
         } finally {
             done.countDown()
             pool.shutdown()
@@ -55,9 +53,13 @@ class RepositoryCacheTest {
         val id = UUID.randomUUID()
 
         val (fetchAutoGc, gcAuto) =
-            cache.fetching(id, branch, Duration.ofSeconds(1)) {
-                it.config.getBoolean("fetch", "autogc", true) to it.config.getInt("gc", "auto", -1)
-            }
+            checkNotNull(
+                cache.withFetchLock(id, Duration.ofSeconds(1)) {
+                    cache.fetching(id, branch) {
+                        it.config.getBoolean("fetch", "autogc", true) to it.config.getInt("gc", "auto", -1)
+                    }
+                },
+            )
 
         assertFalse(fetchAutoGc)
         assertEquals(0, gcAuto)
@@ -71,6 +73,11 @@ class RepositoryCacheTest {
     }
 
     @Test
+    fun `fetching without the fetch lock is refused`() {
+        assertFailsWith<IllegalStateException> { cache.fetching(UUID.randomUUID(), branch) {} }
+    }
+
+    @Test
     fun `the size of a repository that does not exist is zero`() {
         assertEquals(0, cache.size(UUID.randomUUID()))
     }
@@ -78,7 +85,7 @@ class RepositoryCacheTest {
     @Test
     fun `the size counts the repository's files`() {
         val id = UUID.randomUUID()
-        cache.fetching(id, branch, Duration.ofSeconds(1)) {}
+        cache.withFetchLock(id, Duration.ofSeconds(1)) { cache.fetching(id, branch) {} }
         val before = cache.size(id)
 
         root.resolve("$id.git").resolve("extra").writeText("x".repeat(1000))

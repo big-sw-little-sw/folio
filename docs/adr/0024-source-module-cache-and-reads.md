@@ -1,7 +1,8 @@
 # 0024. Source module, cache and reads
 
 Status: Accepted (2026-10-01). Amended by ADR 0033 (fetch deadline and size limit) and ADR 0034 (removing the caches of deleted
-ConfigSets).
+ConfigSets), and by ADR 0036 (the fetch lock covers the ls-remote) and ADR 0035 (reads report blob IDs and refuse files over a size
+limit).
 
 ## Context
 

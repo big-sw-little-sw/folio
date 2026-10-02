@@ -3,6 +3,7 @@ package io.github.big_sw_little_sw.folio.security.internal
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.invoke
 import org.springframework.security.config.http.SessionCreationPolicy
@@ -38,6 +39,12 @@ class SecurityConfiguration(
                 authorize("/swagger-ui/**", permitAll)
                 authorize("/swagger-ui.html", permitAll)
                 authorize("/error", permitAll)
+                // Consumption routes take anonymous reads too, so that `public` rules apply; their services
+                // authorize every request (ADR 0035). A token that is sent must still be valid.
+                listOf(HttpMethod.GET, HttpMethod.HEAD).forEach { method ->
+                    authorize(method, "/api/v1/configsets/**", permitAll)
+                    authorize(method, "/api/v1/configsets:resolve", permitAll)
+                }
                 authorize(anyRequest, authenticated)
             }
             oauth2ResourceServer { jwt { } }

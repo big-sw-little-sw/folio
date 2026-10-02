@@ -22,6 +22,12 @@ enum class Action {
     /** Requesting a sync now (ADR 0032). */
     CONFIG_SET_SYNC,
 
+    /** Listing and reading files at the latest or any synced revision (ADR 0035). */
+    CONFIG_ITEM_READ,
+
+    /** Listing synced revisions (ADR 0035). */
+    CONFIG_VERSION_LIST,
+
     /** Also allows explaining decisions on the resource. */
     POLICY_VIEW,
     POLICY_UPDATE,

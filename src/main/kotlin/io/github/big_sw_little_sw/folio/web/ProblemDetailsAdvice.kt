@@ -6,6 +6,12 @@ import io.github.big_sw_little_sw.folio.configset.ConfigSetPathNotFoundException
 import io.github.big_sw_little_sw.folio.configset.DuplicateConfigSetSlugException
 import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetIdException
 import io.github.big_sw_little_sw.folio.configset.InvalidConfigSetPathException
+import io.github.big_sw_little_sw.folio.consumption.ConsumptionException
+import io.github.big_sw_little_sw.folio.consumption.InvalidRevisionException
+import io.github.big_sw_little_sw.folio.consumption.NotYetSyncedException
+import io.github.big_sw_little_sw.folio.consumption.RevisionNotAvailableException
+import io.github.big_sw_little_sw.folio.consumption.TooManyFetchesException
+import io.github.big_sw_little_sw.folio.consumption.UnknownRevisionException
 import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
 import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialNotFoundException
@@ -35,8 +41,11 @@ import io.github.big_sw_little_sw.folio.source.InvalidRepositoryPathException
 import io.github.big_sw_little_sw.folio.source.InvalidSourcePathException
 import io.github.big_sw_little_sw.folio.source.RevisionNotFoundException
 import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
+import io.github.big_sw_little_sw.folio.source.SourceBusyException
 import io.github.big_sw_little_sw.folio.source.SourceException
+import io.github.big_sw_little_sw.folio.source.SourceFailure
 import io.github.big_sw_little_sw.folio.source.SourceFileNotFoundException
+import io.github.big_sw_little_sw.folio.source.SourceFileTooLargeException
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
@@ -127,27 +136,65 @@ class ProblemDetailsAdvice {
         }
 
     @ExceptionHandler
-    fun source(exception: SourceException): ProblemDetail =
+    fun source(exception: SourceException): ResponseEntity<ProblemDetail> =
         when (exception) {
             is InvalidRepositoryPathException,
             is InvalidBranchException,
             is InvalidSourcePathException,
             is InvalidCommitIdException,
             -> {
-                problem(HttpStatus.BAD_REQUEST, exception.message)
+                response(HttpStatus.BAD_REQUEST, exception.message)
             }
 
             is RevisionNotFoundException, is SourceFileNotFoundException -> {
-                problem(HttpStatus.NOT_FOUND, exception.message)
+                response(HttpStatus.NOT_FOUND, exception.message)
+            }
+
+            // Not 413, which is about the request's content: the request is fine, Folio declines to serve the file.
+            is SourceFileTooLargeException -> {
+                response(HttpStatus.UNPROCESSABLE_CONTENT, exception.message)
+            }
+
+            is SourceBusyException -> {
+                retryLater(exception.message)
             }
 
             // The fixed summary and code only; never the transport output behind them (ADR 0027).
             is SourceAccessFailedException -> {
-                problem(HttpStatus.BAD_GATEWAY, exception.failure.summary).apply {
-                    setProperty("code", exception.failure.name)
-                }
+                val status =
+                    if (exception.failure == SourceFailure.DEADLINE_EXCEEDED) {
+                        HttpStatus.GATEWAY_TIMEOUT
+                    } else {
+                        HttpStatus.BAD_GATEWAY
+                    }
+                val problem = problem(status, exception.failure.summary)
+                problem.setProperty("code", exception.failure.name)
+                ResponseEntity.status(status).body(problem)
             }
         }
+
+    @ExceptionHandler
+    fun consumption(exception: ConsumptionException): ResponseEntity<ProblemDetail> =
+        when (exception) {
+            is InvalidRevisionException -> {
+                response(HttpStatus.BAD_REQUEST, exception.message)
+            }
+
+            is NotYetSyncedException, is UnknownRevisionException, is RevisionNotAvailableException -> {
+                response(HttpStatus.NOT_FOUND, exception.message)
+            }
+
+            is TooManyFetchesException -> {
+                retryLater(exception.message)
+            }
+        }
+
+    /** 503 for an on-demand fetch that cannot run now (ADR 0036); it can when the running fetches are done. */
+    private fun retryLater(detail: String?) =
+        ResponseEntity
+            .status(HttpStatus.SERVICE_UNAVAILABLE)
+            .header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+            .body(problem(HttpStatus.SERVICE_UNAVAILABLE, detail))
 
     @ExceptionHandler
     fun policy(exception: PolicyException): ResponseEntity<ProblemDetail> =
@@ -177,4 +224,8 @@ class ProblemDetailsAdvice {
         status: HttpStatus,
         detail: String?,
     ) = ProblemDetail.forStatusAndDetail(status, detail)
+
+    private companion object {
+        const val RETRY_AFTER_SECONDS = "5"
+    }
 }
