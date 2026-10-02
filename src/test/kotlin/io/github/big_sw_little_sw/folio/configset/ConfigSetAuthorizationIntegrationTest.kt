@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio.configset
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.credential.CredentialService
 import io.github.big_sw_little_sw.folio.namespace.Namespace
 import io.github.big_sw_little_sw.folio.namespace.NamespacePolicyService
 import io.github.big_sw_little_sw.folio.namespace.NamespaceService
@@ -15,6 +16,7 @@ import io.github.big_sw_little_sw.folio.policy.Subject
 import io.github.big_sw_little_sw.folio.security.ApplicationPrincipal
 import io.github.big_sw_little_sw.folio.security.BOOTSTRAP_ADMIN
 import io.github.big_sw_little_sw.folio.security.authenticateAs
+import io.github.big_sw_little_sw.folio.source.SourceDefinition
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
@@ -36,15 +38,18 @@ class ConfigSetAuthorizationIntegrationTest(
     @Autowired private val policies: ConfigSetPolicyService,
     @Autowired private val namespaces: NamespaceService,
     @Autowired private val namespacePolicies: NamespacePolicyService,
+    @Autowired private val credentials: CredentialService,
     @Autowired private val jdbc: JdbcClient,
 ) {
     private val alice = Subject.User("alice")
+    private lateinit var source: SourceDefinition
 
     @BeforeEach
     fun deleteAll() {
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from namespace_closure").update()
         jdbc.sql("delete from namespace").update()
+        source = asAdmin { credentials.exampleSource() }
     }
 
     @AfterEach
@@ -55,26 +60,46 @@ class ConfigSetAuthorizationIntegrationTest(
     @Test
     fun `an anonymous caller is denied as not authenticated`() {
         val production = asAdmin { namespace("production") }
-        val serviceA = asAdmin { service.create(production.id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(production.id, Slug("service-a"), source) }
 
         assertFailsWith<NotAuthenticatedException> { service.get(serviceA.id) }
-        assertFailsWith<NotAuthenticatedException> { service.create(production.id, Slug("other")) }
+        assertFailsWith<NotAuthenticatedException> { service.create(production.id, Slug("other"), source) }
     }
 
     @Test
-    fun `create needs create on the namespace`() {
+    fun `create needs create on the namespace and use of the credential, which only bootstrap admins hold`() {
         val production = asAdmin { namespace("production") }
         authenticateAs("alice")
-        assertFailsWith<PermissionDeniedException> { service.create(production.id, Slug("service-a")) }
+        val withoutCreate = assertFailsWith<PermissionDeniedException> { create(production) }
+        assertEquals(Action.CONFIG_SET_CREATE, withoutCreate.action)
 
         asAdmin { grantOnNamespace(production, Action.CONFIG_SET_CREATE) }
         authenticateAs("alice")
-        assertEquals(Slug("service-a"), service.create(production.id, Slug("service-a")).slug)
+        // No rule can grant CREDENTIAL_USE: it is checked at the root, which holds no rules (ADR 0023).
+        val withoutUse = assertFailsWith<PermissionDeniedException> { create(production) }
+        assertEquals(Action.CREDENTIAL_USE, withoutUse.action)
+
+        assertEquals(Slug("service-a"), asAdmin { create(production) }.slug)
+    }
+
+    @Test
+    fun `the check needs view on the ConfigSet and use of its credential`() {
+        val serviceA = asAdmin { create(namespace("production")) }
+        assertFailsWith<NotAuthenticatedException> { service.check(serviceA.id, null) }
+
+        authenticateAs("alice")
+        val withoutView = assertFailsWith<PermissionDeniedException> { service.check(serviceA.id, null) }
+        assertEquals(Action.CONFIG_SET_VIEW, withoutView.action)
+
+        asAdmin { grantOnConfigSet(serviceA, Action.CONFIG_SET_VIEW) }
+        authenticateAs("alice")
+        val withoutUse = assertFailsWith<PermissionDeniedException> { service.check(serviceA.id, null) }
+        assertEquals(Action.CREDENTIAL_USE, withoutUse.action)
     }
 
     @Test
     fun `view, rename and delete need the matching action on the ConfigSet`() {
-        val serviceA = asAdmin { service.create(namespace("production").id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(namespace("production").id, Slug("service-a"), source) }
         authenticateAs("alice")
         assertFailsWith<PermissionDeniedException> { service.get(serviceA.id) }
         assertFailsWith<PermissionDeniedException> { service.rename(serviceA.id, Slug("b")) }
@@ -93,9 +118,8 @@ class ConfigSetAuthorizationIntegrationTest(
 
     @Test
     fun `a move needs move on the ConfigSet and create on the target namespace`() {
-        val source = asAdmin { namespace("source") }
         val target = asAdmin { namespace("target") }
-        val serviceA = asAdmin { service.create(source.id, Slug("service-a")) }
+        val serviceA = asAdmin { create(namespace("source")) }
         asAdmin { grantOnConfigSet(serviceA, Action.CONFIG_SET_MOVE) }
         authenticateAs("alice")
         assertFailsWith<PermissionDeniedException> { service.move(serviceA.id, target.id) }
@@ -108,7 +132,7 @@ class ConfigSetAuthorizationIntegrationTest(
     @Test
     fun `create on the target namespace without move on the ConfigSet is denied`() {
         val target = asAdmin { namespace("target") }
-        val serviceA = asAdmin { service.create(namespace("source").id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(namespace("source").id, Slug("service-a"), source) }
         asAdmin { grantOnNamespace(target, Action.CONFIG_SET_CREATE) }
         authenticateAs("alice")
 
@@ -118,8 +142,8 @@ class ConfigSetAuthorizationIntegrationTest(
     @Test
     fun `list and resolve show only ConfigSets the caller may view`() {
         val production = asAdmin { namespace("production") }
-        val visible = asAdmin { service.create(production.id, Slug("visible")) }
-        asAdmin { service.create(production.id, Slug("hidden")) }
+        val visible = asAdmin { service.create(production.id, Slug("visible"), source) }
+        asAdmin { service.create(production.id, Slug("hidden"), source) }
         asAdmin { grantOnConfigSet(visible, Action.CONFIG_SET_VIEW) }
         authenticateAs("alice")
 
@@ -132,8 +156,8 @@ class ConfigSetAuthorizationIntegrationTest(
     @Test
     fun `a ConfigSet's own rule is nearer than its namespace's rule`() {
         val production = asAdmin { namespace("production") }
-        val serviceA = asAdmin { service.create(production.id, Slug("service-a")) }
-        val serviceB = asAdmin { service.create(production.id, Slug("service-b")) }
+        val serviceA = asAdmin { service.create(production.id, Slug("service-a"), source) }
+        val serviceB = asAdmin { service.create(production.id, Slug("service-b"), source) }
         asAdmin {
             grantOnNamespace(production, Action.CONFIG_SET_VIEW)
             policies.putRule(serviceA.id, Rule(Action.CONFIG_SET_VIEW, setOf(Subject.User("bob"))))
@@ -149,7 +173,7 @@ class ConfigSetAuthorizationIntegrationTest(
     @Test
     fun `explain names the ConfigSet or the namespace whose rule decided`() {
         val production = asAdmin { namespace("production") }
-        val serviceA = asAdmin { service.create(production.id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(production.id, Slug("service-a"), source) }
         val principal = ApplicationPrincipal.Authenticated("alice", emptySet(), null)
 
         val actions = listOf(Action.CONFIG_SET_VIEW, Action.CONFIG_SET_DELETE)
@@ -172,7 +196,7 @@ class ConfigSetAuthorizationIntegrationTest(
 
     @Test
     fun `managing ConfigSet rules needs policy permissions on the ConfigSet`() {
-        val serviceA = asAdmin { service.create(namespace("production").id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(namespace("production").id, Slug("service-a"), source) }
         val rule = Rule(Action.CONFIG_SET_VIEW, setOf(alice))
         val principal = ApplicationPrincipal.Authenticated("alice", emptySet(), null)
         authenticateAs("alice")
@@ -198,7 +222,7 @@ class ConfigSetAuthorizationIntegrationTest(
     @Test
     fun `namespace-only actions granted on a ConfigSet do not reach its namespace`() {
         val production = asAdmin { namespace("production") }
-        val serviceA = asAdmin { service.create(production.id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(production.id, Slug("service-a"), source) }
         asAdmin {
             grantOnConfigSet(serviceA, Action.NAMESPACE_VIEW)
             grantOnConfigSet(serviceA, Action.CONFIG_SET_CREATE)
@@ -206,14 +230,14 @@ class ConfigSetAuthorizationIntegrationTest(
         authenticateAs("alice")
 
         assertFailsWith<PermissionDeniedException> { namespaces.get(production.id) }
-        assertFailsWith<PermissionDeniedException> { service.create(production.id, Slug("other")) }
+        assertFailsWith<PermissionDeniedException> { service.create(production.id, Slug("other"), source) }
     }
 
     @Test
     fun `a moved ConfigSet inherits from its new namespace and keeps its own rules`() {
         val a = asAdmin { namespace("a") }
         val b = asAdmin { namespace("b") }
-        val serviceA = asAdmin { service.create(a.id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(a.id, Slug("service-a"), source) }
         asAdmin { grantForMoves(a, b, serviceA) }
         assertAliceMay(serviceA, view = false, rename = true)
 
@@ -227,7 +251,7 @@ class ConfigSetAuthorizationIntegrationTest(
         val a = asAdmin { namespace("a") }
         val b = asAdmin { namespace("b") }
         val inner = asAdmin { namespaces.create(a.id, Slug("inner")) }
-        val serviceA = asAdmin { service.create(inner.id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(inner.id, Slug("service-a"), source) }
         asAdmin { grantForMoves(a, b, serviceA) }
         assertAliceMay(serviceA, view = false, rename = true)
 
@@ -238,7 +262,7 @@ class ConfigSetAuthorizationIntegrationTest(
 
     @Test
     fun `deleting a ConfigSet deletes its rules`() {
-        val serviceA = asAdmin { service.create(namespace("production").id, Slug("service-a")) }
+        val serviceA = asAdmin { service.create(namespace("production").id, Slug("service-a"), source) }
         asAdmin { grantOnConfigSet(serviceA, Action.CONFIG_SET_VIEW) }
 
         asAdmin { service.delete(serviceA.id) }
@@ -247,6 +271,8 @@ class ConfigSetAuthorizationIntegrationTest(
     }
 
     private fun namespace(slug: String): Namespace = namespaces.create(null, Slug(slug))
+
+    private fun create(namespace: Namespace): ConfigSet = service.create(namespace.id, Slug("service-a"), source)
 
     /** Alice may rename only in [from], view only in [to], and see the rules of [configSet] wherever it is. */
     private fun grantForMoves(

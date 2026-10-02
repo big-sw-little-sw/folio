@@ -3,8 +3,13 @@ package io.github.big_sw_little_sw.folio.configset.internal
 import io.github.big_sw_little_sw.folio.configset.ConfigSet
 import io.github.big_sw_little_sw.folio.configset.ConfigSetId
 import io.github.big_sw_little_sw.folio.configset.DuplicateConfigSetSlugException
+import io.github.big_sw_little_sw.folio.credential.CredentialId
 import io.github.big_sw_little_sw.folio.namespace.NamespaceId
 import io.github.big_sw_little_sw.folio.namespace.Slug
+import io.github.big_sw_little_sw.folio.source.Branch
+import io.github.big_sw_little_sw.folio.source.RepositoryPath
+import io.github.big_sw_little_sw.folio.source.SourceDefinition
+import io.github.big_sw_little_sw.folio.source.SourcePath
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
@@ -18,12 +23,22 @@ class ConfigSetRepository(
     fun insert(
         namespaceId: NamespaceId,
         slug: Slug,
+        source: SourceDefinition,
     ): ConfigSet =
         uniqueSlug(namespaceId, slug) {
             jdbc
-                .sql("insert into config_set (namespace_id, slug) values (:namespaceId, :slug) returning $COLUMNS")
-                .param("namespaceId", namespaceId.value)
+                .sql(
+                    """
+                    insert into config_set (namespace_id, slug, credential_id, repository_path, branch, root_path)
+                    values (:namespaceId, :slug, :credentialId, :repositoryPath, :branch, :rootPath)
+                    returning $COLUMNS
+                    """.trimIndent(),
+                ).param("namespaceId", namespaceId.value)
                 .param("slug", slug.value)
+                .param("credentialId", source.credentialId.value)
+                .param("repositoryPath", source.repositoryPath.value)
+                .param("branch", source.branch.value)
+                .param("rootPath", source.rootPath.value)
                 .query { rs, _ -> rs.toConfigSet() }
                 .single()
         }
@@ -89,9 +104,16 @@ class ConfigSetRepository(
             id = ConfigSetId(getObject("id", UUID::class.java)),
             namespaceId = NamespaceId(getObject("namespace_id", UUID::class.java)),
             slug = Slug(getString("slug")),
+            source =
+                SourceDefinition(
+                    credentialId = CredentialId(getObject("credential_id", UUID::class.java)),
+                    repositoryPath = RepositoryPath(getString("repository_path")),
+                    branch = Branch(getString("branch")),
+                    rootPath = SourcePath.parse(getString("root_path")),
+                ),
         )
 
     private companion object {
-        const val COLUMNS = "id, namespace_id, slug"
+        const val COLUMNS = "id, namespace_id, slug, credential_id, repository_path, branch, root_path"
     }
 }

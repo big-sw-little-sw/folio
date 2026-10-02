@@ -42,11 +42,14 @@ class ConfigSetApiIntegrationTest(
     private val admin = token(BOOTSTRAP_ADMIN)
     private val alice = token("alice", "editors")
 
+    private lateinit var credentialId: String
+
     @BeforeEach
     fun deleteAll() {
         jdbc.sql("delete from config_set").update()
         jdbc.sql("delete from namespace_closure").update()
         jdbc.sql("delete from namespace").update()
+        credentialId = createdId(send(POST, CREDENTIALS, """{"gitInstance": "example"}"""))
     }
 
     @Test
@@ -63,12 +66,16 @@ class ConfigSetApiIntegrationTest(
     fun `create returns 201 with the new ConfigSet's location`() {
         val production = namespace(null, "production")
 
-        send(POST, CONFIG_SETS, """{"namespaceId": "$production", "slug": "service-a"}""").andExpect {
+        send(POST, CONFIG_SETS, create(production, "service-a")).andExpect {
             status { isCreated() }
             header { string(HttpHeaders.LOCATION, matchesPattern("$CONFIG_SETS/cfg_[0-9a-f]{32}")) }
             jsonPath("$.id") { value(matchesPattern("cfg_[0-9a-f]{32}")) }
             jsonPath("$.namespaceId") { value(production) }
             jsonPath("$.slug") { value("service-a") }
+            jsonPath("$.source.credentialId") { value(credentialId) }
+            jsonPath("$.source.repositoryPath") { value("org/repo.git") }
+            jsonPath("$.source.branch") { value("main") }
+            jsonPath("$.source.rootPath") { value("config") }
         }
     }
 
@@ -132,7 +139,7 @@ class ConfigSetApiIntegrationTest(
         val production = namespace(null, "production")
         configSet(production, "service-a")
 
-        send(POST, CONFIG_SETS, """{"namespaceId": "$production", "slug": "service-a"}""").andExpectProblem(409)
+        send(POST, CONFIG_SETS, create(production, "service-a")).andExpectProblem(409)
     }
 
     @Test
@@ -198,7 +205,7 @@ class ConfigSetApiIntegrationTest(
         val serviceA = configSet(production, "service-a")
         val item = "$CONFIG_SETS/$serviceA"
 
-        send(POST, CONFIG_SETS, """{"namespaceId": "$production", "slug": "other"}""", alice).andExpectProblem(403)
+        send(POST, CONFIG_SETS, create(production, "other"), alice).andExpectProblem(403)
         send(GET, item, "", alice).andExpectProblem(403)
         send(POST, "$item:rename", """{"slug": "other"}""", alice).andExpectProblem(403)
         send(POST, "$item:move", """{"namespaceId": "$target"}""", alice).andExpectProblem(403)
@@ -232,7 +239,7 @@ class ConfigSetApiIntegrationTest(
         mvc.get("$CONFIG_SETS/$missingConfigSet") { with(alice) }.andExpectProblem(404)
         mvc.get("$CONFIG_SETS/$missingConfigSet/rules") { with(admin) }.andExpectProblem(404)
         mvc.get("$CONFIG_SETS?namespaceId=$missingNamespace") { with(admin) }.andExpectProblem(404)
-        send(POST, CONFIG_SETS, """{"namespaceId": "$missingNamespace", "slug": "a"}""").andExpectProblem(404)
+        send(POST, CONFIG_SETS, create(missingNamespace, "a")).andExpectProblem(404)
         mvc.get("$RESOLVE?path=production/missing") { with(alice) }.andExpectProblem(404)
     }
 
@@ -255,7 +262,7 @@ class ConfigSetApiIntegrationTest(
         mvc.get("$CONFIG_SETS/cfg_123") { with(admin) }.andExpectProblem(400)
         mvc.get(CONFIG_SETS) { with(admin) }.andExpectProblem(400)
         mvc.get("$CONFIG_SETS?namespaceId=$serviceA") { with(admin) }.andExpectProblem(400)
-        send(POST, CONFIG_SETS, """{"namespaceId": "$production", "slug": "Not A Slug"}""").andExpectProblem(400)
+        send(POST, CONFIG_SETS, create(production, "Not A Slug")).andExpectProblem(400)
         send(POST, CONFIG_SETS, """{"slug": "service-b"}""").andExpectProblem(400)
         send(POST, "$CONFIG_SETS/$serviceA:move", """{"namespaceId": "ns_123"}""").andExpectProblem(400)
         send(PUT, "$CONFIG_SETS/$serviceA/rules/NO_SUCH_ACTION", """{"subjects": ["public"]}""").andExpectProblem(400)
@@ -276,7 +283,17 @@ class ConfigSetApiIntegrationTest(
     private fun configSet(
         namespaceId: String,
         slug: String,
-    ): String = createdId(send(POST, CONFIG_SETS, """{"namespaceId": "$namespaceId", "slug": "$slug"}"""))
+    ): String = createdId(send(POST, CONFIG_SETS, create(namespaceId, slug)))
+
+    /** The source never reaches a Git service here; ConfigSetSourceApiIntegrationTest covers sources. */
+    private fun create(
+        namespaceId: String,
+        slug: String,
+    ) = """
+        {"namespaceId": "$namespaceId", "slug": "$slug",
+         "source": {"credentialId": "$credentialId", "repositoryPath": "org/repo.git", "branch": "main",
+                    "rootPath": "config"}}
+        """.trimIndent()
 
     private fun createdId(result: ResultActionsDsl): String =
         JsonPath.read(
@@ -337,6 +354,7 @@ class ConfigSetApiIntegrationTest(
     private companion object {
         const val NAMESPACES = "/api/v1/admin/namespaces"
         const val CONFIG_SETS = "/api/v1/admin/configsets"
+        const val CREDENTIALS = "/api/v1/admin/credentials"
         const val RESOLVE = "/api/v1/configsets:resolve"
     }
 }
