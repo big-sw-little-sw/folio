@@ -1,10 +1,16 @@
 package io.github.big_sw_little_sw.folio.source
 
+import io.github.big_sw_little_sw.folio.credential.CredentialDisabledException
+import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPair
 import io.github.big_sw_little_sw.folio.credential.CredentialKeyPairs
+import io.github.big_sw_little_sw.folio.credential.CredentialNotFoundException
+import io.github.big_sw_little_sw.folio.credential.GitInstanceNotConfiguredException
 import io.github.big_sw_little_sw.folio.credential.KeyId
+import io.github.big_sw_little_sw.folio.source.internal.FetchDeadline
 import io.github.big_sw_little_sw.folio.source.internal.IsolatedSystemReader
 import io.github.big_sw_little_sw.folio.source.internal.RepositoryCache
+import io.github.big_sw_little_sw.folio.source.internal.SourceProperties
 import io.github.big_sw_little_sw.folio.source.internal.SshConnections
 import io.github.big_sw_little_sw.folio.source.internal.sshUrl
 import org.eclipse.jgit.api.Git
@@ -22,6 +28,7 @@ import org.eclipse.jgit.transport.TagOpt
 import org.eclipse.jgit.treewalk.TreeWalk
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
+import java.time.Duration
 import java.util.UUID
 
 /**
@@ -36,6 +43,7 @@ class SourceAccess(
     private val keyPairs: CredentialKeyPairs,
     private val connections: SshConnections,
     private val cache: RepositoryCache,
+    private val properties: SourceProperties,
 ) {
     init {
         IsolatedSystemReader.install()
@@ -67,12 +75,28 @@ class SourceAccess(
 
     /**
      * Fetches the source's branch into the cache with the credential's active key and returns the commit ID of its
-     * tip. Throws [SourceAccessFailedException] if Git access fails.
+     * tip. Throws [SourceAccessFailedException] if Git access fails, the fetch passes its deadline, or the credential
+     * cannot be used: disabled, without an active key or on a Git instance no longer configured (ADR 0032).
+     *
+     * Call it outside a transaction: it talks to the Git service, and it handles the credential module's exceptions,
+     * which would mark a surrounding transaction rollback-only (ADR 0006).
      */
     fun fetch(
         configSetId: UUID,
         source: SourceDefinition,
-    ): String = fetch(configSetId, source, keyPairs.active(source.credentialId))
+    ): String {
+        val credential =
+            try {
+                keyPairs.active(source.credentialId)
+            } catch (e: CredentialException) {
+                log.warn("Git access for ConfigSet {} failed: {}", configSetId, unusable(e))
+                throw SourceAccessFailedException(unusable(e))
+            }
+        return fetch(configSetId, source, credential)
+    }
+
+    /** How long one fetch may take; a sync lease must outlast it (ADR 0032). */
+    val fetchDeadline: Duration get() = properties.fetchDeadline
 
     /** The regular files beneath the root path at [revision], relative to it, in Git's tree order. */
     fun list(
@@ -114,17 +138,21 @@ class SourceAccess(
             }
         }
 
-    /** ls-remote first, so that a missing branch is reported as such and nothing is fetched on failure. */
+    /**
+     * ls-remote first, so that a missing branch is reported as such and nothing is fetched on failure. The deadline
+     * runs from the start, so it covers the ls-remote and waiting for another fetch of the same ConfigSet.
+     */
     private fun fetch(
         configSetId: UUID,
         source: SourceDefinition,
         credential: CredentialKeyPair,
     ): String {
         val url = sshUrl(credential.gitInstance, source.repositoryPath)
+        val deadline = FetchDeadline(properties.fetchDeadline)
         try {
-            return connections.run(credential) { transport ->
+            return connections.run(credential, deadline) { transport ->
                 requireBranch(url, source.branch, transport)
-                cache.fetching(configSetId, source.branch) { fetchBranch(it, url, source.branch, transport) }
+                cache.fetching(configSetId, source.branch) { fetchBranch(it, url, source.branch, transport, deadline) }
             }
         } catch (e: SourceAccessFailedException) {
             log.warn("Git access for ConfigSet {} failed: {}", configSetId, e.failure)
@@ -154,6 +182,7 @@ class SourceAccess(
         url: String,
         branch: Branch,
         transport: TransportConfigCallback,
+        deadline: FetchDeadline,
     ): String {
         Git
             .wrap(repository)
@@ -163,6 +192,7 @@ class SourceAccess(
             .setTagOpt(TagOpt.NO_TAGS)
             .setCheckFetchedObjects(true)
             .setTimeout(TIMEOUT_SECONDS)
+            .setProgressMonitor(deadline)
             .setTransportConfigCallback(transport)
             .call()
         return checkNotNull(repository.exactRef(branch.ref)) { "Fetched branch is missing" }.objectId.name
@@ -229,8 +259,21 @@ class SourceAccess(
 
         /**
          * JGit's connect timeout and its idle timeout for each read from the connection, not a deadline for a whole
-         * fetch; slice 6 adds that (design 23.2).
+         * fetch; [FetchDeadline] is that (ADR 0033).
          */
         const val TIMEOUT_SECONDS = 30
     }
 }
+
+/** Why the credential cannot be used, for the failures `CredentialKeyPairs.active` throws. */
+private fun unusable(error: CredentialException): SourceFailure =
+    when (error) {
+        is CredentialDisabledException -> SourceFailure.CREDENTIAL_DISABLED
+
+        is GitInstanceNotConfiguredException -> SourceFailure.GIT_INSTANCE_NOT_CONFIGURED
+
+        // An existing credential always has an active key, so this is a credential that does not exist.
+        is CredentialNotFoundException -> SourceFailure.NO_ACTIVE_KEY
+
+        else -> throw error
+    }

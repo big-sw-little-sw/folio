@@ -24,7 +24,7 @@ import kotlin.io.path.exists
  * One bare repository per ConfigSet under `folio.git.cache-directory`, named by the ConfigSet ID (ADR 0024). The
  * cache is disposable: a missing or unreadable repository is deleted and created empty, and the next fetch fills it.
  *
- * Fetches of one ConfigSet run one at a time in this process; slice 6 adds leases across instances. Reads run
+ * Fetches of one ConfigSet run one at a time in this process; sync leases add that across instances. Reads run
  * alongside fetches, because a fetch only adds objects and moves a ref. Recreating a repository waits for reads.
  * Only the tip's commit and tree are checked before a fetch; a deeper missing object surfaces as an error until an
  * operator deletes the repository.
@@ -37,7 +37,7 @@ class RepositoryCache(
     private val root: Path = createOwnerOnly(properties.cacheDirectory)
     private val locks = ConcurrentHashMap<UUID, Locks>()
 
-    private fun directory(id: UUID): Path = root.resolve("$id.git")
+    private fun directory(id: UUID): Path = root.resolve("$id$SUFFIX")
 
     /** Runs [fetch] on the cached repository of [id], recreating it first if it is missing or unreadable. */
     fun <T> fetching(
@@ -58,6 +58,33 @@ class RepositoryCache(
         locksOf(id).cache.read {
             openExisting(id)?.use(read)
         }
+
+    /**
+     * Deletes the repository of [id], waiting for reads but not for a fetch: a fetch running at the same time may fail
+     * or leave a repository behind, which the next sweep removes (ADR 0034).
+     */
+    fun delete(id: UUID) {
+        locksOf(id).cache.write { directory(id).toFile().deleteRecursively() }
+    }
+
+    /**
+     * The IDs that have an entry in the cache directory. Only entries named exactly like [directory] count; anything
+     * else there, such as the SSH home directory, is never reported and so never deleted.
+     */
+    fun ids(): Set<UUID> =
+        Files.list(root).use { entries ->
+            entries
+                .map { it.fileName.toString() }
+                .toList()
+                .mapNotNull(::idOf)
+                .toSet()
+        }
+
+    private fun idOf(name: String): UUID? {
+        // UUID.fromString accepts non-canonical forms such as "1-1-1-1-1"; the round trip rejects them.
+        val id = runCatching { UUID.fromString(name.removeSuffix(SUFFIX)) }.getOrNull() ?: return null
+        return id.takeIf { directory(it).fileName.toString() == name }
+    }
 
     private fun recreate(id: UUID): Repository =
         locksOf(id).cache.write {
@@ -124,6 +151,10 @@ class RepositoryCache(
     private class Locks {
         val fetch = ReentrantLock()
         val cache = ReentrantReadWriteLock()
+    }
+
+    private companion object {
+        const val SUFFIX = ".git"
     }
 }
 

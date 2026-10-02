@@ -19,6 +19,9 @@ enum class Action {
     CONFIG_SET_MOVE,
     CONFIG_SET_DELETE,
 
+    /** Requesting a sync now (ADR 0032). */
+    CONFIG_SET_SYNC,
+
     /** Also allows explaining decisions on the resource. */
     POLICY_VIEW,
     POLICY_UPDATE,

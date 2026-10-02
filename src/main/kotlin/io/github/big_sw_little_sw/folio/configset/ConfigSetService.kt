@@ -14,6 +14,7 @@ import io.github.big_sw_little_sw.folio.policy.ResourceRef
 import io.github.big_sw_little_sw.folio.source.SourceAccess
 import io.github.big_sw_little_sw.folio.source.SourceCheck
 import io.github.big_sw_little_sw.folio.source.SourceDefinition
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
@@ -34,6 +35,7 @@ class ConfigSetService(
     private val policy: PolicyService,
     private val credentials: CredentialService,
     private val sources: SourceAccess,
+    private val events: ApplicationEventPublisher,
 ) {
     /**
      * Requires create on the namespace (ADR 0014), and use of the source's credential, which must be enabled
@@ -48,7 +50,9 @@ class ConfigSetService(
         tree.lock()
         policy.requireAllowed(Action.CONFIG_SET_CREATE, tree.policyPath(namespaceId))
         credentials.requireUsable(source.credentialId)
-        return configSets.insert(namespaceId, slug, source)
+        val configSet = configSets.insert(namespaceId, slug, source)
+        events.publishEvent(ConfigSetCreated(configSet.id))
+        return configSet
     }
 
     /**
@@ -108,18 +112,29 @@ class ConfigSetService(
         policy.requireAllowedToMoveRules(moved, event.targetPath)
     }
 
-    /** Deletes the ConfigSet and its rules. */
+    /** Deletes the ConfigSet, its rules and its sync state. */
     @Transactional
     fun delete(id: ConfigSetId) {
         tree.lock()
         policy.requireAllowed(Action.CONFIG_SET_DELETE, path(existing(id)))
         configSets.delete(id)
+        events.publishEvent(ConfigSetDeleted(id))
     }
 
     @Transactional(readOnly = true)
-    fun get(id: ConfigSetId): ConfigSet {
+    fun get(id: ConfigSetId): ConfigSet = requireAllowed(id, Action.CONFIG_SET_VIEW)
+
+    /**
+     * Requires [action] on the ConfigSet, for modules that act on ConfigSets, such as sync. Throws
+     * [ConfigSetNotFoundException] first if it does not exist (ADR 0010).
+     */
+    @Transactional(readOnly = true)
+    fun requireAllowed(
+        id: ConfigSetId,
+        action: Action,
+    ): ConfigSet {
         val configSet = existing(id)
-        policy.requireAllowed(Action.CONFIG_SET_VIEW, path(configSet))
+        policy.requireAllowed(action, path(configSet))
         return configSet
     }
 
