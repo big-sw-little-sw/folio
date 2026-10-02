@@ -51,6 +51,31 @@ class RepositoryCacheTest {
     }
 
     @Test
+    fun `fetches run with JGit's automatic gc turned off`() {
+        val id = UUID.randomUUID()
+
+        val (fetchAutoGc, gcAuto) =
+            cache.fetching(id, branch, Duration.ofSeconds(1)) {
+                it.config.getBoolean("fetch", "autogc", true) to it.config.getInt("gc", "auto", -1)
+            }
+
+        assertFalse(fetchAutoGc)
+        assertEquals(0, gcAuto)
+        assertTrue(
+            root
+                .resolve("$id.git/config")
+                .toFile()
+                .readText()
+                .contains("autogc = false"),
+        )
+    }
+
+    @Test
+    fun `the size of a repository that does not exist is zero`() {
+        assertEquals(0, cache.size(UUID.randomUUID()))
+    }
+
+    @Test
     fun `the size counts the repository's files`() {
         val id = UUID.randomUUID()
         cache.fetching(id, branch, Duration.ofSeconds(1)) {}

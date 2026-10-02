@@ -3,6 +3,10 @@ package io.github.big_sw_little_sw.folio.source.internal
 import io.github.big_sw_little_sw.folio.source.Branch
 import io.github.big_sw_little_sw.folio.source.SourceAccessFailedException
 import io.github.big_sw_little_sw.folio.source.SourceFailure
+import org.eclipse.jgit.lib.ConfigConstants.CONFIG_FETCH_SECTION
+import org.eclipse.jgit.lib.ConfigConstants.CONFIG_GC_SECTION
+import org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_AUTO
+import org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_AUTOGC
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.revwalk.RevWalk
@@ -10,9 +14,13 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.springframework.stereotype.Component
 import java.io.IOException
 import java.nio.file.FileSystems
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.PosixFilePermissions
 import java.time.Duration
 import java.util.UUID
@@ -62,20 +70,40 @@ class RepositoryCache(
         }
         try {
             val repository = openReadable(id, branch) ?: recreate(id)
-            return repository.use(fetch)
+            return repository.use {
+                disableAutoGc(it)
+                fetch(it)
+            }
         } finally {
             lock.unlock()
         }
     }
 
-    /** The bytes the repository of [id] holds on disk; symbolic links are not followed. */
-    fun size(id: UUID): Long =
-        Files.walk(directory(id)).use { paths ->
-            paths
-                .filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }
-                .mapToLong { Files.size(it) }
-                .sum()
-        }
+    /**
+     * The bytes the repository of [id] holds on disk; symbolic links are not followed. Files that vanish during the
+     * walk, such as JGit's lock files, are skipped rather than failing it.
+     */
+    fun size(id: UUID): Long {
+        var total = 0L
+        Files.walkFileTree(
+            directory(id),
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(
+                    file: Path,
+                    attributes: BasicFileAttributes,
+                ): FileVisitResult {
+                    if (attributes.isRegularFile) total += attributes.size()
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFileFailed(
+                    file: Path,
+                    error: IOException,
+                ): FileVisitResult = if (error is NoSuchFileException) FileVisitResult.CONTINUE else throw error
+            },
+        )
+        return total
+    }
 
     /** Runs [read] on the cached repository of [id], or returns null if there is none. */
     fun <T> reading(
@@ -199,4 +227,19 @@ private fun createOwnerOnly(directory: Path): Path {
     Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(ownerOnly))
     Files.setPosixFilePermissions(directory, ownerOnly)
     return directory
+}
+
+/**
+ * JGit runs an automatic gc after each fetch, by default in a background thread. Here it would race reads, the size
+ * check, discarding and the sweep, and a disposable cache does not need it (ADR 0033). Saved in the repository's own
+ * config, which the isolated system reader leaves alone, because JGit reloads that config whenever its file changes.
+ * Checked before every fetch, so caches created before this setting get it too; written only when missing.
+ */
+private fun disableAutoGc(repository: Repository) {
+    val config = repository.config
+    val fetchAutoGc = config.getBoolean(CONFIG_FETCH_SECTION, CONFIG_KEY_AUTOGC, true)
+    if (!fetchAutoGc && config.getInt(CONFIG_GC_SECTION, CONFIG_KEY_AUTO, -1) == 0) return
+    config.setBoolean(CONFIG_FETCH_SECTION, null, CONFIG_KEY_AUTOGC, false)
+    config.setInt(CONFIG_GC_SECTION, null, CONFIG_KEY_AUTO, 0)
+    config.save()
 }
