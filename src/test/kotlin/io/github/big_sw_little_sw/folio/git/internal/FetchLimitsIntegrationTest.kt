@@ -1,7 +1,6 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
-import io.github.big_sw_little_sw.folio.credential.CredentialKeys
 import io.github.big_sw_little_sw.testing.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.util.unit.DataSize
@@ -18,9 +17,7 @@ import kotlin.test.*
 @FreshGitRepository
 class FetchLimitsIntegrationTest(
     @Autowired private val git: TestGit,
-    @Autowired private val instances: GitInstances,
-    @Autowired private val keys: CredentialKeys,
-    @Autowired private val ssh: IsolatedSsh,
+    @Autowired private val instances: TestSyncInstances,
     @Autowired private val cache: RepositoryCache,
     @Autowired private val properties: GitProperties,
 ) {
@@ -117,7 +114,7 @@ class FetchLimitsIntegrationTest(
     }
 
     private fun fetch(configSet: ConfigSetId, limits: GitProperties): GitFailure = assertFailsWith<GitFailure> {
-        git.fetchTip(configSet, Fetcher(keys, instances, cache, ssh, limits))
+        git.fetchTip(configSet, instances.fetcher(limits))
     }
 
     private fun <T> timed(block: () -> T): Pair<T, Long> {

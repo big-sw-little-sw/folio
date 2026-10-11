@@ -8,6 +8,8 @@ import org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_AUTOGC
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.eclipse.jgit.storage.file.WindowCacheConfig
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.io.IOException
 import java.nio.file.FileSystems
@@ -20,6 +22,7 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.PosixFilePermissions
 import java.time.Duration
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.Lock
@@ -114,6 +117,36 @@ class RepositoryCache(properties: GitProperties) {
     }
 
     /**
+     * Deletes the repositories of the ConfigSets that no longer exist (design 10.5). [existing] returns the ConfigSets
+     * of its argument that exist. The sweep lists the directory before it calls [existing]. Thus a ConfigSet that the
+     * listing finds and that exists is always in the answer, and the sweep never deletes its repository.
+     *
+     * The sweep never follows symbolic links. It examines only directories whose name is the UUID of a ConfigSet, so
+     * it never deletes [sshHome] or another entry.
+     *
+     * The sweep does not wait. It skips a repository that a fetch or a read holds, and a later sweep deletes it. A
+     * deleted ConfigSet gets no new reads or syncs, so the repository becomes free. The sweep shares the one thread
+     * of the fixed-delay tasks with the poll. Without this rule, a slow read of a deleted ConfigSet would stop the
+     * polls of this instance for up to the fetch deadline.
+     */
+    fun sweep(existing: (Set<ConfigSetId>) -> Set<ConfigSetId>) {
+        val cached =
+            Files.list(root).use { entries ->
+                entries
+                    .filter { Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }
+                    .toList()
+                    .mapNotNull { configSetOf(it.fileName.toString()) }
+                    .toSet()
+            }
+        if (cached.isEmpty()) return
+        (cached - existing(cached)).forEach { id ->
+            // The fetch lock comes first, as in a fetch, so a delete never removes the files of a running fetch.
+            val deleted = withFetchLock(id, Duration.ZERO) { delete(id, Duration.ZERO) } == true
+            if (deleted) log.info("Deleted the cached repository of the deleted ConfigSet {}", id.toApiId())
+        }
+    }
+
+    /**
      * Deletes the repository of the ConfigSet, and does not follow symbolic links. The delete waits a maximum of [wait]
      * for the reads of the repository. Returns false if the reads did not end in that time. The repository then stays
      * until a later delete. For example, the size check of the next fetch deletes a repository that is too large.
@@ -199,7 +232,16 @@ class RepositoryCache(properties: GitProperties) {
     }
 
     private companion object {
+        val log: Logger = LoggerFactory.getLogger(RepositoryCache::class.java)
+
         const val SSH_HOME = "ssh-home"
+
+        /** Returns the ConfigSet whose repository has the directory [name], or null for another name. */
+        fun configSetOf(name: String): ConfigSetId? = try {
+            UUID.fromString(name).takeIf { it.toString() == name }?.let(::ConfigSetId)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
 
         /**
          * JGit streams a blob from the pack only above this size. A smaller blob is a byte array in memory. The value

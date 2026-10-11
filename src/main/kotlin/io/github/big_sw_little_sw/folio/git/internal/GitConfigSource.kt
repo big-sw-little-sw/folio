@@ -13,19 +13,20 @@ import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.revwalk.RevCommit
-import org.eclipse.jgit.treewalk.TreeWalk
-import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.io.InputStream
 
 /**
  * The Git adapter of [ConfigSource]. `git_revision` gives the published revisions, and the cache of this instance gives
  * their content. A revision ID is a commit ID, and the ETag of a ConfigItem is its Git blob ID. A read accepts only a
- * published revision.
+ * published revision. If the cache of this instance does not have the commit, the read fetches the commit on demand.
  */
 @Component
-class GitConfigSource(private val gitSourceRepository: GitSourceRepository, private val cache: RepositoryCache) :
-    ConfigSource {
+class GitConfigSource(
+    private val gitSourceRepository: GitSourceRepository,
+    private val cache: RepositoryCache,
+    private val onDemand: OnDemandFetches,
+) : ConfigSource {
     override val type = SourceType.GIT
 
     override fun latest(configSet: ConfigSetId): RevisionId? = gitSourceRepository.latest(configSet)?.id
@@ -34,34 +35,17 @@ class GitConfigSource(private val gitSourceRepository: GitSourceRepository, priv
         gitSourceRepository.revisions(configSet, limit)
 
     /**
-     * The regular files below the root path, in path order. Git permits file names that are not item paths, for
-     * example a name with a backslash. Consumers cannot read such a file, so the list leaves it out. The log gives only
-     * the number of these files, because the repository controls the names.
+     * The regular files below the root path, in path order, without the files whose names are not item paths. Sync
+     * logs the number of these files one time when it publishes the revision, so the list does not log it. A list
+     * above the limit of tree entries fails with `TOO_MANY_FILES`.
      */
     override fun list(configSet: ConfigSetId, revision: RevisionId): List<ConfigItemInfo> =
         reading(configSet, revision) { repository, commit, source ->
-            val root = rootTreeOf(repository, commit, source.rootPath) ?: return@reading emptyList()
-            val files = mutableListOf<ConfigItemInfo>()
-            var skipped = 0
-            TreeWalk(repository).use { walk ->
-                walk.addTree(root)
-                // Without the recursive mode, the walk gives each tree, so the count includes the trees.
-                walk.isRecursive = false
-                var visited = 0
-                while (walk.next()) {
-                    if (++visited > MAX_LIST_ENTRIES) throw tooManyFiles()
-                    when {
-                        walk.isSubtree -> walk.enterSubtree()
-                        !isRegularFile(walk.getFileMode(0)) -> Unit
-                        !ItemPath.isValid(walk.pathString) -> skipped++
-                        else -> files += ConfigItemInfo(ItemPath(walk.pathString), sizeOf(walk))
-                    }
-                }
+            try {
+                listFiles(repository, commit, source.rootPath)?.files.orEmpty()
+            } catch (failure: GitFailure) {
+                throw failure.toContentException()
             }
-            // The level is INFO, not WARN. Any reader of a public ConfigSet can repeat the list, and the revision never
-            // changes, so a warning would repeat without a new cause.
-            if (skipped > 0) log.info("ConfigSet {} has {} files that are not item paths", configSet.toApiId(), skipped)
-            files.sortedBy { it.path.value }
         }
 
     override fun <T> read(
@@ -79,7 +63,11 @@ class GitConfigSource(private val gitSourceRepository: GitSourceRepository, priv
         BlobStream(repository, blob).use { consume(ConfigItem(path, size, blob.name), it) }
     }
 
-    /** Runs [read] with the commit of a published revision. The repository stays open until [read] returns. */
+    /**
+     * Runs [read] with the commit of a published revision. The repository stays open until [read] returns. If the
+     * cache of this instance does not have the commit, the read fetches it on demand, with the limits of
+     * [OnDemandFetches], and then reads again.
+     */
     private fun <T> reading(
         configSet: ConfigSetId,
         revision: RevisionId,
@@ -88,18 +76,30 @@ class GitConfigSource(private val gitSourceRepository: GitSourceRepository, priv
         val source =
             gitSourceRepository.findPublished(configSet, revision) ?: throw ContentException.RevisionNotFound(revision)
         // A published revision is always a commit ID, so fromString does not fail.
-        val id = ObjectId.fromString(revision.value)
-        return cache.reading(configSet, { throw ContentException.RevisionUnavailable(revision) }) { repository ->
-            read(repository, cachedCommit(repository, id, revision), source)
-        }
+        val commit = ObjectId.fromString(revision.value)
+        readCached(configSet, commit, source, read)?.let { return it.value }
+        onDemand.fetch(configSet, source, revision)
+        // A sweep or a size check can delete the repository after the fetch. Then the read fails with
+        // RevisionUnavailable.
+        return readCached(configSet, commit, source, read)?.value
+            ?: throw ContentException.RevisionUnavailable(revision)
+    }
+
+    /** Returns the result of [read], or null if the cache does not have [commit]. */
+    private fun <T> readCached(
+        configSet: ConfigSetId,
+        commit: ObjectId,
+        source: GitSourceDefinition,
+        read: (Repository, RevCommit, GitSourceDefinition) -> T,
+    ): Cached<T>? = cache.reading(configSet, { null }) { repository ->
+        commitOrNull(repository, commit)?.let { Cached(read(repository, it, source)) }
     }
 
     /**
-     * A published commit can be missing from the cache of this instance, for example after a delete of the cache. Then
-     * the read fails with `RevisionUnavailable`.
+     * Holds the result of [read], so [read] can return null. A null from [readCached] then means only that the cache
+     * does not have the commit.
      */
-    private fun cachedCommit(repository: Repository, id: ObjectId, revision: RevisionId): RevCommit =
-        commitOrNull(repository, id) ?: throw ContentException.RevisionUnavailable(revision)
+    private class Cached<T>(val value: T)
 
     /** Opens the blob at the first read, as [ConfigSource.read] requires. */
     private class BlobStream(private val repository: Repository, private val blob: ObjectId) : InputStream() {
@@ -117,21 +117,6 @@ class GitConfigSource(private val gitSourceRepository: GitSourceRepository, priv
     }
 
     private companion object {
-        val log = LoggerFactory.getLogger(GitConfigSource::class.java)
         const val BLOB = Constants.OBJ_BLOB
-
-        /**
-         * The maximum number of tree entries, files and trees, that a file list visits. Trees can share subtrees, so a
-         * small commit can name billions of files. Without the limit, such a commit makes Folio build a huge list in
-         * memory. Configuration repositories have far fewer files.
-         */
-        const val MAX_LIST_ENTRIES = 10_000
-
-        fun sizeOf(walk: TreeWalk): Long = walk.objectReader.getObjectSize(walk.getObjectId(0), BLOB)
-
-        fun tooManyFiles() = ContentException.SourceFailed(
-            "TOO_MANY_FILES",
-            "The revision has more than $MAX_LIST_ENTRIES files and directories below the root path.",
-        )
     }
 }

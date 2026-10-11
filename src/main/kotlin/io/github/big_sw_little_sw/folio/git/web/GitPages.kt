@@ -34,9 +34,9 @@ data class ConnectForm(
 )
 
 /**
- * The Git pages: the form that connects a Git repository to a new ConfigSet, and the Git source of a ConfigSet with the
- * check. Each page needs `MANAGE`, as its operations do. The path of a resource is a link only for a caller that can
- * read the resource.
+ * The Git pages: the form that connects a Git repository to a new ConfigSet, and the Git source of a ConfigSet with its
+ * sync state, the check and the manual sync. Each page needs `MANAGE`, as its operations do. The path of a resource is
+ * a link only for a caller that can read the resource.
  */
 @Controller
 class GitPages(
@@ -83,6 +83,16 @@ class GitPages(
                     is CheckResult.Failed -> "The check failed with ${result.code}. ${result.code.summary}"
                 }
             Redirect(sourceUrl(configSet), notice)
+        }
+    }
+
+    /** The notice of the next page says that the next poll syncs the ConfigSet. */
+    @PostMapping("/configsets/{id}/git/sync")
+    fun sync(@PathVariable id: String, redirect: RedirectAttributes): ModelAndView {
+        val configSet = CONFIG_SET_ID.parse(id)
+        return submit(redirect, { sourcePage(configSet, null) }) {
+            sources.requestSync(currentCaller.get(), configSet)
+            Redirect(sourceUrl(configSet), "The ConfigSet is due now. The next poll of an instance syncs it.")
         }
     }
 

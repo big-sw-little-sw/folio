@@ -28,7 +28,7 @@ data class CreateGitConfigSetRequest(
 /** A check with [keyId] uses that pending key of the credential, not the active key. */
 data class CheckRequest(val keyId: String? = null)
 
-/** The Git source of a ConfigSet and its newest published revision. */
+/** The Git source of a ConfigSet, its newest published revision and its sync state. */
 data class GitSourceResponse(
     val configSetId: String,
     val path: String,
@@ -39,6 +39,25 @@ data class GitSourceResponse(
     /** Null before the first publish, as [lastPublishedAt] is. */
     val lastPublishedCommit: String?,
     val lastPublishedAt: Instant?,
+    /**
+     * The tip that the last successful fetch got. It differs from [lastPublishedCommit] if the publish step refused the
+     * tip, for example because the root path is missing.
+     */
+    val lastSeenCommit: String?,
+    val lastAttemptAt: Instant?,
+    val lastSuccessAt: Instant?,
+    /** The failure code of the last attempt, or null after a success or before the first attempt. */
+    val failureCode: String?,
+    /** The fixed, safe summary of [failureCode]. */
+    val failureSummary: String?,
+    val consecutiveFailures: Int,
+    /**
+     * The next due time: from this time, an instance can sync the ConfigSet. During a sync, the next due time is the
+     * lease end, unless a manual sync moved it earlier.
+     */
+    val nextDueAt: Instant,
+    /** True while an instance holds the lease of the ConfigSet, so a sync runs. */
+    val syncing: Boolean,
 )
 
 /**
@@ -71,6 +90,14 @@ fun GitSourceView.toResponse() = GitSourceResponse(
     rootPath = source.rootPath.value,
     lastPublishedCommit = lastPublished?.id?.value,
     lastPublishedAt = lastPublished?.publishedAt,
+    lastSeenCommit = sync.lastSeenCommit,
+    lastAttemptAt = sync.lastAttemptAt,
+    lastSuccessAt = sync.lastSuccessAt,
+    failureCode = sync.failure?.name,
+    failureSummary = sync.failure?.summary,
+    consecutiveFailures = sync.consecutiveFailures,
+    nextDueAt = sync.nextDueAt,
+    syncing = sync.syncing,
 )
 
 fun CheckResult.toResponse() = when (this) {

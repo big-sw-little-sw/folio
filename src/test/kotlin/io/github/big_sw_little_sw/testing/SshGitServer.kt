@@ -86,8 +86,12 @@ object SshGitServer {
         exec("sh", "-c", ": > /home/git/.ssh/authorized_keys")
     }
 
-    /** Returns a forced command that adds a line to the file [log] for each command, and then runs the command. */
-    fun logged(log: String) = "echo \"\$SSH_ORIGINAL_COMMAND\" >> $log; eval \"\$SSH_ORIGINAL_COMMAND\""
+    /**
+     * Returns a forced command that adds a line to the file [log] for each command, waits [delaySeconds], and then
+     * runs the command. The server sends nothing during the delay.
+     */
+    fun logged(log: String, delaySeconds: Int = 0) =
+        "echo \"\$SSH_ORIGINAL_COMMAND\" >> $log; sleep $delaySeconds; eval \"\$SSH_ORIGINAL_COMMAND\""
 
     /** The number of commands that [logged] wrote to [log]. */
     fun loggedCommands(log: String): Int = exec("sh", "-c", "cat $log 2>/dev/null | wc -l").trim().toInt()
@@ -203,8 +207,18 @@ object SshGitServer {
         "git rev-parse HEAD",
     ).trim()
 
-    /** Pushes a commit to `main` that sets `config/app.yaml` to [content], and returns its ID. */
-    fun addCommit(name: String, content: String): String {
+    /**
+     * Pushes a commit to `main` that sets `config/app.yaml` to [content], and returns its ID. The commit creates
+     * `config` if an earlier commit removed it.
+     */
+    fun addCommit(name: String, content: String): String =
+        pushCommit(name, "mkdir -p config && printf '$content' > config/app.yaml")
+
+    /** Pushes a commit to `main` that removes the directory [directory], and returns its ID. */
+    fun removeDirectory(name: String, directory: String): String = pushCommit(name, "git rm -r -q $directory")
+
+    /** Pushes a commit to `main` with the changes of the shell command [change], and returns its ID. */
+    private fun pushCommit(name: String, change: String): String {
         val script =
             """
             set -e
@@ -214,7 +228,7 @@ object SshGitServer {
             cd ${'$'}work
             git config user.email test@folio.test
             git config user.name test
-            printf '$content' > config/app.yaml
+            $change
             git add -A
             git commit -q -m next
             git push -q origin main
@@ -230,6 +244,16 @@ object SshGitServer {
             "sh",
             "-c",
             "git -c safe.directory='*' -C /repos/$name.git update-ref refs/heads/main $commit && " +
+                "chown -R git:git /repos/$name.git",
+        )
+    }
+
+    /** Deletes the branch `main` of `/repos/<name>.git`. */
+    fun deleteBranch(name: String) {
+        exec(
+            "sh",
+            "-c",
+            "git -c safe.directory='*' -C /repos/$name.git update-ref -d refs/heads/main && " +
                 "chown -R git:git /repos/$name.git",
         )
     }

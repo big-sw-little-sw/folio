@@ -49,6 +49,11 @@ class GitApi(
         val pendingKey = request?.keyId?.let(KEY_ID::parse)
         return check.check(currentCaller.get(), configSet, pendingKey).toResponse()
     }
+
+    /** Answers 202, because the next poll of an instance runs the sync later. The body is the Git source. */
+    @PostMapping("$ADMIN/configsets/{id}/git:sync")
+    fun sync(@PathVariable id: String): ResponseEntity<GitSourceResponse> =
+        ResponseEntity.accepted().body(sources.requestSync(currentCaller.get(), CONFIG_SET_ID.parse(id)).toResponse())
 }
 
 private const val ADMIN = "/api/v1/admin"

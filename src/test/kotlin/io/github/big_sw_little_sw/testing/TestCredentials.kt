@@ -11,14 +11,19 @@ import io.github.big_sw_little_sw.folio.credential.internal.KeyStatus
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.uniqueSlug
 import org.springframework.boot.test.context.TestComponent
+import org.springframework.jdbc.core.simple.JdbcClient
 
 /**
- * This component sets up credentials for tests, as a super admin. It is the one place in the tests that sets up state
+ * This component creates credentials for tests, as a super admin. It is the one place in the tests that changes state
  * through the internal `CredentialService`. The tests check the operations themselves through the HTTP routes or the
  * public interface of the module.
  */
 @TestComponent
-class TestCredentials(private val credentials: CredentialService, private val catalog: TestCatalog) {
+class TestCredentials(
+    private val credentials: CredentialService,
+    private val catalog: TestCatalog,
+    private val jdbc: JdbcClient,
+) {
     /** Creates a credential with its first key, which is active. */
     fun credential(
         namespace: NamespaceId = catalog.namespace(),
@@ -39,6 +44,17 @@ class TestCredentials(private val credentials: CredentialService, private val ca
 
     fun delete(id: CredentialId) {
         credentials.delete(SUPER_ADMIN, id)
+    }
+
+    /**
+     * Replaces the ciphertext of the active key with one byte, so the key no longer decrypts. The credential module
+     * then throws `IllegalStateException`, which is an unexpected error for its callers (design 8.3).
+     */
+    fun corruptActiveKey(id: CredentialId) {
+        jdbc
+            .sql("update credential_key set ciphertext = '\\x00' where credential_id = :id and status = 'ACTIVE'")
+            .param("id", id.value)
+            .update()
     }
 }
 

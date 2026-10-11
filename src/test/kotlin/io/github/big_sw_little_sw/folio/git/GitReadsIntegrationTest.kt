@@ -5,34 +5,29 @@ import io.github.big_sw_little_sw.folio.content.ConfigSource
 import io.github.big_sw_little_sw.folio.content.ContentException
 import io.github.big_sw_little_sw.folio.content.ItemPath
 import io.github.big_sw_little_sw.folio.content.RevisionId
-import io.github.big_sw_little_sw.folio.git.internal.GitProperties
+import io.github.big_sw_little_sw.folio.git.internal.GitSourceRepository
 import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.InMemorySource.TestItem
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import org.hamcrest.Matchers.*
-import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.system.CapturedOutput
-import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.http.HttpHeaders
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.web.servlet.*
-import kotlin.io.path.ExperimentalPathApi
-import kotlin.io.path.deleteRecursively
 import kotlin.test.*
 
 /**
  * These tests read published revisions of Git ConfigSets through the consumption API and through the Git adapter.
- * [TestGit.publishTip] publishes the revisions. The context limits files to 1 KB (`folio.content.max-file-size`).
+ * [TestGit.publishTip] publishes the revisions through sync. The context limits files to 1 KB
+ * (`folio.content.max-file-size`).
  */
 @GitIntegrationTest
 @FreshGitRepository
-@ExtendWith(OutputCaptureExtension::class)
 class GitReadsIntegrationTest(
     @Autowired private val mvc: MockMvc,
     @Autowired private val git: TestGit,
     @Autowired private val source: ConfigSource,
-    @Autowired private val properties: GitProperties,
+    @Autowired private val repository: GitSourceRepository,
     @Autowired private val jdbc: JdbcClient,
 ) {
     @Test
@@ -46,9 +41,7 @@ class GitReadsIntegrationTest(
     }
 
     @Test
-    fun `the files of the latest revision are the regular files below the root path, with item paths only`(
-        output: CapturedOutput,
-    ) {
+    fun `the files of the latest revision are the regular files below the root path, with item paths only`() {
         val configSet = git.connected()
         val tip = git.publishTip(configSet)
 
@@ -61,9 +54,6 @@ class GitReadsIntegrationTest(
             jsonPath("$.files[*].path") { value(contains("app.yaml", "run.sh", "sub/extra.json")) }
             jsonPath("$.files[*].size") { value(contains(2, 1, 2)) }
         }
-        // The log gives the number of skipped files, never their names, because the repository controls the names.
-        assertTrue("ConfigSet ${configSet.toApiId()} has 1 files that are not item paths" in output.all, output.all)
-        assertFalse("slash.txt" in output.all, output.all)
     }
 
     @Test
@@ -126,13 +116,15 @@ class GitReadsIntegrationTest(
 
     /**
      * Trees that share subtrees name 100,000 files in a small pack. The list stops at its limit, so a small repository
-     * cannot make Folio build a large list in memory.
+     * cannot make Folio build a large list in memory. The publish step of sync refuses such a revision
+     * (SyncIntegrationTest), but the list keeps its own limit. Thus this test publishes the commit with
+     * [GitSourceRepository.publish] directly, without the publish step of sync.
      */
     @Test
     fun `a revision with too many files below the root path fails the file list with TOO_MANY_FILES`() {
         val commit = SshGitServer.createSharedTreeRepository("shared")
         val configSet = git.configSet(git.authorizedCredential().id, repository = "shared")
-        git.publishTip(configSet)
+        repository.publish(configSet, git.fetchTip(configSet))
 
         val failure = assertFailsWith<ContentException.SourceFailed> { source.list(configSet, RevisionId(commit)) }
 
@@ -183,16 +175,16 @@ class GitReadsIntegrationTest(
         }
     }
 
-    @OptIn(ExperimentalPathApi::class)
+    /** Each instance has its own cache, so a read fetches a published commit that the cache lacks. */
     @Test
-    fun `a published revision that the cache of this instance does not have is unavailable`() {
+    fun `a read of a published revision that the cache of this instance does not have fetches it`() {
         val configSet = git.connected()
         val tip = git.publishTip(configSet)
 
-        properties.cacheDirectory.resolve(configSet.value.toString()).deleteRecursively()
+        git.dropCache(configSet)
 
-        get(configSet, "/files?revision=$tip").andExpectProblem(404, "REVISION_UNAVAILABLE")
-        get(configSet, "/files/app.yaml").andExpectProblem(404, "REVISION_UNAVAILABLE")
+        get(configSet, "/files?revision=$tip").andExpect { jsonPath("$.files[0].path") { value("app.yaml") } }
+        get(configSet, "/files/app.yaml").andExpect { content { string("v2") } }
     }
 
     /** The fetch forces the ref of the branch, so the cache also follows a force push back to an earlier commit. */

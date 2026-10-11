@@ -1,6 +1,8 @@
 package io.github.big_sw_little_sw.folio.git.web
 
 import io.github.big_sw_little_sw.folio.catalog.Action
+import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
+import io.github.big_sw_little_sw.folio.git.internal.Synchronizer
 import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.testing.*
 import org.hamcrest.Matchers.*
@@ -14,6 +16,8 @@ class GitPagesIntegrationTest(
     @Autowired private val catalog: TestCatalog,
     @Autowired private val credentials: TestCredentials,
     @Autowired private val git: TestGit,
+    @Autowired private val audit: TestAudit,
+    @Autowired private val synchronizer: Synchronizer,
 ) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
 
@@ -142,6 +146,63 @@ class GitPagesIntegrationTest(
     }
 
     @Test
+    fun `the Git source page shows the sync state, and the sync form makes the ConfigSet due`() {
+        val namespace = catalog.namespace()
+        catalog.rule(namespace, Action.MANAGE, "user:alice")
+        val credential = credentials.credential(namespace, gitInstance = "nowhere").id
+        val configSet = git.configSet(credential, namespace = namespace)
+        val page = "/configsets/${configSet.toApiId()}/git"
+
+        val html = mvc.page(page, alice)
+        assertContains(html, "Not synced yet")
+        assertContains(html, """action="$page/sync"""")
+        // A new ConfigSet is due at creation. After parkAll, only the form can make the ConfigSet due.
+        git.parkAll()
+        mvc.postForm("$page/sync", alice).andExpect {
+            status { is3xxRedirection() }
+            redirectedUrl(page)
+            flash { attribute("notice", "The ConfigSet is due now. The next poll of an instance syncs it.") }
+        }
+        syncDue(configSet)
+        val requested = audit.records(configSet.value).single { it["operation"] == "SYNC_REQUESTED" }
+        assertEquals("alice", requested["actor_subject"])
+        val synced = mvc.page(page, alice)
+        assertContains(synced, "<code>GIT_INSTANCE_NOT_CONFIGURED</code>")
+        assertContains(synced, "Consecutive failures: 1.")
+    }
+
+    @Test
+    @FreshGitRepository
+    fun `the Git source page shows a running sync, and a successful sync`() {
+        val namespace = catalog.namespace()
+        catalog.rule(namespace, Action.MANAGE, "user:alice")
+        val configSet = git.connected(namespace)
+        val page = "/configsets/${configSet.toApiId()}/git"
+        git.parkAll()
+        git.makeDue(configSet)
+
+        val lease = synchronizer.claim(CLAIM_LIMIT).single()
+        assertContains(mvc.page(page, alice), "Syncing now")
+        synchronizer.sync(lease)
+
+        val html = mvc.page(page, alice)
+        assertContains(html, "Synced")
+        assertFalse("Syncing now" in html)
+    }
+
+    @Test
+    fun `the sync form needs MANAGE on the ConfigSet`() {
+        val namespace = catalog.namespace()
+        catalog.rule(namespace, Action.READ, "user:alice")
+        val configSet = git.configSet(credentials.credential(namespace).id, namespace = namespace)
+
+        mvc.postForm(
+            "/configsets/${configSet.toApiId()}/git/sync",
+            alice,
+        ).andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
+    }
+
+    @Test
     fun `the forms need a CSRF token`() {
         val namespace = catalog.namespace()
         catalog.rule(namespace, Action.MANAGE, "user:alice")
@@ -150,5 +211,19 @@ class GitPagesIntegrationTest(
         mvc.post("/configsets/${configSet.toApiId()}/git/check") { with(signedIn(alice)) }.andExpect {
             status { isForbidden() }
         }
+        mvc.post("/configsets/${configSet.toApiId()}/git/sync") { with(signedIn(alice)) }.andExpect {
+            status { isForbidden() }
+        }
+    }
+
+    /** Claims the due ConfigSets, requires that [configSet] is the only one, and syncs it. */
+    private fun syncDue(configSet: ConfigSetId) {
+        val lease = synchronizer.claim(CLAIM_LIMIT).single()
+        assertEquals(configSet, lease.configSet)
+        synchronizer.sync(lease)
+    }
+
+    private companion object {
+        const val CLAIM_LIMIT = 10
     }
 }

@@ -1,5 +1,6 @@
 <%--
-    The Git source of a ConfigSet and the check. The notice of the page gives the result of the last check.
+    The Git source of a ConfigSet, its sync state, the check and the manual sync. The notice of the page gives the result
+    of the last check or sync request.
 --%>
 @import io.github.big_sw_little_sw.folio.git.internal.GitSourceView
 @import io.github.big_sw_little_sw.folio.web.FolioException
@@ -43,6 +44,35 @@
             @endif
         </dd>
     </dl>
+    <h2>Sync</h2>
+    !{val sync = view.sync}
+    <dl>
+        <dt>Status</dt>
+        <dd>
+            @if(sync.syncing)
+                Syncing now
+            @elseif(sync.failure != null)
+                Failed with <code>${sync.failure.name}</code>. ${sync.failure.summary}
+                Consecutive failures: ${sync.consecutiveFailures}.
+            @elseif(sync.lastAttemptAt == null)
+                <span class="muted">Not synced yet</span>
+            @else
+                Synced
+            @endif
+        </dd>
+        <dt>Last seen commit</dt>
+        <dd>@if(sync.lastSeenCommit == null)<span class="muted">None</span>@else<code>${sync.lastSeenCommit}</code>@endif</dd>
+        <dt>Last attempt</dt>
+        <dd>@if(sync.lastAttemptAt == null)<span class="muted">None</span>@else${sync.lastAttemptAt.toString()}@endif</dd>
+        <dt>Last success</dt>
+        <dd>@if(sync.lastSuccessAt == null)<span class="muted">None</span>@else${sync.lastSuccessAt.toString()}@endif</dd>
+        <dt>Next due</dt>
+        <dd>${sync.nextDueAt.toString()}</dd>
+    </dl>
+    <form method="post" action="/configsets/${configSetId}/git/sync">
+        @template.web.csrfField(page = page)
+        <button type="submit">Sync now</button>
+    </form>
     <h2>Check</h2>
     <p>
         The check connects to the Git server. It runs ls-remote for the branch, fetches the branch and makes sure that
