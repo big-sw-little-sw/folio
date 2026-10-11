@@ -3,6 +3,7 @@ package io.github.big_sw_little_sw.folio.identity
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.PlainJWT
 import io.github.big_sw_little_sw.testing.*
+import io.github.big_sw_little_sw.testing.TestRoutes.Companion.CALLER
 import org.junit.jupiter.api.Named
 import org.junit.jupiter.api.Named.named
 import org.junit.jupiter.api.extension.ExtendWith
@@ -101,7 +102,6 @@ class BearerTokenIntegrationTest(@Autowired private val mvc: MockMvc) {
     }
 
     private companion object {
-        const val CALLER = "/api/test/caller"
         const val REFUSED = "A bearer token was refused"
 
         @JvmStatic

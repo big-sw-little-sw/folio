@@ -49,10 +49,29 @@ class SecurityConfigurationTest {
         configuration(resourceServer(ISSUER, "folio"))
     }
 
+    @Test
+    fun `with the google directory, Folio does not start if the UI client does not ask for the email claim`() {
+        val failure =
+            assertFailsWith<IllegalArgumentException> {
+                configuration(resourceServer(ISSUER, "folio"), registration(scopes = setOf("openid")), google)
+            }
+        assertEquals(
+            "spring.security.oauth2.client.registration.folio.scope must contain email when " +
+                "folio.security.directory is google",
+            failure.message,
+        )
+    }
+
+    @Test
+    fun `with the google directory, Folio starts with the scopes openid and email`() {
+        configuration(resourceServer(ISSUER, "folio"), registration(scopes = setOf("openid", "email")), google)
+    }
+
     private fun configuration(
         resourceServer: OAuth2ResourceServerProperties,
         registration: ClientRegistration = registration(),
-    ) = SecurityConfiguration(resourceServer, InMemoryClientRegistrationRepository(registration), errors)
+        identity: IdentityProperties = IdentityProperties(),
+    ) = SecurityConfiguration(resourceServer, identity, InMemoryClientRegistrationRepository(registration), errors)
 
     private fun resourceServer(issuer: String?, vararg audiences: String) = OAuth2ResourceServerProperties().apply {
         jwt.issuerUri = issuer
@@ -76,5 +95,10 @@ class SecurityConfigurationTest {
 
     private companion object {
         const val ISSUER = "https://issuer.test"
+        val google =
+            IdentityProperties(
+                directory = IdentityProperties.DirectoryType.GOOGLE,
+                google = IdentityProperties.Google(hostedDomain = "example.com"),
+            )
     }
 }

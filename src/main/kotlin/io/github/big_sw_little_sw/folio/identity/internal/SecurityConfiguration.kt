@@ -53,6 +53,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration(
     resourceServer: OAuth2ResourceServerProperties,
+    identity: IdentityProperties,
     private val clients: ClientRegistrationRepository,
     @Qualifier("handlerExceptionResolver") private val errors: HandlerExceptionResolver,
 ) {
@@ -81,16 +82,19 @@ class SecurityConfiguration(
         require(OidcScopes.OPENID in registration.scopes) {
             "spring.security.oauth2.client.registration.$REGISTRATION_ID.scope must contain openid"
         }
+        // Google puts the `email` claim in an ID token only for the email scope. The google directory needs the claim
+        // for each person, so without the scope each sign-in would fail.
+        if (identity.directory == IdentityProperties.DirectoryType.GOOGLE) {
+            require(OidcScopes.EMAIL in registration.scopes) {
+                "spring.security.oauth2.client.registration.$REGISTRATION_ID.scope must contain email when " +
+                    "folio.security.directory is google"
+            }
+        }
     }
 
     @Bean
-    fun callerFactory(properties: IdentityProperties, superAdmins: SuperAdmins): CallerFactory = CallerFactory(
-        properties.claims,
-        when (properties.directory) {
-            IdentityProperties.DirectoryType.TOKEN -> TokenDirectory(properties.claims.groups)
-        },
-        superAdmins,
-    )
+    fun callerFactory(properties: IdentityProperties, directory: Directory, superAdmins: SuperAdmins): CallerFactory =
+        CallerFactory(properties.claims, directory, superAdmins)
 
     @Bean
     @Order(1)
@@ -177,23 +181,33 @@ class SecurityConfiguration(
     }
 
     /**
-     * Logs each failed sign-in, and shows the person only SIGN_IN_FAILED. Spring logs the cause only at DEBUG. Causes
-     * include a refusal of the identity provider, an ID token that gives no caller and an old callback URL. The level
-     * is WARN, not ERROR, because any browser can send an old callback URL.
+     * Logs each failed sign-in. Spring logs the cause only at DEBUG. Causes include a refusal of the identity
+     * provider, an ID token that gives no caller and an old callback URL. The level is WARN, not ERROR, because any
+     * browser can send an old callback URL.
+     *
+     * The person sees only SIGN_IN_FAILED, except for a directory outage. A directory outage is not a fault of the
+     * person, so the person gets DIRECTORY_UNAVAILABLE, as the API does.
      */
     private fun signInFailed() = AuthenticationFailureHandler { request, response, exception ->
         // An ID token that gives no caller fails with InvalidClaims, which carries no OAuth2 error.
         val error = (exception as? OAuth2AuthenticationException)?.error
         val reason = listOfNotNull(error?.errorCode, error?.description ?: exception.message).joinToString(" ")
         log.warn("Sign-in failed: {}", reason)
-        fail(request, response, IdentityException.SignInFailed())
+        val failure =
+            if (exception is DirectoryUnavailable) {
+                IdentityException.DirectoryUnavailable()
+            } else {
+                IdentityException.SignInFailed()
+            }
+        fail(request, response, failure)
     }
 
     /**
      * Spring gives [AuthenticationServiceException] when the decoder cannot get the discovery document or the signing
-     * keys of the issuer (see [OutageReportingJwtDecoder]). The log gets a token whose claims give no caller, because
-     * the issuer signed that token for Folio, so the claim configuration is wrong. Other token failures are faults of
-     * the client, so only the client gets them.
+     * keys of the issuer (see [OutageReportingJwtDecoder]). [DirectoryUnavailable] has the same type, so the `when`
+     * examines it first. The log gets a token whose claims give no caller, because the issuer signed that token for
+     * Folio, so the claim configuration or the account restriction is wrong. Other token failures are faults of the
+     * client, so only the client gets them.
      */
     private fun failToken(
         request: HttpServletRequest,
@@ -201,6 +215,14 @@ class SecurityConfiguration(
         exception: AuthenticationException,
     ) {
         when (exception) {
+            is DirectoryUnavailable -> {
+                log.warn(
+                    "A bearer token was not accepted, because the directory is not available: {}",
+                    exception.message,
+                )
+                fail(request, response, IdentityException.DirectoryUnavailable())
+            }
+
             is AuthenticationServiceException -> {
                 log.warn("A bearer token was not validated, because the issuer is not available: {}", exception.message)
                 fail(request, response, IdentityException.IssuerUnavailable())

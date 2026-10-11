@@ -13,7 +13,10 @@ class CallerFactory(
     private val directory: Directory,
     private val superAdmins: SuperAdmins,
 ) {
-    /** Throws [InvalidClaims] if the subject is missing or a claim has the wrong type. */
+    /**
+     * Throws [InvalidClaims] if the claims give no caller or name an account that the directory rejects. Throws
+     * [DirectoryUnavailable] if the directory cannot give the groups now.
+     */
     fun toCaller(claims: Map<String, Any>): Caller.Authenticated {
         val subject = claims[names.subject]
         if (subject !is String || subject.isBlank()) {

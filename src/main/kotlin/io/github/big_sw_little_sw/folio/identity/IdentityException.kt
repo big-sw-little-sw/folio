@@ -23,6 +23,17 @@ sealed class IdentityException(kind: ErrorKind, code: String, detail: String) : 
             "Folio cannot validate the bearer token now, because the identity provider is not available.",
         )
 
+    /**
+     * Folio cannot get the groups of the caller, because the directory is not available. The token can still be
+     * valid, so a client can try again later.
+     */
+    class DirectoryUnavailable :
+        IdentityException(
+            ErrorKind.UNAVAILABLE,
+            "DIRECTORY_UNAVAILABLE",
+            "Folio cannot get the groups of the caller now, because the directory is not available.",
+        )
+
     /** Browser sign-in failed, for example because the ID token gives no caller. Only the log has the cause. */
     class SignInFailed :
         IdentityException(

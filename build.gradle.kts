@@ -48,6 +48,10 @@ dependencies {
     // Apache sshd needs Bouncy Castle to sign with Ed25519 keys. Folio's own crypto uses only the JDK providers, so no
     // Folio code compiles against Bouncy Castle.
     runtimeOnly(libs.bouncycastle.bcprov)
+    // The google directory caches the groups of each person (design 6.5). Spring Boot manages the Caffeine version.
+    implementation("com.github.ben-manes.caffeine:caffeine")
+    // The google directory gets access tokens from Application Default Credentials (design 6.5, 19).
+    implementation(libs.google.auth)
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     runtimeOnly("org.postgresql:postgresql")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")

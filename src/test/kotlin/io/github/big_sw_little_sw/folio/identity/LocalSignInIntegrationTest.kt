@@ -5,6 +5,11 @@ import io.github.big_sw_little_sw.folio.MockOidcProviderConfiguration
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.testing.*
+import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.SIGN_IN_LINK
+import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.STRING
+import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.form
+import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.formRequest
+import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.location
 import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
@@ -12,12 +17,9 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.session.FindByIndexNameSessionRepository
 import tools.jackson.databind.json.JsonMapper
-import java.net.CookieManager
 import java.net.URI
-import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import java.time.Duration
 import kotlin.test.*
 
@@ -36,15 +38,14 @@ class LocalSignInIntegrationTest(
     @Autowired private val catalog: TestCatalog,
 ) {
     private val folio = "http://localhost:$port"
-    private val cookies = CookieManager()
-    private val browser = HttpClient.newBuilder().cookieHandler(cookies).build()
+    private val browser = OidcBrowser(folio, provider.issuer())
 
     @Test
     fun `a person signs in to the UI and the session does not authenticate the API`() {
         val page = signIn("alice")
 
         assertContains(page, "Signed in as <a href=\"/me\"><strong>alice</strong></a>")
-        assertContains(get("$folio/me").body(), "<code>team-a</code>")
+        assertContains(browser.get("$folio/me").body(), "<code>team-a</code>")
         val lastAccess =
             sessions
                 .findByPrincipalName("alice")
@@ -54,7 +55,7 @@ class LocalSignInIntegrationTest(
         Thread.sleep(Duration.ofMillis(SESSION_CLOCK_STEP_MILLIS))
         // The browser also sends the session cookie to the API. The API must ignore the session, so the caller is
         // anonymous and the session keeps its last access time.
-        assertContains(get("$folio/api/test/caller").body(), "ANONYMOUS")
+        assertContains(browser.get("$folio/api/test/caller").body(), "ANONYMOUS")
         assertEquals(
             lastAccess,
             sessions
@@ -71,12 +72,12 @@ class LocalSignInIntegrationTest(
         catalog.rule(top, Action.READ, "user:carol")
         val page = "/namespaces/${top.toApiId()}"
 
-        assertEquals("/sign-in", URI.create(location(get("$folio$page"))).path)
-        val authorization = URI.create(folio).resolve(location(get("$folio/sign-in"))).toString()
-        val back = URI.create(folio).resolve(location(get(callback(authorization, "carol"))))
+        assertEquals("/sign-in", URI.create(location(browser.get("$folio$page"))).path)
+        val authorization = URI.create(folio).resolve(location(browser.get("$folio/sign-in"))).toString()
+        val back = URI.create(folio).resolve(location(browser.get(browser.callback(authorization, "carol", TEAM_A))))
 
         assertEquals(page, back.path)
-        val response = get(back.toString())
+        val response = browser.get(back.toString())
         assertEquals(200, response.statusCode())
         assertContains(response.body(), "<code>${top.toApiId()}</code>")
     }
@@ -85,15 +86,15 @@ class LocalSignInIntegrationTest(
     fun `sign-out ends the session`() {
         val page = signIn("bob")
         val session =
-            cookies.cookieStore.cookies
+            browser.cookies.cookieStore.cookies
                 .single { it.name == "SESSION" }
                 .value
         val csrf = requireNotNull(CSRF_FIELD.find(page)).groupValues[1]
 
-        val signOut = browser.send(post("$folio/sign-out", form(mapOf("_csrf" to csrf))), STRING)
+        val signOut = browser.post("$folio/sign-out", mapOf("_csrf" to csrf))
 
         assertEquals("$folio/", URI.create(folio).resolve(location(signOut)).toString())
-        assertContains(get("$folio/").body(), SIGN_IN_LINK)
+        assertContains(browser.get("$folio/").body(), SIGN_IN_LINK)
         // Sign-out ends the session on the server, so a client that kept the old cookie is also not signed in.
         val replay = HttpRequest.newBuilder(URI.create("$folio/")).header("Cookie", "SESSION=$session").build()
         assertContains(HttpClient.newHttpClient().send(replay, STRING).body(), SIGN_IN_LINK)
@@ -110,7 +111,7 @@ class LocalSignInIntegrationTest(
                     "scope" to "folio",
                 ),
             )
-        val tokenResponse = HttpClient.newHttpClient().send(post("${provider.issuer()}/token", form), STRING)
+        val tokenResponse = HttpClient.newHttpClient().send(formRequest("${provider.issuer()}/token", form), STRING)
         val token = json.readTree(tokenResponse.body()).get("access_token").asString()
 
         val request =
@@ -125,39 +126,11 @@ class LocalSignInIntegrationTest(
     }
 
     /** Signs in through the mock provider with the group `team-a`, and returns the start page. */
-    private fun signIn(username: String): String =
-        get(location(get(callback("$folio/oauth2/authorization/folio", username)))).body()
-
-    /** Starts the sign-in at [authorization] and returns the callback URL of Folio after the login at the provider. */
-    private fun callback(authorization: String, username: String): String {
-        val authorize = location(get(authorization))
-        assertTrue(authorize.startsWith("${provider.issuer()}/authorize?"), authorize)
-        assertContains(authorize, "code_challenge_method=S256")
-
-        val login = form(mapOf("username" to username, "claims" to """{"groups": ["team-a"]}"""))
-        return location(browser.send(post(authorize, login), STRING))
-    }
-
-    private fun get(url: String) = browser.send(HttpRequest.newBuilder(URI.create(url)).build(), STRING)
-
-    private fun post(url: String, form: String) = HttpRequest
-        .newBuilder(URI.create(url))
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .POST(HttpRequest.BodyPublishers.ofString(form))
-        .build()
-
-    private fun form(fields: Map<String, String>) =
-        fields.entries.joinToString("&") { (name, value) -> "$name=${URLEncoder.encode(value, Charsets.UTF_8)}" }
-
-    private fun location(response: HttpResponse<String>): String {
-        assertEquals(302, response.statusCode(), response.body())
-        return response.headers().firstValue("Location").orElseThrow()
-    }
+    private fun signIn(username: String): String = browser.get(location(browser.signIn(username, TEAM_A))).body()
 
     private companion object {
-        val STRING: HttpResponse.BodyHandler<String> = HttpResponse.BodyHandlers.ofString()
+        const val TEAM_A = """{"groups": ["team-a"]}"""
         val CSRF_FIELD = Regex("<input type=\"hidden\" name=\"_csrf\" value=\"([^\"]+)\">")
-        const val SIGN_IN_LINK = """<a href="/sign-in">Sign in</a>"""
 
         /**
          * Spring Session stores the time of the last access with millisecond precision. The test waits more than one

@@ -11,6 +11,9 @@ jte = "3.2.4"
 jgit = "7.8.0.202609011348-r"
 # Apache sshd uses this provider for Ed25519 keys in Git SSH. Folio's own crypto uses only the JDK.
 bouncycastle = "1.86"
+# The google directory gets its access token for the Cloud Identity API from Application Default Credentials
+# (design 6.5, 19). Folio uses no other Google client library.
+googleAuth = "1.54.0"
 ktlintGradle = "14.2.0"
 ktlint = "1.8.0"
 # A pre-release, because detekt 1.23.x does not support Kotlin 2.3. Move to 2.0.0 when it is final.
@@ -28,6 +31,7 @@ jte-spring-boot-starter = { module = "gg.jte:jte-spring-boot-starter-4", version
 jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
 jgit-ssh-apache = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+google-auth = { module = "com.google.auth:google-auth-library-oauth2-http", version.ref = "googleAuth" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
