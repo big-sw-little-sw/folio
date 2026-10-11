@@ -1,0 +1,27 @@
+# Test settings on top of src/main/resources/application.yaml. Spring Boot also reads classpath:/config/, so this
+# file adds to the main one. It also applies to bootTestRun.
+server:
+  servlet:
+    session:
+      cookie:
+        # Tests and local runs use http://localhost. java.net.CookieManager and some browsers drop Secure cookies there.
+        secure: false
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # A placeholder. Spring Boot creates the JWT decoder only if this property exists before the context starts.
+          # TestIssuerConfiguration (tests) and MockOidcProviderConfiguration (bootTestRun) replace the value.
+          issuer-uri: http://issuer.invalid
+          audiences: folio
+      client:
+        registration:
+          folio:
+            client-id: folio-ui
+            client-secret: local-secret
+            scope: openid
+        provider:
+          folio:
+            # A placeholder, as above.
+            issuer-uri: http://issuer.invalid

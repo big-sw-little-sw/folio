@@ -1,0 +1,38 @@
+# These settings change the default detekt configuration (buildUponDefaultConfig = true).
+# Any finding fails the build, and no baseline exists. failOnSeverity in build.gradle.kts sets this behaviour.
+#
+# LongMethod, LargeClass and LongParameterList keep their defaults. Lower size limits push code into shallow methods
+# and classes that only pass the check.
+
+complexity:
+  CyclomaticComplexMethod:
+    allowedComplexity: 10
+  NestedBlockDepth:
+    allowedDepth: 3
+  ComplexCondition:
+    allowedConditions: 3
+  TooManyFunctions:
+    # The default limit is 11. A deep class can have more functions, and a lower limit splits one concept in two.
+    allowedFunctionsPerFile: 15
+    allowedFunctionsPerClass: 15
+
+naming:
+  PackageNaming:
+    # The root package io.github.big_sw_little_sw.folio contains underscores. The default pattern rejects them.
+    packagePattern: '[a-z]+(\.[a-z][A-Za-z0-9_]*)*'
+
+style:
+  FunctionOnlyReturningConstant:
+    # A Spring MVC handler that only returns a view name is a route, not a constant. Without this
+    # setting, detekt reports each such handler.
+    ignoreAnnotated: ['GetMapping', 'PostMapping', 'RequestMapping']
+  ForbiddenComment:
+    comments:
+      - reason: 'Resolve TODOs before merging, or record them in docs/folio-design.md.'
+        value: 'TODO'
+      - reason: 'Fix the problem before merging.'
+        value: 'FIXME'
+      - reason: 'Address the problem before merging.'
+        value: 'STOPSHIP'
+  ReturnCount:
+    max: 3

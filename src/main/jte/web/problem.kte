@@ -1,0 +1,7 @@
+<%-- An error with the same code and detail as the API gives (design 8.6). --%>
+@param code: String
+@param detail: String
+<div class="problem" role="alert">
+    <p>${detail}</p>
+    <p class="code">Code: <code>${code}</code></p>
+</div>

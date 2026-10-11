@@ -1,0 +1,17 @@
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+# The intellij_idea style follows the Kotlin coding conventions and matches the IntelliJ formatter. It wraps a
+# signature only when the signature does not fit in one line. ktlint_official wraps each signature with two or more
+# parameters, and that adds about 10% more lines.
+ktlint_code_style = intellij_idea
+# The root package io.github.big_sw_little_sw.folio contains underscores, and this ktlint rule rejects them.
+# The detekt rule PackageNaming checks package names instead.
+ktlint_standard_package-name = disabled

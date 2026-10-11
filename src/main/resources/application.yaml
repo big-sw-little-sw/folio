@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: folio
+  threads:
+    virtual:
+      # Requests, scheduled tasks and async work run on virtual threads (design 8.7).
+      enabled: true
+  session:
+    jdbc:
+      # Flyway owns the session tables (V1__spring_session.sql).
+      initialize-schema: never
+  # Deployments set the identity provider (design 6):
+  #   security.oauth2.resourceserver.jwt.issuer-uri: the one trusted issuer. Folio does not start without it.
+  #   security.oauth2.resourceserver.jwt.audiences: Folio's audiences. Folio does not start without them.
+  #   security.oauth2.client.registration.folio: client-id, client-secret and scope (openid and more) of the web UI
+  #     client. Its redirect URI is https://<folio-host>/login/oauth2/code/folio.
+  #   security.oauth2.client.provider.folio.issuer-uri: the same issuer. Folio does not start if the two differ.
+server:
+  # Deployments put Folio behind a TLS proxy on an internal address. The proxy sets X-Forwarded-Proto and
+  # X-Forwarded-Host, and Tomcat trusts them only from internal addresses. Sign-in then uses an https redirect URI.
+  forward-headers-strategy: native
+  servlet:
+    session:
+      cookie:
+        # The browser sends the session cookie only over HTTPS.
+        secure: true
+gg:
+  jte:
+    template-suffix: .kte
+springdoc:
+  # The OpenAPI document describes the API only, not the UI routes.
+  paths-to-match: /api/**
+management:
+  server:
+    # The application port never serves the actuator (design 15.2). Keep this port off public networks: health and
+    # prometheus need no token. Probes use this port.
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        # Nothing else: other endpoints, such as env and configprops, show configuration.
+        include: health, prometheus
+# Folio's own settings, with their defaults:
+#   folio.security.claims.subject (sub), .groups (groups), .application-id (azp): the claim names of the caller.
+#   folio.security.directory (token): the origin of groups.
+#   folio.ui.session-timeout (1h): a UI session ends after this time without use.
+#   folio.audit.retention (90d): Folio deletes older audit records one time each day.

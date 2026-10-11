@@ -1,0 +1,5 @@
+<%-- A one-line message, for example after a redirect or as an htmx response. --%>
+@param notice: String?
+@if(notice != null)
+    <p class="notice" role="status">${notice}</p>
+@endif

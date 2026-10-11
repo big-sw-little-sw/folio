@@ -1,0 +1,86 @@
+:root {
+    --text: #1f2328;
+    --muted: #59636e;
+    --line: #d1d9e0;
+    --accent: #0b5cad;
+    --notice: #e6f4ea;
+    --problem: #fdecea;
+    font-family: system-ui, sans-serif;
+    color: var(--text);
+}
+
+body {
+    margin: 0;
+    line-height: 1.5;
+}
+
+header.site {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--line);
+}
+
+header.site nav {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+header.site form {
+    margin: 0;
+}
+
+.brand {
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+}
+
+main {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+a {
+    color: var(--accent);
+}
+
+dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.25rem 1rem;
+}
+
+dt {
+    color: var(--muted);
+}
+
+dd {
+    margin: 0;
+}
+
+.notice,
+.problem {
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+}
+
+.notice {
+    background: var(--notice);
+}
+
+.problem {
+    background: var(--problem);
+}
+
+.problem p {
+    margin: 0;
+}
+
+.problem .code {
+    color: var(--muted);
+    font-size: 0.875rem;
+}
