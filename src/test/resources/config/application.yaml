@@ -32,3 +32,10 @@ folio:
   # bootTestRun, give the claims {"groups": ["folio-admins"]}.
   super-admins:
     - group:folio-admins
+  # These master secrets are for tests and local runs only. A deployment sets its own secrets from a secret store
+  # (design 11.3). Version 1 lets tests store keys under an older version and then re-encrypt them.
+  crypto:
+    master-keys:
+      1: aEE8d/su1C3ryoZBdJLUEGKc8sg2AIOstylPG7OATGk=
+      2: g7zHpt20WtH0i95NL37YzLI8ZebUaZd4pg//g4BqdEg=
+    active-key-version: 2

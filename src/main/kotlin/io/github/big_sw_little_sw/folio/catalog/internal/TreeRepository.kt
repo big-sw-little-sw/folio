@@ -26,7 +26,19 @@ class TreeRepository(private val jdbc: JdbcClient) {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     fun lock() {
-        jdbc.sql("select pg_advisory_xact_lock(hashtextextended('folio.catalog.tree', 0))").query().listOfRows()
+        jdbc.sql("select pg_advisory_xact_lock($TREE_LOCK)").query().listOfRows()
+    }
+
+    /**
+     * Takes the shared form of the tree lock until the transaction ends. `Access` calls this method in a write outside
+     * the catalog, before it reads the ancestry (design 8.1). The shared form waits for a catalog write to commit and
+     * blocks the next catalog write. Thus the ancestry and the rules of the decision come from one committed tree
+     * state. PostgreSQL never blocks a transaction on its own locks, so a catalog write that already holds [lock] does
+     * not wait here.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    fun lockShared() {
+        jdbc.sql("select pg_advisory_xact_lock_shared($TREE_LOCK)").query().listOfRows()
     }
 
     /**
@@ -140,6 +152,11 @@ class TreeRepository(private val jdbc: JdbcClient) {
     }
 
     private companion object {
+        /**
+         * The key of the tree lock. The exclusive form and the shared form use the same key, so they block each other.
+         */
+        const val TREE_LOCK = "hashtextextended('folio.catalog.tree', 0)"
+
         /**
          * The query returns each link of the ancestry of each granted resource, from the top level down. Both branches
          * repeat the rule filter, so each branch joins only the table of its own resource type.

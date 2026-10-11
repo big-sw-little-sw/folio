@@ -5,6 +5,7 @@ import io.github.big_sw_little_sw.folio.catalog.internal.Authorizer
 import io.github.big_sw_little_sw.folio.catalog.internal.TreeRepository
 import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Service
+import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * Other modules authorize through this class, because only the catalog reads rules. Other modules find the resource
@@ -13,7 +14,13 @@ import org.springframework.stereotype.Service
  * Background work acts without authorization and does not call Access. If background work calls Access,
  * [Caller.System] gets status 403.
  *
- * A service that finds a resource and then calls Access must use [SnapshotRead].
+ * A service that finds a resource and then calls Access must use [SnapshotRead]. A write of another module, for example
+ * a credential change, runs at `READ COMMITTED`. Access then takes the shared form of the tree lock before it reads the
+ * ancestry. Without the lock, a catalog write can commit between the find and the ancestry read.
+ *
+ * A write that also takes the exclusive tree lock, for example through [ConfigSets.create], must take that lock before
+ * it calls Access. Otherwise two such writes can each hold the shared form and wait for the exclusive form, and they
+ * deadlock.
  */
 @Service
 class Access(private val tree: TreeRepository, private val authorizer: Authorizer) {
@@ -45,5 +52,10 @@ class Access(private val tree: TreeRepository, private val authorizer: Authorize
      * A resource that was deleted after the calling module found it has no ancestry. The root ancestry then applies, so
      * only a super admin passes, and the next step of the calling module finds nothing.
      */
-    private fun ancestry(resource: ResourceId): Ancestry = tree.ancestry(resource) ?: Ancestry.ROOT
+    private fun ancestry(resource: ResourceId): Ancestry {
+        // A read-only transaction is a SnapshotRead. Its one snapshot already covers both reads, so the read needs no
+        // lock.
+        if (!TransactionSynchronizationManager.isCurrentTransactionReadOnly()) tree.lockShared()
+        return tree.ancestry(resource) ?: Ancestry.ROOT
+    }
 }

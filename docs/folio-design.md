@@ -209,6 +209,13 @@ audit record.
 - Folio deletes a Namespace only when it is empty. Empty means that the Namespace contains no child Namespaces, no
   ConfigSets and no credentials. A Namespace owns its credentials (section 11.1), so Folio finds them with a query on
   the `credential` table. ConfigItems are not a separate condition, because they are always in a ConfigSet.
+  - The catalog reads the `credential` table only in this SQL query. Thus the catalog does not depend on the
+    `credential` module, and the dependency arrow of section 8 stays as it is.
+  - A credential create takes only the shared form of the tree lock, when `Access` authorizes it (section 8.1). Thus
+    a create and a delete of the Namespace do not overlap. The foreign key from `credential` to `namespace` still
+    guards the delete: if a credential appears after the query, the foreign key stops the delete, and the catalog
+    changes that violation to `NAMESPACE_NOT_EMPTY`. A create that found the Namespace before a delete committed gets
+    `NAMESPACE_NOT_FOUND` from the same foreign key.
 - Folio does not cascade a delete. *Reason:* a cascade can delete ConfigSets that consumers use.
 - A delete of a ConfigSet also deletes its Source definition, its rules and its revision history. After the delete,
   consumers get status 404.
@@ -585,8 +592,8 @@ adapters to `content` as beans.
 | `web` | API ID format (section 5.2), error responses, the UI layout | `ApiId`, `FolioException`, the page layout with its `PageContext`, `submit` for UI forms (section 12.3), the UI content security policy, and shared UI fragments | The map to problem details and statuses, the one `@RestControllerAdvice`, the `/error` route, htmx and the styles |
 | `identity` | Token validation, browser sign-in, sessions, directories, `Caller`, subjects, super admins | `Caller`, `CurrentCaller` (HTTP layers only), `Subject`, `SuperAdmins`, `IdentityException` | The filter chains, the claim map, the directory adapters, URL rules |
 | `audit` | `audit_event` | `AuditLog.record(entry)` | The insert, the retention period |
-| `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access`, `SnapshotRead`, `ConfigSets`, `ConfigSet`, the ID types and their API IDs, `Slug`, `Path`, `Action`, `SourceType`, `CatalogException` | The tree lock, recursive queries, the nearest-rule algorithm, move checks |
-| `credential` | Credentials, keys, the master-key ring | `Credentials.requireUsable`, `CredentialKeys.withActiveKey` | Key generation, encryption, rotation, OpenSSH format |
+| `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access`, `SnapshotRead`, `ConfigSets`, `ConfigSet`, `Namespaces`, `Namespace`, the ID types and their API IDs, `Slug`, `Path`, `Action`, `SourceType`, `CatalogException` | The tree lock, recursive queries, the nearest-rule algorithm, move checks |
+| `credential` | Credentials, keys, the master-key ring | `Credentials.requireUsable`, `CredentialKeys.withActiveKey`, `CredentialKeys.withPendingKey`, `CredentialId`, `KeyId` and their API IDs, `CredentialException` | Key generation, encryption, rotation, OpenSSH format |
 | `content` | The consumption API, the Source interface, validation | `ConfigSource`, for adapters to implement | Revision selection, cache headers, media types, validation |
 | `git` | Git sources, sync, the cache | None. It is an adapter with its own admin routes. | SSH, host keys, JGit, leases, fetch limits, the cache, revision history |
 
@@ -627,6 +634,12 @@ class ConfigSets {
     fun find(id: ConfigSetId): ConfigSet?
 }
 
+/** Namespace lookups for other modules. The credential module uses it for the path of the owner of a credential. */
+class Namespaces {
+    /** Finds a Namespace without authorization. */
+    fun find(id: NamespaceId): Namespace?
+}
+
 /** The ConfigSet with its current path. Consumers keep the ID. */
 data class ConfigSet(val id: ConfigSetId, val namespaceId: NamespaceId, val slug: Slug, val description: String?,
                      val sourceType: SourceType, val path: Path)
@@ -663,6 +676,16 @@ sealed interface ResourceId { val value: UUID }
   When `Access` joins the transaction of another module, that transaction sets the isolation. The annotation
   `@SnapshotRead` of the catalog gives this transaction. Put it on each read that authorizes, also in `content`,
   `credential` and `git`. *Reason:* one name for one policy. A read with the wrong isolation still compiles.
+- **Writes of other modules.** A write of another module, for example a credential change, authorizes in its own
+  `READ COMMITTED` transaction. There each statement has its own snapshot, so a catalog commit could fall between the
+  ancestry read and the rules read. Thus `Access` takes the shared form of the tree lock
+  (`pg_advisory_xact_lock_shared`) before the ancestry read when the transaction is not read-only. The shared form
+  waits for a catalog write to commit, and it blocks the next catalog write until the transaction ends. Thus the two
+  reads see one committed tree state.
+  - A catalog write already holds the exclusive form. PostgreSQL never blocks a transaction on its own locks, so a
+    catalog write that calls `Access` does not wait for itself.
+  - A write that also takes the exclusive form, for example through `ConfigSets.create`, must take it before it calls
+    `Access`. Otherwise two such writes can each hold the shared form and wait for the exclusive form of the other.
 - **Ancestors.** A recursive query on `parent_id` finds the ancestors. Trees are shallow. A closure table makes moves
   more difficult and gives no measurable gain.
 - **Nearest-rule algorithm.** It is a pure function in `catalog.internal`. Unit tests examine it without Spring.
@@ -703,9 +726,28 @@ Section 9 gives the interface that it calls.
 
 ### 8.3 credential
 
-The `credential` module owns all of the credential lifecycle. `CredentialKeys.withActiveKey(credentialId) { keyPair ->
+The `credential` module owns all of the credential lifecycle. `CredentialKeys.withActiveKey(credentialId) { key ->
 … }` decrypts the active key for the duration of the block. It does not authorize, because sync runs without a person.
 Only the `git` module calls it. No HTTP route can call it, and a modularity test verifies this.
+
+```kotlin
+/** Onboarding: MANAGE on the Namespace of the credential, and an enabled credential (section 7.3, 10.3). */
+fun Credentials.requireUsable(caller: Caller, id: CredentialId): UsableCredential   // id, namespaceId, gitInstance
+
+fun <T> CredentialKeys.withActiveKey(id: CredentialId, block: (DecryptedKey) -> T): T
+/** The check with {"keyId"} (section 10.3). Throws KeyNotPending (409) if the key is not the pending key. */
+fun <T> CredentialKeys.withPendingKey(id: CredentialId, key: KeyId, block: (DecryptedKey) -> T): T
+
+class DecryptedKey(val gitInstance: Slug, val keyId: KeyId, val keyPair: KeyPair)        // toString shows no key
+```
+
+- `withPendingKey` exists because the check of section 10.3 tests a pending key before the activation. The module
+  interface gets the operation now, so the `git` module never reads key rows.
+- Both methods throw `CredentialNotFound` (404) and `CredentialDisabled` (409). A disabled credential gives no key.
+- A key that does not decrypt is an unexpected error, not a credential error. Its `IllegalStateException` names the
+  key and the credential, and never a secret. Thus no crypto exception type reaches the `git` module.
+- The block runs outside a transaction. Thus a long fetch holds no database connection.
+- Folio sets the decrypted PKCS#8 bytes to zero as soon as the JDK key object exists, before the block runs.
 
 ### 8.4 git
 
@@ -951,7 +993,7 @@ also decide what happens to the revisions that Folio already served.
 
 - `HOST_KEY_REJECTED`, `AUTH_FAILED`, `REPOSITORY_NOT_FOUND`, `BRANCH_NOT_FOUND`, `ROOT_PATH_NOT_FOUND`
 - `UNREACHABLE`, `TRANSPORT_FAILURE`, `DEADLINE_EXCEEDED`, `REPOSITORY_TOO_LARGE`
-- `CREDENTIAL_DISABLED`, `NO_ACTIVE_KEY`, `GIT_INSTANCE_NOT_CONFIGURED`
+- `CREDENTIAL_DISABLED`, `GIT_INSTANCE_NOT_CONFIGURED`
 
 Folio selects a code from exception types and results. It never parses messages. Some servers report "not found" when
 a key has no access. The summary of `REPOSITORY_NOT_FOUND` says that both causes are possible.
@@ -1080,6 +1122,10 @@ prevent anonymous readers from causing too many fetches:
 
 - A Namespace owns each credential. A credential names one Git instance. It has a name that follows the slug rules and
   is unique in its Namespace. Its status is `ENABLED` or `DISABLED`.
+- **Git instance name.** Folio validates the name of the Git instance with the slug rules only. It does not compare
+  the name with `folio.git.instances`. *Reason:* the `git` module owns that configuration, and `credential` must not
+  depend on `git`. A deployment can also remove an instance after a credential names it. Thus the Git check reports
+  `GIT_INSTANCE_NOT_CONFIGURED` in all cases (section 10.3).
 - A credential contains its name, its Git instance, its status and its keys. Each key has a public key, a fingerprint
   and an encrypted private key. A credential contains no password, no token and no URL.
 - **Use by more than one Namespace.** A ConfigSet can use a credential of any Namespace. The person who creates the
@@ -1101,6 +1147,9 @@ prevent anonymous readers from causing too many fetches:
 - A retired key keeps its public key and fingerprint. Folio erases its encrypted private key.
 - A credential has a maximum of one `ACTIVE` key and one `PENDING` key. Partial unique indexes enforce this. Each key
   change locks the credential row first.
+- Each credential always has exactly one `ACTIVE` key. Create and replace activate a key, and activate retires the
+  previous key and activates the pending key in one transaction. Thus "no active key" is not an error of the
+  interface, and the Git check has no failure code for it.
 - Folio gives public keys as OpenSSH lines. The comment of the line is the API ID of the key. Thus an administrator can
   match a deploy key in the Git service to its Folio key.
 - Folio never gives, accepts or writes a private key without encryption.
@@ -1109,6 +1158,23 @@ prevent anonymous readers from causing too many fetches:
   foreign key from `git_source` to `credential` does not cascade, and it enforces this rule.
 - Rotation does not need a delete. Regenerate and activate retire the old key and erase its private key. Then remove
   the old public key from the Git service. Use delete when no ConfigSet needs the credential any more.
+- Delete also works for a disabled credential. Until the Git slice adds `git_source`, a delete always succeeds. The
+  Git slice adds the foreign key, and the credential repository then changes its violation to `CREDENTIAL_IN_USE`.
+- Each operation finds the credential (404), then authorizes `MANAGE` on its Namespace (403 or 401), then examines
+  the state (409). Thus a caller without permission never learns the state.
+- Reads of credentials also need `MANAGE` on the Namespace, because the actions are independent (section 7.1).
+
+The `credential` module declares these errors. A name or a Git instance that is not a slug gives `INVALID_SLUG` of the
+catalog, because the catalog owns the slug rules.
+
+| Error | Status | Code | Meaning |
+|---|---|---|---|
+| `CredentialNotFound` | 404 | `CREDENTIAL_NOT_FOUND` | No credential has the ID. |
+| `NameTaken` | 409 | `CREDENTIAL_NAME_TAKEN` | Another credential of the Namespace has the name. |
+| `CredentialDisabled` | 409 | `CREDENTIAL_DISABLED` | A key change, a use or a key for sync on a disabled credential. |
+| `PendingKeyExists` | 409 | `PENDING_KEY_EXISTS` | A regenerate while a key is pending. |
+| `KeyNotPending` | 409 | `KEY_NOT_PENDING` | Activate, discard or a check named a key that is not the pending key. |
+| `CredentialInUse` | 409 | `CREDENTIAL_IN_USE` | A Git source uses the credential. The Git slice adds this error. |
 
 ### 11.2 Encryption at rest
 
@@ -1139,15 +1205,26 @@ prevent anonymous readers from causing too many fetches:
 - `folio.crypto.active-key-version` names the version for new encryptions.
 - Folio does not start in these conditions. The messages name versions and never secrets.
   - The ring is empty.
+  - A version is not a positive integer.
   - The active version is missing.
   - A secret is not valid.
   - A stored key uses a version that is not in the configuration.
+- `folio.crypto.master-keys` binds as a map from strings to strings, and the `MasterKeyRing` bean parses the
+  versions. *Reason:* Spring Boot shows a property and its value in the report of a failed binding. A failed
+  conversion of a version key reports the entry before it, which is a secret. A map of strings cannot fail to bind.
 - Folio encrypts only private keys with the master key. Retired keys have no ciphertext.
 - `POST /api/v1/admin/crypto:reencrypt` encrypts again each key that does not use the active version. Thus after one
   run, all encrypted data uses the active version. It uses one
   transaction for each row, with `update … where master_key_version = <version read>`. Thus parallel runs and
   repeated runs are safe.
-- `GET /api/v1/admin/crypto` gives the number of keys for each version.
+- `GET /api/v1/admin/crypto` gives the number of keys for each version. The list has each configured version and each
+  stored version.
+- A run that fails, for example on a ciphertext that does not decrypt, keeps the rows that it already changed. Its
+  audit record has the keys that it moved and `"complete": false`.
+- A key that does not decrypt is an unexpected error (status 500). The log names the key and its credential.
+  `:replace` on that credential erases the key that does not decrypt, and the next run can complete.
+- The test configuration and `bootTestRun` have their own master keys. `application.yaml` has none, so a deployment
+  must set them.
 
 **Rotation procedure:**
 
@@ -1230,6 +1307,13 @@ All routes in this table are under `/api/v1/admin`.
   *Reason:* each Source has a different definition and different operations. One route with a body for each type
   would need a registry of types in the catalog.
 - A delete of a rule that does not exist succeeds.
+- `POST /credentials` takes `{namespaceId, name, gitInstance}` and gives status 201. `:activate` and `:discard` take
+  `{"keyId": "key_…"}`. Each credential response has `id`, `namespaceId`, `namespacePath`, `name`, `gitInstance`,
+  `status` and `keys`. Each key has `id`, `status`, `publicKey` (the OpenSSH line) and `fingerprint`. A response
+  never contains a private key or a ciphertext. `GET /credentials?namespaceId=…` gives `{credentials: [...]}` in name
+  order.
+- `GET /crypto` gives `{activeVersion, versions: [{version, keys}]}`. `POST /crypto:reencrypt` gives the same fields
+  and `reencrypted: [{version, keys}]`, the number of keys that the run moved from each version.
 - `PATCH` changes the fields in the body. An absent field stays the same. A null or blank `description` clears it.
 - `:move` of a Namespace takes `{"parentId": "ns_…"}`. A null or absent `parentId` moves it to the top level. `:move`
   of a ConfigSet takes `{"namespaceId": "ns_…"}`.
@@ -1306,6 +1390,10 @@ slice by hand during development.
 - A page view by an anonymous caller makes no session, except when Folio sends the browser to sign-in. Then the
   session keeps the page for the return after sign-in. Only a signed-in caller gets a CSRF token in the page.
 - The layout loads a pinned htmx file with an `integrity` attribute. Thus the browser refuses a different file.
+- The `credential` module serves the credential pages: `/namespaces/{id}/credentials` (the list and the create form),
+  `/credentials/{id}` (the keys, the public key lines to copy and the forms of the operations) and `/crypto` (the
+  master-key status and the re-encryption, for super admins). The catalog does not depend on `credential`, so the
+  Namespace page and the start page link to these pages by path only.
 
 ---
 
@@ -1362,7 +1450,15 @@ slice by hand during development.
   - The resource type and UUID.
   - The path after the operation, or before the operation for a delete. Renames and moves also have the previous path.
   - A JSON object with details.
-- A master-key re-encryption record has no resource UUID and no path.
+- A master-key re-encryption record has no resource UUID and no path. Its operation is `MASTER_KEYS_REENCRYPTED`.
+  Its resource type is `MASTER_KEY_RING`. Its
+  details have `activeVersion`, `reencrypted` (the number of keys for each previous version) and `complete`. A run that
+  moves no key changes nothing, so it writes no record.
+- A credential record has the resource type `CREDENTIAL`, the UUID of the credential and the path of the Namespace
+  that owns the credential. A credential is not in the tree, so its own path does not exist. The operations are
+  `CREDENTIAL_` with `CREATED`, `REGENERATED`, `ACTIVATED`, `DISCARDED`, `REPLACED`, `DISABLED` and `DELETED`. The
+  details of a key change list each key whose status changed: its API ID, its fingerprint, its status and its previous
+  status. A create and a delete also give the Namespace ID, the name and the Git instance.
 - A record never contains keys, ciphertext, secrets, tokens, transport output or file content. Folio does not store
   groups.
 - The table has no foreign keys, because records stay after their resources are deleted. It has an index on
@@ -1436,7 +1532,7 @@ Folio uses PostgreSQL 18, Spring `JdbcClient` with plain SQL, and Flyway migrati
 | `config_set` | `id`, `namespace_id`, `slug`, `description`, `source_type` | `unique (namespace_id, slug)`. The foreign key to `namespace` does not cascade. |
 | `rule` | `id`, `namespace_id` or `config_set_id`, `action`, `subjects text[]` | One target only. One rule for each target and action. One or more subjects. The rule is deleted with its target. A GIN index on `subjects` serves the start page (section 7.4). |
 | `credential` | `id`, `namespace_id`, `git_instance`, `name`, `status` | `unique (namespace_id, name)`. The foreign key to `namespace` does not cascade. Keys are deleted with their credential. |
-| `credential_key` | `id`, `credential_id`, `status`, `public_key`, `fingerprint`, encryption columns | Partial unique indexes for one `ACTIVE` key and one `PENDING` key |
+| `credential_key` | `id`, `credential_id`, `status`, `public_key`, `fingerprint`, encryption columns | Partial unique indexes for one `ACTIVE` key and one `PENDING` key. `id` has no default, because Folio gets it first (section 5.2). `public_key` has no comment. Folio adds the API ID when it shows the line. |
 | `git_source` | `config_set_id`, `credential_id`, `repository_path`, `branch`, `root_path`, sync state, lease | Deleted with its `config_set`. The foreign key to `credential` does not cascade. |
 | `git_revision` | `config_set_id`, `commit_id`, `published_at` | Deleted with its `git_source`. The statement that records a sync writes it. |
 | `audit_event` | `id`, `occurred_at`, actor, resource, path, `details jsonb` | No foreign keys |
@@ -1470,7 +1566,8 @@ so no other table changes. Section 5.3 gives the rules.
 - **Tokens in tests.** The other integration tests use an issuer in the test process. Thus a test can sign a token
   with any claims, key, issuer or expiry time, and Folio validates it with its production decoder.
 - Tests that need Docker have `@Tag("integration")`.
-- A modularity test verifies the module boundaries. It also verifies that no HTTP layer calls `CredentialKeys`.
+- A modularity test verifies the module boundaries. It also verifies that no class in a `web` package and no
+  controller depends on `CredentialKeys`.
 
 ---
 
@@ -1628,3 +1725,14 @@ decision here with its reason.
 | `GET /api/v1/admin/namespaces` lists only the top-level Namespaces that the caller can read. | The route stays simple and has the shape of the children list. A route for deep grants can come later. | 12.2 |
 | `@SnapshotRead` gives each read that authorizes its transaction, in each module. | One policy has one name. A read with the wrong isolation compiles, so each site must not spell it. | 8.1 |
 | A failed sign-in is an error with the code `SIGN_IN_FAILED`. One failure handler logs each cause. | One error style for the UI and the API. Spring logs these failures only at debug levels. | 8.6, 12.3 |
+| A credential stores its Git instance name with the slug rules only. The Git check reports a name that the configuration does not have. | `credential` must not depend on `git`, which owns `folio.git.instances`. A deployment can also remove an instance later. | 11.1 |
+| The catalog finds credentials of a Namespace with SQL on the `credential` table. The foreign key changes a parallel credential create into `NAMESPACE_NOT_EMPTY`. | The catalog does not depend on `credential`, and the delete never removes a credential. | 5.4 |
+| `Namespaces.find` is in the public API of the catalog. | The credential module needs the path of the owner for its pages and audit records. It mirrors `ConfigSets.find`. | 8.1 |
+| `CredentialKeys.withPendingKey` exists next to `withActiveKey`. | The check tests a pending key before the activation (section 10.3). Only the credential module reads key rows. | 8.3, 10.3 |
+| A credential audit record has the path of the Namespace that owns the credential. | A credential has no path of its own. The path shows the owner of the credential. | 14 |
+| A re-encryption run that moves no key writes no audit record. A failed run records the keys that it moved. | Operations that change nothing write no record. Each change has a record. | 11.3, 14 |
+| The credential pages are in `credential`. The Namespace page links to them by path. | Each module serves its own pages, and the catalog does not depend on `credential`. | 12.3 |
+| Folio validates the master-key ring in a bean, not in the binding of `folio.crypto`. The versions bind as strings, and the bean parses them. | Spring Boot can show property values in the report of a failed binding. A failed conversion of a version key reports the previous entry, which is a secret. | 11.3 |
+| The Git check has no `NO_ACTIVE_KEY` code. Each credential always has one active key. | Create and replace activate a key, and activate swaps keys in one transaction. Without a cause that can occur, the code would be dead interface. | 10.3, 11.1 |
+| A write outside the catalog that authorizes takes the shared tree lock in `Access`. Read-only reads stay without a lock. | A `READ COMMITTED` decision reads the ancestry and the rules in two statements. Without the lock, it could combine a tree and rules that never existed together. | 5.4, 8.1 |
+| A key that does not decrypt gives an `IllegalStateException` that names the key and the credential. | Callers never see crypto types. The operator can find the credential to replace, and a failed re-encryption can then complete. | 8.3, 11.3 |

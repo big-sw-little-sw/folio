@@ -3,22 +3,13 @@ package io.github.big_sw_little_sw.folio.catalog.internal
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.CatalogException
 import io.github.big_sw_little_sw.folio.catalog.ConfigSet
+import io.github.big_sw_little_sw.folio.catalog.Namespace
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
-import io.github.big_sw_little_sw.folio.catalog.Path
 import io.github.big_sw_little_sw.folio.catalog.Slug
 import io.github.big_sw_little_sw.folio.catalog.SnapshotRead
 import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-
-/** A Namespace with its path. */
-data class Namespace(
-    val id: NamespaceId,
-    val parentId: NamespaceId?,
-    val slug: Slug,
-    val description: String?,
-    val path: Path,
-)
 
 /** A Namespace with the [ResourceSummary] that its page shows and the children that the caller can READ. */
 data class NamespaceDetails(

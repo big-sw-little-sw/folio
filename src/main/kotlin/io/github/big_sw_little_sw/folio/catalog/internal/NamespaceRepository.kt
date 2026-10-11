@@ -1,9 +1,11 @@
 package io.github.big_sw_little_sw.folio.catalog.internal
 
 import io.github.big_sw_little_sw.folio.catalog.CatalogException
+import io.github.big_sw_little_sw.folio.catalog.Namespace
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.catalog.Path
 import io.github.big_sw_little_sw.folio.catalog.Slug
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
@@ -67,12 +69,17 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
         }
     }
 
-    /** True if the Namespace has no child Namespaces and no ConfigSets. */
+    /**
+     * True if the Namespace has no child Namespaces, no ConfigSets and no credentials. The `credential` module owns the
+     * `credential` table. The catalog reads that table only in this query, so the catalog does not depend on the
+     * `credential` module.
+     */
     fun isEmpty(id: NamespaceId): Boolean = jdbc
         .sql(
             """
                 select not exists (select 1 from namespace where parent_id = :id)
                     and not exists (select 1 from config_set where namespace_id = :id)
+                    and not exists (select 1 from credential where namespace_id = :id)
             """.trimIndent(),
         ).param("id", id.value)
         .query(Boolean::class.java)
@@ -80,11 +87,17 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
 
     /**
      * Deletes the Namespace, and a foreign key that cascades deletes its rules. The service must call [isEmpty] first,
-     * under the tree lock. Without that check, the foreign keys of the children make the delete fail with a database
-     * error.
+     * under the tree lock. The tree lock stops a parallel create of a child Namespace or a ConfigSet. A credential
+     * create takes only the shared form of the tree lock, so a credential can appear after [isEmpty]. The foreign key
+     * from `credential` then stops the delete, and this method changes that violation to
+     * [CatalogException.NamespaceNotEmpty].
      */
     fun delete(id: NamespaceId) {
-        jdbc.sql("delete from namespace where id = :id").param("id", id.value).update()
+        try {
+            jdbc.sql("delete from namespace where id = :id").param("id", id.value).update()
+        } catch (_: DataIntegrityViolationException) {
+            throw CatalogException.NamespaceNotEmpty(id)
+        }
     }
 
     /**

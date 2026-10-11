@@ -51,3 +51,7 @@ management:
 #   folio.super-admins (none) lists the subjects of the super admins, for example group:<id>. Each entry is a user:,
 #     group: or application: subject. Keep the list small. Without super admins, nobody can create a top-level
 #     Namespace. A UI session keeps its super-admin status until the next sign-in.
+#   folio.crypto.master-keys (none) maps a positive integer version to a base64 master secret of 32 bytes or more,
+#     for example 1: <secret>. Keep the secrets in a secret store. Folio does not start without a secret.
+#   folio.crypto.active-key-version (none) names the version that encrypts new keys. Folio does not start if the
+#     version is not in folio.crypto.master-keys, or if a stored key uses a version that is not there.
