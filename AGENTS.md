@@ -53,6 +53,10 @@ they make the text clearer. Do not apply the STE dictionary strictly: common tec
 
 - Write one topic in each sentence.
 - Keep sentences short: 20 words or fewer for instructions, 25 words or fewer for descriptions.
+- Write full sentences. Do not drop the subject or the verb.
+- Make each pronoun clear. If "it" or "this" can refer to two things, name the thing.
+- State the consequence of a choice, for example "Without X, Y happens."
+- Keep text compact, not cryptic. A reader without other context must understand it.
 - Keep paragraphs to six sentences or fewer.
 - Use the active voice. Say who or what does the action.
 - Use simple tenses: present, past and future.
