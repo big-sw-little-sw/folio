@@ -55,3 +55,7 @@ management:
 #     for example 1: <secret>. Keep the secrets in a secret store. Folio does not start without a secret.
 #   folio.crypto.active-key-version (none) names the version that encrypts new keys. Folio does not start if the
 #     version is not in folio.crypto.master-keys, or if a stored key uses a version that is not there.
+#   folio.content.max-file-size (100MB) is the largest ConfigItem that Folio serves. Folio refuses a larger item with
+#     status 422. Folio streams files, so this limit protects bandwidth, not memory.
+#   folio.content.latest-max-age (30s) is how long caches keep responses for latest, metadata and revision lists. It
+#     is also how long shared caches keep a public exact revision before they revalidate it.

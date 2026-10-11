@@ -726,7 +726,8 @@ The `content` module owns all that consumers see, for all Sources. For each read
 4. Select the adapter for the `sourceType` of the ConfigSet, and call it.
 5. Add the validation status and the cache headers.
 
-Section 9 gives the interface that it calls.
+Steps 1 and 2 run in one `@SnapshotRead` transaction. The adapter calls run outside a transaction. Thus a slow read or
+a fetch on demand holds no database connection. Section 9 gives the interface that content calls.
 
 ### 8.3 credential
 
@@ -851,7 +852,8 @@ interface ConfigSource {
 
     /**
      * Opens one ConfigItem, calls [consume] with its content as a stream, and closes the stream after [consume]
-     * returns. Throws ItemTooLarge above [maxBytes] before it opens the content.
+     * returns. Throws ItemTooLarge above [maxBytes] before it opens the content. The adapter gets the size and the
+     * ETag without a read of the content. It reads the content only when [consume] reads the stream.
      */
     fun <T> read(
         configSet: ConfigSetId,
@@ -884,21 +886,35 @@ content: Git knows both from the object ID, and the database Source stores both.
 
 **`SourceType`.** The enum names the Sources that this build contains. A new Source needs new code in any case: an
 adapter, a creation route and a migration. Thus a closed enum costs nothing, and exhaustive `when` expressions show
-each location that a new Source must update. Content keeps a map from `SourceType` to the adapter bean. The
+each location that a new Source must update. Content keeps a map from `SourceType` to the adapter bean. Two adapters
+for one type stop the start of Folio. A type without an adapter is an internal error (500) at the time of a read, not
+at startup, because the main code has no adapter until the Git slice (section 20). The Git slice makes a missing
+adapter a startup failure. The
 `config_set.source_type` column stores the name. The enum is in the public API of the `catalog` module, because
 `ConfigSets.create` takes it and `content` depends on the catalog. Folio has no plugins. If plugins become necessary, the enum changes to
 a string.
 
 The `content` module declares these errors:
 
-| Error | Status | Meaning |
-|---|---|---|
-| `RevisionNotFound` | 404 | The ConfigSet did not publish this revision. |
-| `RevisionUnavailable` | 404 | The ConfigSet published the revision, but this instance cannot read it now. |
-| `ItemNotFound` | 404 | The revision has no item at this path. |
-| `ItemTooLarge` | 422 | The item is larger than `folio.content.max-file-size`. |
-| `SourceBusy` | 503 | The Source cannot do the read now. The response has `Retry-After`. |
-| `SourceFailed` | 502 or 504 | The Source failed. The response has the code of the adapter. |
+| Error | Status | Code | Meaning |
+|---|---|---|---|
+| `NotPublishedYet` | 404 | `NOT_PUBLISHED_YET` | A read of `latest`, and the ConfigSet has no published revision (section 5.5). |
+| `RevisionNotFound` | 404 | `REVISION_NOT_FOUND` | The ConfigSet did not publish this revision. |
+| `RevisionUnavailable` | 404 | `REVISION_UNAVAILABLE` | The ConfigSet published the revision, but this instance cannot read it now. |
+| `ItemNotFound` | 404 | `ITEM_NOT_FOUND` | The revision has no item at this path. |
+| `ItemTooLarge` | 422 | `ITEM_TOO_LARGE` | The item is larger than `folio.content.max-file-size`. |
+| `SourceBusy` | 503 | `SOURCE_BUSY` | The Source cannot do the read now. The response has `Retry-After`. |
+| `SourceFailed` | 502 | The code of the adapter | The Source failed. The adapter gives its code and a fixed, safe summary. |
+| `SourceTimedOut` | 504 | The code of the adapter | The Source did not answer in time. The adapter gives its code and a fixed, safe summary. |
+| `InvalidRevision` | 400 | `INVALID_REVISION` | The `revision` value is not `latest` and not a revision ID. |
+| `InvalidItemPath` | 400 | `INVALID_ITEM_PATH` | The item path is not in normal form. |
+
+Adapters throw these errors too. A detail never repeats an item path, because a path can contain any text except a
+backslash or NUL.
+
+**`RevisionId`** has 1 to 64 lowercase letters and digits, and it is never `latest`. Each Source must give IDs of this
+form. A Git commit ID has this form. *Reason:* content can reject a malformed `revision` value with status 400 before it
+finds the ConfigSet, as for other values in a request (section 8.1). An ID also needs no escape in a URL.
 
 **`ItemPath`** is relative and already in normal form. It has segments joined by `/`. No segment is empty, `.` or
 `..`, and no segment contains a backslash or NUL. Folio rejects other paths. It never rewrites them. An adapter joins
@@ -1274,7 +1290,12 @@ each request.
   - `text/plain` for properties and INI.
   - `application/octet-stream` for all other files.
 - Folio sends no charset. Responses have `X-Content-Type-Options: nosniff`.
-- Lists and file reads have the header `X-Folio-Revision`. File reads also have `X-Folio-Validation-Status`.
+- File lists and file reads have the header `X-Folio-Revision`. File reads also have `X-Folio-Validation-Status`.
+- The metadata has `latestRevision: null` if the ConfigSet has no published revision. Only reads of `latest` give
+  `NOT_PUBLISHED_YET`. The revision list is then empty.
+- An empty `revision` value is the default, `latest`.
+- The Spring Security firewall rejects some file names in a URL with status 400, for example a name with `;` or an
+  encoded `%` or `/`. Folio cannot serve such files. Git repositories for configuration rarely contain them.
 
 **Cache headers**
 
@@ -1287,8 +1308,12 @@ each request.
 - ETags:
   - For a file: the hash of its content, which is the Git blob ID.
   - For a file list: the revision.
-  - For metadata and revision lists: a digest.
-- Folio authorizes before it examines `If-None-Match`. Thus a 304 never bypasses a denial.
+  - For metadata and revision lists: a digest. The digest of the metadata covers the path, the description and the
+    latest revision. The digest of a revision list covers each ID and time.
+- Folio authorizes before it examines `If-None-Match`. Thus a 304 never bypasses a denial. A 304 has the `ETag` and
+  the `Cache-Control` headers. A 304 for a file list or a file also has the `X-Folio-Revision` header. A 304 for a file
+  reads none of the content, so it has no validation status.
+- If the read of a file fails before the response starts, the error response has none of the headers of the file.
 - Error responses have `Cache-Control: no-store`.
 
 ### 12.2 Administration
@@ -1355,7 +1380,7 @@ slice by hand during development.
 
 | Who | Pages |
 |---|---|
-| Users with `READ` | Browse the tree. View a ConfigSet: its ID, path, description and latest revision. List revisions. List the files at a revision. View a file as text with its validation status. Download a file. |
+| Users with `READ` | Browse the tree. View a ConfigSet: its ID, path, description and latest revision (on the files page). List revisions. List the files at a revision. View a file as text with its validation status. Download a file. |
 | Administrators with `MANAGE` | Create, rename, describe, move and delete Namespaces and ConfigSets. Connect a Git repository, run the check, request a sync and view the sync state. Manage credentials and keys. |
 | Administrators with `GRANT` | View and edit rules. Explain a decision. |
 | Super admins | View master-key status. Run re-encryption. |
@@ -1394,6 +1419,13 @@ slice by hand during development.
 - A page view by an anonymous caller makes no session, except when Folio sends the browser to sign-in. Then the
   session keeps the page for the return after sign-in. Only a signed-in caller gets a CSRF token in the page.
 - The layout loads a pinned htmx file with an `integrity` attribute. Thus the browser refuses a different file.
+- The `content` module serves the content pages: `/configsets/{id}/revisions`, `/configsets/{id}/files?revision=…`,
+  `/configsets/{id}/files/{path}?revision=…` (the file as escaped text) and `/configsets/{id}/download/{path}?revision=…`
+  (the attachment). The catalog does not depend on `content`, so the ConfigSet page links to the files and revisions
+  pages by path only. The files page of `latest` names the latest revision, and its links go to that exact revision.
+  The UI shows text only for a file of 3 MB or less, because Folio keeps only these files in memory (section 9). For a
+  larger file, the page offers the download. The file page shows the content as UTF-8 text. The download gives the raw
+  bytes, and Folio does not validate them.
 - The `credential` module serves the credential pages: `/namespaces/{id}/credentials` (the list and the create form),
   `/credentials/{id}` (the keys, the public key lines to copy and the forms of the operations) and `/crypto` (the
   master-key status and the re-encryption, for super admins). The catalog does not depend on `credential`, so the
@@ -1412,15 +1444,22 @@ slice by hand during development.
   - All other files: `UNKNOWN`.
 - Validation never stops sync or reads. *Reason:* Git is the source of truth. Folio reports what it found. A parse and
   a new serialization would change comments, order and format.
-- Folio uses parsers that are already on the classpath. They have resource limits and never run code.
-  - SnakeYAML makes only nodes. It rejects custom global tags, deep nesting and alias bombs.
+- Folio uses maintained parsers that have resource limits and never run code.
+  - SnakeYAML reads only parser events, so Folio keeps no node graph in memory. A node graph uses about 60 times the
+    size of the file. Folio checks the limits of the SnakeYAML composer on the events: nesting deeper than 50
+    collections, an alias without an earlier anchor in its document, and more than 50 aliases to collections (alias
+    bombs). It rejects non-standard `!!` tags, which are tags in the `tag:yaml.org,2002:` namespace such as Java class
+    names. Other global tags and local tags are labels and stay valid.
   - Jackson reads exactly one JSON value.
   - `Properties.load` reads properties files.
-  - The Jackson TOML module reads TOML files. Jackson is already on the classpath.
+  - The Jackson TOML module reads TOML files. The build adds the module, and the Jackson BOM of Spring Boot sets its
+    version.
   - INI has no standard, and the Java INI libraries are not maintained. Folio has a small INI checker. It accepts
     `[section]` headers, `key = value` and `key: value` entries, `#` and `;` comments and indented continuation lines.
     It rejects an entry before the first section, a duplicate section and a duplicate key in a section. These rules
-    match `configparser`, which most Python users use.
+    match `configparser`, which most Python users use. The INI checker reads UTF-8. A file that is not UTF-8 is
+    `INVALID`. The checker scans each line without regular expressions, so its time is linear in the size of the
+    file.
 - Files over 3 MB are `UNKNOWN`.
 - Folio calculates the status when a file is read, and sends it as a header. File lists do not show the status,
   because that would parse each file.
@@ -1554,6 +1593,11 @@ so no other table changes. Section 5.3 gives the rules.
 - **Modules** have tests through their public interface and HTTP routes, with PostgreSQL in Testcontainers.
 - **Content** tests use the in-memory `ConfigSource` adapter. Thus tests of authorization, revisions, cache headers and
   validation need no Git.
+  - The adapter is in the test sources. Tests publish revisions through it, and they can make it fail with a
+    `ContentException`.
+  - The adapter registers for `SourceType.GIT`, because the catalog has no other type. The Git slice must decide how
+    the in-memory adapter and the Git adapter share the type in tests. One option is a `SourceType` for tests only.
+    Another option is that content tests use the Git adapter with the SSH Git server.
 - **Git** tests use an SSH Git server in Testcontainers. The test builds the image from a pinned `alpine` image with
   `openssh` and `git`. Thus the test controls the host key and the authorized keys, and needs no third-party image.
   The tests include these cases:
@@ -1740,3 +1784,13 @@ decision here with its reason.
 | The Git check has no `NO_ACTIVE_KEY` code. Each credential always has one active key. | Create and replace activate a key, and activate swaps keys in one transaction. Without a cause that can occur, the code would be dead interface. | 10.3, 11.1 |
 | A write outside the catalog that authorizes takes the shared tree lock in `Access`. Read-only reads stay without a lock. | A `READ COMMITTED` decision reads the ancestry and the rules in two statements. Without the lock, it could combine a tree and rules that never existed together. | 5.4, 8.1 |
 | A key that does not decrypt gives an `IllegalStateException` that names the key and the credential. | Callers never see crypto types. The operator can find the credential to replace, and a failed re-encryption can then complete. | 8.3, 11.3 |
+| Content finds and authorizes in one snapshot, and calls the adapter outside a transaction. | A decision uses one snapshot. A slow read or a fetch holds no database connection. | 8.2 |
+| A revision ID has 1 to 64 lowercase letters and digits, and is never `latest`. | Content rejects a malformed value with 400 before it finds the ConfigSet. An ID needs no escape in a URL. | 9, 12.1 |
+| Content selects the adapter at the time of a read. Two adapters for one type stop the start. | The main code has no adapter until the Git slice, and Folio must still start. | 9, 20 |
+| The metadata shows `latestRevision: null` before the first publish. Only reads of `latest` give `NOT_PUBLISHED_YET`. | A consumer can see that the ConfigSet exists but has no content yet. | 5.5, 12.1 |
+| The content pages are in `content`. The ConfigSet page links to them by path, and the files page names the latest revision. | Each module serves its own pages, and the catalog does not depend on `content`. | 12.3 |
+| The UI shows text only for files of 3 MB or less. | Folio keeps only these files in memory. A larger file is a download. | 9, 12.3 |
+| The in-memory adapter is in the test sources and registers for `SourceType.GIT`. | It is for tests only (section 4.1). The catalog has no other type until the Git slice decides. | 17 |
+| YAML validation reads parser events and checks the limits of the composer itself. | A node graph uses about 60 times the size of the file. Each read of a file of 3 MB or less validates it again. | 13 |
+| The INI checker reads UTF-8 only. | `configparser` uses the locale encoding, which Folio cannot know. UTF-8 is the common encoding of configuration files. | 13 |
+| `SourceFailed` (502) and `SourceTimedOut` (504) are two errors. | Each expected failure has one subclass and one kind (section 8.6). A flag would hide the choice at the call site of an adapter. | 9 |

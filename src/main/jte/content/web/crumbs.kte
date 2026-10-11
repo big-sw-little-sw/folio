@@ -1,0 +1,12 @@
+<%--
+    This fragment shows the path of a content page. The caller can READ the ConfigSet, so its path is a link to the
+    ConfigSet page of the catalog. The Namespaces above the ConfigSet are plain text, because the content module does
+    not know which of them the caller can read.
+--%>
+@import gg.jte.Content
+@import io.github.big_sw_little_sw.folio.content.web.ContentLinks
+@param links: ContentLinks
+@param trail: Content
+<nav class="crumbs" aria-label="Path">
+    <a href="/">Catalog</a> / <a href="${links.configSetPage}">${links.path}</a> / ${trail}
+</nav>

@@ -1,3 +1,8 @@
+<%--
+    The content module serves the files page and the revisions page of a ConfigSet. The catalog does not depend on the
+    content module, so this page links to those two pages by path only (design 12.3). This page does not show the
+    latest revision, because only the content module knows it. The files page names it.
+--%>
 @import io.github.big_sw_little_sw.folio.catalog.ConfigSet
 @import io.github.big_sw_little_sw.folio.catalog.web.Operations
 @import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
@@ -14,5 +19,9 @@
         <dt>Source</dt>
         <dd>${configSet.sourceType.name}</dd>
     </dl>
+    <nav class="operations" aria-label="Content">
+        <a href="${resource.url}/files">Files at the latest revision</a>
+        <a href="${resource.url}/revisions">Revisions</a>
+    </nav>
     @template.catalog.web.operations(resource = resource, operations = operations)
 `)

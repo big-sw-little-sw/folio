@@ -1,0 +1,41 @@
+<%--
+    This page shows one ConfigItem as escaped text with its validation status (design 12.3). JTE escapes the text, so
+    the page never renders a file as HTML. A file larger than 3 MB has no text here, because Folio keeps only smaller
+    files in memory.
+--%>
+@import io.github.big_sw_little_sw.folio.content.ConfigItem
+@import io.github.big_sw_little_sw.folio.content.RevisionId
+@import io.github.big_sw_little_sw.folio.content.internal.ValidationStatus
+@import io.github.big_sw_little_sw.folio.content.web.ContentLinks
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param links: ContentLinks
+@param revision: RevisionId
+@param item: ConfigItem
+@param mediaType: String
+@param validation: ValidationStatus
+@param text: String?
+@template.web.layout(page = page, title = item.path.value + " of " + links.path, content = @`
+    @template.content.web.crumbs(links = links, trail = @`<a href="${links.files(revision)}">Files</a> / ${item.path.value}`)
+    <h1>${item.path.name} <span class="kind">File</span></h1>
+    <dl>
+        <dt>Path</dt>
+        <dd><code>${item.path.value}</code></dd>
+        <dt>Revision</dt>
+        <dd><code>${revision.value}</code></dd>
+        <dt>Size</dt>
+        <dd>${item.size} bytes</dd>
+        <dt>Media type</dt>
+        <dd><code>${mediaType}</code></dd>
+        <dt>Validation</dt>
+        <dd><span class="validation">${validation.name}</span></dd>
+    </dl>
+    <nav class="operations" aria-label="Operations">
+        <a href="${links.download(item.path, revision)}">Download</a>
+    </nav>
+    @if(text != null)
+        <pre class="file-content"><code>${text}</code></pre>
+    @else
+        <p class="muted">The file is larger than 3 MB. Download it to see its content.</p>
+    @endif
+`)

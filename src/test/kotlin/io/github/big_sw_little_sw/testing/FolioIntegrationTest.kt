@@ -14,9 +14,10 @@ import java.net.http.HttpResponse
 /**
  * A test of the full application through MockMvc, with PostgreSQL in Testcontainers and [TestIssuer] as the identity
  * provider. [HtmlCheckConfiguration] examines each HTML response. [TestCatalog] builds catalog trees, [TestCredentials]
- * sets up credentials, and [TestAudit] reads audit records. [TestLocks] runs tasks while another transaction holds a
- * lock. All classes with this annotation share one application context and one database. Each test must read only the
- * data that it made, because data from other tests stays in the database.
+ * sets up credentials, and [TestAudit] reads audit records. [InMemorySource] is the Source of the ConfigSets, and tests
+ * publish revisions with it. [TestLocks] runs tasks while another transaction holds a lock. All classes with this
+ * annotation share one application context and one database. Each test must read only the data that it made, because
+ * data from other tests stays in the database.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
@@ -30,6 +31,7 @@ import java.net.http.HttpResponse
     HtmlCheckConfiguration::class,
     TestCatalog::class,
     TestCredentials::class,
+    InMemorySource::class,
     TestAudit::class,
     TestLocks::class,
 )

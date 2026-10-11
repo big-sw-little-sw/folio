@@ -1,0 +1,42 @@
+<%--
+    This page lists the ConfigItems at one revision (design 12.3). For latest, the page names the exact revision, and
+    the links go to that revision. Thus the files that a person opens are the files in this list, also after a new
+    publish.
+--%>
+@import io.github.big_sw_little_sw.folio.content.ConfigItemInfo
+@import io.github.big_sw_little_sw.folio.content.RevisionId
+@import io.github.big_sw_little_sw.folio.content.web.ContentLinks
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param links: ContentLinks
+@param revision: RevisionId
+@param latest: Boolean
+@param items: List<ConfigItemInfo>
+@template.web.layout(page = page, title = "Files of " + links.path, content = @`
+    @template.content.web.crumbs(links = links, trail = @`Files`)
+    <h1>Files <span class="kind">of ${links.path}</span></h1>
+    <dl>
+        <dt>Revision</dt>
+        <dd><code>${revision.value}</code>@if(latest) <span class="muted">(latest)</span>@endif</dd>
+    </dl>
+    <nav class="operations" aria-label="Revisions">
+        <a href="${links.revisions}">All revisions</a>
+    </nav>
+    @if(items.isEmpty())
+        <p class="muted">The revision has no files.</p>
+    @else
+        <table>
+            <thead>
+                <tr><th>Path</th><th>Size (bytes)</th></tr>
+            </thead>
+            <tbody>
+                @for(item in items)
+                    <tr>
+                        <td><a href="${links.file(item.path, revision)}">${item.path.value}</a></td>
+                        <td>${item.size}</td>
+                    </tr>
+                @endfor
+            </tbody>
+        </table>
+    @endif
+`)

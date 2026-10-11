@@ -168,3 +168,11 @@ textarea.public-key {
     width: 100%;
     font-family: ui-monospace, monospace;
 }
+
+pre.file-content {
+    padding: 0.75rem 1rem;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 0.375rem;
+    font-family: ui-monospace, monospace;
+}
