@@ -1,0 +1,62 @@
+<%--
+    The Git source of a ConfigSet and the check (design 10.3, 12.3). The catalog does not depend on the git module, so
+    the ConfigSet page links to this page by its URL only. The notice of the page gives the result of the last check.
+--%>
+@import io.github.big_sw_little_sw.folio.git.internal.GitSourceView
+@import io.github.big_sw_little_sw.folio.web.FolioException
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param view: GitSourceView
+@param configSetReadable: Boolean
+@param keyId: String?
+@param problem: FolioException? = null
+!{val configSetId = view.configSet.id.toApiId()}
+!{val path = view.configSet.path.toString()}
+@template.web.layout(page = page, title = "Git source of " + path, content = @`
+    <nav class="crumbs" aria-label="Path">
+        <a href="/">Catalog</a> /
+        @if(configSetReadable)
+            <a href="/configsets/${configSetId}">${path}</a>
+        @else
+            ${path}
+        @endif
+        /
+        Git source
+    </nav>
+    <h1>${view.configSet.slug.value} <span class="kind">Git source</span></h1>
+    <dl>
+        <dt>ConfigSet</dt>
+        <dd><code>${configSetId}</code></dd>
+        <dt>Credential</dt>
+        <dd><a href="/credentials/${view.source.credential.toApiId()}"><code>${view.source.credential.toApiId()}</code></a></dd>
+        <dt>Repository path</dt>
+        <dd><code>${view.source.repositoryPath.value}</code></dd>
+        <dt>Branch</dt>
+        <dd><code>${view.source.branch.value}</code></dd>
+        <dt>Root path</dt>
+        <dd>@if(view.source.rootPath.isRepositoryRoot)<span class="muted">The root of the repository</span>@else<code>${view.source.rootPath.value}</code>@endif</dd>
+        <dt>Last published revision</dt>
+        <dd>
+            @if(view.lastPublished == null)
+                <span class="muted">Not published yet</span>
+            @else
+                <code>${view.lastPublished.id.value}</code> at ${view.lastPublished.publishedAt.toString()}
+            @endif
+        </dd>
+    </dl>
+    <h2>Check</h2>
+    <p>
+        The check connects to the Git server. It runs ls-remote for the branch, fetches the branch and makes sure that
+        the root path is a directory at the tip. The check does not publish a revision.
+    </p>
+    @if(problem != null)
+        @template.web.problem(code = problem.code, detail = problem.detail)
+    @endif
+    <form class="stacked" method="post" action="/configsets/${configSetId}/git/check">
+        @template.web.csrfField(page = page)
+        <label for="key-id">Pending key</label>
+        <input id="key-id" name="keyId" value="${keyId}" pattern="key_[0-9a-f]{32}" aria-describedby="key-id-help">
+        <small id="key-id-help">Optional. The ID of the pending key of the credential, to test the key before its activation. Empty uses the active key.</small>
+        <button type="submit">Run the check</button>
+    </form>
+`)

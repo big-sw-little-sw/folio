@@ -1,6 +1,7 @@
 <%--
-    The credential module serves the credentials page of a Namespace. The credential module depends on the catalog, not
-    the reverse, so this template builds that link from the URL of the Namespace only.
+    The credential module serves the credentials page of a Namespace, and the git module serves the form that connects
+    a Git repository. These modules depend on the catalog, not the reverse, so this template builds their links from
+    the ID or the URL of the Namespace only.
 --%>
 @import io.github.big_sw_little_sw.folio.catalog.web.Operations
 @import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
@@ -12,6 +13,7 @@
             @if(resource.isNamespace)
                 <a href="/namespaces/new?parentId=${resource.id}">Create a Namespace here</a>
                 <a href="${resource.url}/credentials">Credentials</a>
+                <a href="/git/configsets/new?namespaceId=${resource.id}">Connect a Git repository</a>
             @endif
             <a href="${resource.url}/edit">Rename or describe</a>
             <a href="${resource.url}/move">Move</a>

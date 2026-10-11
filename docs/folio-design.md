@@ -595,7 +595,7 @@ adapters to `content` as beans.
 | `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access`, `SnapshotRead`, `ConfigSets`, `ConfigSet`, `ReadableConfigSet`, `Namespaces`, `Namespace`, the ID types and their API IDs, `Slug`, `Path`, `Action`, `SourceType`, `CatalogException` | The tree lock, recursive queries, the nearest-rule algorithm, move checks |
 | `credential` | Credentials, keys, the master-key ring | `Credentials.requireUsable`, `CredentialKeys.withActiveKey`, `CredentialKeys.withPendingKey`, `CredentialId`, `KeyId` and their API IDs, `CredentialException` | Key generation, encryption, rotation, OpenSSH format |
 | `content` | The consumption API, the Source interface, validation | `ConfigSource`, for adapters to implement | Revision selection, cache headers, media types, validation |
-| `git` | Git sources, sync, the cache | None. It is an adapter with its own admin routes. | SSH, host keys, JGit, leases, fetch limits, the cache, revision history |
+| `git` | Git sources, sync, the cache | None. It is an adapter with its own admin routes. Its `GitException` serves only these routes (section 8.6). | SSH, host keys, JGit, leases, fetch limits, the cache, revision history |
 
 Each module serves its own HTTP routes from a subpackage named `web`. This includes its UI pages (section 12.3).
 
@@ -694,6 +694,10 @@ sealed interface ResourceId { val value: UUID }
   - A write that also takes the exclusive form, for example through `ConfigSets.create`, must take it before it calls
     `Access`, `Namespaces.require` or `ConfigSets.requireReadable`. Otherwise two such writes can each hold the shared
     form and wait for the exclusive form of the other.
+  - A transaction takes the tree lock, shared or exclusive, before it locks a row. For example, a credential change
+    authorizes through `Access` before it locks the credential row. Otherwise onboarding, which holds the exclusive
+    form and waits for the credential row at the foreign key of `git_source`, and a credential change, which holds the
+    row and waits for the shared form, deadlock.
 - **Ancestors.** A recursive query on `parent_id` finds the ancestors. Trees are shallow. A closure table makes moves
   more difficult and gives no measurable gain.
 - **Nearest-rule algorithm.** It is a pure function in `catalog.internal`. Unit tests examine it without Spring.
@@ -738,10 +742,11 @@ a fetch on demand holds no database connection. Section 9 gives the interface th
 
 The `credential` module owns all of the credential lifecycle. `CredentialKeys.withActiveKey(credentialId) { key ->
 … }` decrypts the active key for the duration of the block. It does not authorize, because sync runs without a person.
-Only the `git` module calls it. No HTTP route can call it, and a modularity test verifies this.
+Only the `git` module calls it. No HTTP layer calls it directly, and a modularity test verifies this. The Git check
+calls it through the `git` service, after the service authorizes the check (section 7.3).
 
 ```kotlin
-/** Onboarding: MANAGE on the Namespace of the credential, and an enabled credential (section 7.3, 10.3). */
+/** Onboarding and the check: MANAGE on the Namespace of the credential, and an enabled credential (section 7.3, 10.3). */
 fun Credentials.requireUsable(caller: Caller, id: CredentialId): UsableCredential   // id, namespaceId, gitInstance
 
 fun <T> CredentialKeys.withActiveKey(id: CredentialId, block: (DecryptedKey) -> T): T
@@ -887,14 +892,14 @@ uses the stream in this way:
 - For a larger file, content sets the validation status to `UNKNOWN` and copies the stream to the response.
 
 On virtual threads, a blocking copy to the response is cheap (section 8.7). The size and the ETag come before the
-content: Git knows both from the object ID, and the database Source stores both.
+content: Git knows both from the object ID, and the database Source stores both. JGit streams a blob larger than 3 MB
+from the pack, so the Git adapter keeps only files of 3 MB or less in memory. Without this setting, JGit loads each
+blob below 50 MiB into memory.
 
 **`SourceType`.** The enum names the Sources that this build contains. A new Source needs new code in any case: an
 adapter, a creation route and a migration. Thus a closed enum costs nothing, and exhaustive `when` expressions show
-each location that a new Source must update. Content keeps a map from `SourceType` to the adapter bean. Two adapters
-for one type stop the start of Folio. A type without an adapter is an internal error (500) at the time of a read, not
-at startup, because the main code has no adapter until the Git slice (section 20). The Git slice makes a missing
-adapter a startup failure. The
+each location that a new Source must update. Content keeps a map from `SourceType` to the adapter bean. Each type
+needs exactly one adapter: two adapters for one type, or a type without an adapter, stop the start of Folio. The
 `config_set.source_type` column stores the name. The enum is in the public API of the `catalog` module, because
 `ConfigSets.create` takes it and `content` depends on the catalog. Folio has no plugins. If plugins become necessary, the enum changes to
 a string.
@@ -924,6 +929,18 @@ finds the ConfigSet, as for other values in a request (section 8.1). An ID also 
 **`ItemPath`** is relative and already in normal form. It has segments joined by `/`. No segment is empty, `.` or
 `..`, and no segment contains a backslash or NUL. Folio rejects other paths. It never rewrites them. An adapter joins
 the segments below the root of the ConfigSet, so a path cannot go outside the root.
+
+Git permits file names that are not item paths, for example a name with a backslash. A consumer cannot read such a
+file, so the Git adapter leaves it out of the file list. The log gives the ConfigSet ID and the number of these files
+at `INFO`, and never their names. Any reader of a `public` ConfigSet can repeat a list, so the line must not alert. In
+slice 6, the publish step of sync writes this line one time for each published revision, and the list stops. The file
+list of the Git adapter has the regular files below the root path, in path order. Symbolic links and submodules are not
+ConfigItems.
+
+Git trees can share subtrees, so a commit of a few KB can name billions of files. The pack is small, so the size limit
+of section 10.7 does not stop it. Thus the file list visits a maximum of 10,000 tree entries, files and directories
+together. Above this limit, the list fails with `SourceFailed` and the code `TOO_MANY_FILES`. The summary contains no
+path. In slice 6, the publish step also examines this limit, so sync can report it as a failure.
 
 The interface does not contain these items, and the reason for each:
 
@@ -981,8 +998,11 @@ A Git ConfigSet has these items:
 - **A repository path** on that instance, for example `org/repo.git`. It has segments of letters, digits, `.`, `_` and
   `-`, joined by `/`. No segment is `.` or `..`. It has 500 characters or fewer. Thus it cannot contain a scheme, a
   user or a host.
-- **A branch.** Folio validates it as a Git ref name. v1 does not support tags or pinned commits.
-- **A root path.** The ConfigItems are below this path. An empty root path is the root of the repository.
+- **A branch.** Folio validates it as a Git ref name, without `refs/heads/`. It has 250 characters or fewer. v1 does
+  not support tags or pinned commits.
+- **A root path.** The ConfigItems are below this path. An empty root path is the root of the repository. Another root
+  path has the normal form of an item path (section 9) and 1,000 characters or fewer. Thus a ConfigItem path below it
+  cannot go outside it.
 
 Folio makes the SSH URL as `ssh://<user>@<host>:<port>/<repository path>`. The URL contains no secret.
 
@@ -1014,6 +1034,32 @@ also decide what happens to the revisions that Folio already served.
    credential. Thus an administrator can test a new key before activation.
 6. Sync starts immediately, because a new ConfigSet is due at creation.
 
+**Onboarding details.**
+
+- The create body is `{namespaceId, slug, description, credentialId, repositoryPath, branch, rootPath}`. An absent
+  `description` is no description, and an absent `rootPath` is the root of the repository. The response has status
+  201, the `Location` of the Git source, and the body of `GET /configsets/{id}/git`.
+- Folio validates each value of the body first (400). Then `ConfigSets.create` finds the Namespace, authorizes and
+  takes the exclusive tree lock. Then `Credentials.requireUsable` finds and authorizes the credential, and requires an
+  enabled credential. This order obeys the lock-order rule of section 8.1. A failure rolls back the ConfigSet too.
+- `GET /configsets/{id}/git` gives `{configSetId, path, credentialId, repositoryPath, branch, rootPath,
+  lastPublishedCommit, lastPublishedAt}`. It needs `MANAGE` on the ConfigSet, because the Source definition is
+  administration data. Sync adds the other fields of its state (section 10.6).
+- The check needs `MANAGE` on the ConfigSet and on the Namespace of the credential. A caller without them gets 403 or
+  401, also for a disabled credential. Only then does a disabled credential give the result `CREDENTIAL_DISABLED`. A
+  `keyId` that is not the pending key gives `KEY_NOT_PENDING` (409), because the request is wrong, not the source. The
+  fetch step opens the key before it finds the Git instance, so `KEY_NOT_PENDING` also comes before
+  `GIT_INSTANCE_NOT_CONFIGURED`.
+- The check fetches into the cache, but it does not publish a revision. Only sync publishes (section 10.6). *Reason:*
+  sync owns the change detection and the audit records of publishes, and the check would bypass both.
+
+The `git` module declares these errors for its routes:
+
+| Error | Status | Code | Meaning |
+|---|---|---|---|
+| `InvalidRepositoryPath`, `InvalidBranch`, `InvalidRootPath` | 400 | `INVALID_REPOSITORY_PATH`, `INVALID_BRANCH`, `INVALID_ROOT_PATH` | The value does not have the form of section 10.2. |
+| `GitSourceNotFound` | 404 | `GIT_SOURCE_NOT_FOUND` | The ConfigSet exists, but it has no Git source. Only a ConfigSet of another Source type has none. |
+
 **Failure codes.** Each code has a fixed, safe summary:
 
 - `HOST_KEY_REJECTED`, `AUTH_FAILED`, `REPOSITORY_NOT_FOUND`, `BRANCH_NOT_FOUND`, `ROOT_PATH_NOT_FOUND`
@@ -1021,7 +1067,11 @@ also decide what happens to the revisions that Folio already served.
 - `CREDENTIAL_DISABLED`, `GIT_INSTANCE_NOT_CONFIGURED`
 
 Folio selects a code from exception types and results. It never parses messages. Some servers report "not found" when
-a key has no access. The summary of `REPOSITORY_NOT_FOUND` says that both causes are possible.
+a key has no access. The summary of `REPOSITORY_NOT_FOUND` says that both causes are possible. A timeout of a connect
+and a timeout of an idle read during the transfer both give `UNREACHABLE`, because the exception types do not show
+which one occurred. Its summary names both causes. Folio has no
+`known_hosts` file, so an unknown host key and a changed host key are the same case: the key is not in the list of the
+instance, and the code is `HOST_KEY_REJECTED`.
 
 ### 10.4 Isolation and secrecy
 
@@ -1066,12 +1116,17 @@ its type.
 
 ### 10.5 Cache
 
-- `folio.git.cache-directory` contains one bare repository for each ConfigSet. The ID of the ConfigSet is the name.
-  Only the owner can access the directory (`0700`).
+- `folio.git.cache-directory` contains one bare repository for each ConfigSet. The UUID of the ConfigSet is the name.
+  The directory also contains the empty SSH home directory `ssh-home` (section 10.4). Only the owner can access the
+  directory (`0700`). The setting is mandatory, because each deployment must select a disk for the cache.
 - Folio can delete and rebuild the cache at any time. The database is the source of truth for published revisions.
   Each instance has its own cache. If a repository is missing or damaged, the cost is one full fetch.
 - Folio fetches only the configured branch. It does not fetch tags.
 - JGit's automatic gc is off in each cache repository, because it races with reads and with the size check.
+- A read holds the repository while it streams a file, so a slow client can hold it for minutes. A delete or a new
+  start of a repository waits for the reads only until the fetch deadline. While a delete waits, new reads of the
+  ConfigSet wait too, so the limit also protects the reads. A new start that does not get the repository in time
+  fails with `DEADLINE_EXCEEDED`.
 - At each sync interval, each instance deletes the repositories of ConfigSets that no longer exist. It lists the
   directory before it queries the database. Thus it never deletes the repository of a ConfigSet that exists. It never
   follows symbolic links.
@@ -1102,6 +1157,14 @@ Sync uses polling. The state is in the database, so several instances can share 
 - **Change detection.** Sync compares fetched commits. The fetched branch tip becomes the last published commit. If the
   tip changed, sync adds it to `git_revision`. After a failure, the last published commit does not change. This is
   also true when the branch was deleted.
+- **Fetch.** `Fetcher.fetch` is the fetch step. It opens the active key of the credential, or the pending key for a
+  check, finds the Git instance of the key, and fetches under the deadline and the fetch lock. Each failure of the
+  source, also `CREDENTIAL_DISABLED` and `GIT_INSTANCE_NOT_CONFIGURED`, is a `GitFailure` with its code, and the fetch
+  step logs it one time. Sync, the check and the fetch on demand call it.
+- **Publish.** `GitSourceRepository.publish` writes the `git_revision` row. Sync calls it in the transaction that
+  records its result. A commit that the branch returns to, for example after a force push, is already in
+  `git_revision`. Its row then gets a new `published_at`. Thus the newest row is always the last published commit,
+  and `latest` reads the newest row. A revision appears only one time in the revision list, at its last publish.
 - **Manual sync.** A request makes the ConfigSet due immediately. The response is status 202 with the sync state. The
   next poll of an instance syncs the ConfigSet.
 - **Unexpected errors.** Folio releases the lease and records no failure. It logs the ConfigSet ID and the exception
@@ -1121,7 +1184,8 @@ Sync uses polling. The state is in the database, so several instances can share 
     never triggers it.
 - **Size.** After each fetch, Folio adds the sizes of the repository files on disk. It holds the fetch lock during this
   calculation. If the total is more than `folio.git.max-repository-size` (default 1 GB), Folio deletes the repository.
-  The fetch then fails with `REPOSITORY_TOO_LARGE`. JGit cannot limit a pack during transfer, so the deadline limits
+  The fetch then fails with `REPOSITORY_TOO_LARGE`. If reads hold the repository until the deadline, the repository
+  stays, and the fetch still fails with `REPOSITORY_TOO_LARGE`. The next fetch examines the size again and deletes it. JGit cannot limit a pack during transfer, so the deadline limits
   the transfer time.
 - **One fetch for each ConfigSet in each instance.** A lock in the process prevents parallel fetches of one ConfigSet.
   Folio takes the lock before the `ls-remote`. Sync, the check and reads all use this lock.
@@ -1138,6 +1202,11 @@ prevent anonymous readers from causing too many fetches:
 - A published commit can be missing after a fetch, for example after a force push. Folio remembers this for one sync
   interval. During that time, reads of the commit fail with `RevisionUnavailable`.
 - If the last sync failed with `REPOSITORY_TOO_LARGE`, a read that needs a fetch fails immediately with that code.
+
+Slice 5 (section 20) has no fetch on demand. Until slice 6, a read of a published commit that the cache of this
+instance does not have fails with `RevisionUnavailable`. *Reason:* a fetch on demand without these limits lets
+anonymous readers start fetches without a limit. `RevisionUnavailable` already has the correct meaning: the ConfigSet
+published the revision, but this instance cannot read it now.
 
 ---
 
@@ -1170,8 +1239,9 @@ prevent anonymous readers from causing too many fetches:
 - **Disable** is permanent in v1. A second disable does nothing. A disabled credential refuses key changes and gives
   no key to sync. Folio keeps its encrypted keys, so a later version can add "enable".
 - A retired key keeps its public key and fingerprint. Folio erases its encrypted private key.
-- A credential has a maximum of one `ACTIVE` key and one `PENDING` key. Partial unique indexes enforce this. Each key
-  change locks the credential row first.
+- A credential has a maximum of one `ACTIVE` key and one `PENDING` key. Partial unique indexes enforce this. Each
+  change finds the credential, authorizes through `Access`, which takes the shared tree lock, and then locks the
+  credential row (section 8.1). Thus the changes of one credential run one at a time.
 - Each credential always has exactly one `ACTIVE` key. Create and replace activate a key, and activate retires the
   previous key and activates the pending key in one transaction. Thus "no active key" is not an error of the
   interface, and the Git check has no failure code for it.
@@ -1183,8 +1253,8 @@ prevent anonymous readers from causing too many fetches:
   foreign key from `git_source` to `credential` does not cascade, and it enforces this rule.
 - Rotation does not need a delete. Regenerate and activate retire the old key and erase its private key. Then remove
   the old public key from the Git service. Use delete when no ConfigSet needs the credential any more.
-- Delete also works for a disabled credential. Until the Git slice adds `git_source`, a delete always succeeds. The
-  Git slice adds the foreign key, and the credential repository then changes its violation to `CREDENTIAL_IN_USE`.
+- Delete also works for a disabled credential. The credential repository changes a violation of the foreign key from
+  `git_source` to `CREDENTIAL_IN_USE`.
 - Each operation finds the credential (404), then authorizes `MANAGE` on its Namespace (403 or 401), then examines
   the state (409). Thus a caller without permission never learns the state.
 - Reads of credentials also need `MANAGE` on the Namespace, because the actions are independent (section 7.1).
@@ -1199,7 +1269,7 @@ catalog, because the catalog owns the slug rules.
 | `CredentialDisabled` | 409 | `CREDENTIAL_DISABLED` | A key change, a use or a key for sync on a disabled credential. |
 | `PendingKeyExists` | 409 | `PENDING_KEY_EXISTS` | A regenerate while a key is pending. |
 | `KeyNotPending` | 409 | `KEY_NOT_PENDING` | Activate, discard or a check named a key that is not the pending key. |
-| `CredentialInUse` | 409 | `CREDENTIAL_IN_USE` | A Git source uses the credential. The Git slice adds this error. |
+| `CredentialInUse` | 409 | `CREDENTIAL_IN_USE` | A Git source uses the credential. |
 
 ### 11.2 Encryption at rest
 
@@ -1435,6 +1505,12 @@ slice by hand during development.
   `/credentials/{id}` (the keys, the public key lines to copy and the forms of the operations) and `/crypto` (the
   master-key status and the re-encryption, for super admins). The catalog does not depend on `credential`, so the
   Namespace page and the start page link to these pages by path only.
+- The `git` module serves the Git pages: `/git/configsets/new?namespaceId=…` (the form that connects a repository to a
+  new ConfigSet, with `MANAGE` on the Namespace) and `/configsets/{id}/git` (the Source definition, the last published
+  revision and the check form, with `MANAGE` on the ConfigSet). The check form has an optional pending key ID. The
+  check redirects to the Git source page, and the notice of that page gives the result: the commit ID, or the code and
+  its summary. The catalog does not depend on `git`, so the Namespace page and the ConfigSet page link to these pages
+  by path only.
 
 ---
 
@@ -1478,7 +1554,10 @@ slice by hand during development.
 - Folio records these operations, each in the transaction of the operation:
   - Namespace and ConfigSet: create, describe, rename, move, delete.
   - Rule: put, delete.
-  - Git source: create.
+  - Git source: create. The catalog writes `CONFIG_SET_CREATED` for the ConfigSet, and the `git` module writes
+    `GIT_SOURCE_CREATED` for the Source definition, in the same transaction. Its resource type is `GIT_SOURCE`, with
+    the UUID and the path of the ConfigSet. Its details have `credentialId`, `gitInstance`, `repositoryPath`, `branch`
+    and `rootPath`.
   - Credential: create, regenerate, activate, discard, replace, disable, delete.
   - Master-key re-encryption: one record for each run, with the number of keys for each version.
   - Manual sync requests.
@@ -1581,8 +1660,8 @@ Folio uses PostgreSQL 18, Spring `JdbcClient` with plain SQL, and Flyway migrati
 | `rule` | `id`, `namespace_id` or `config_set_id`, `action`, `subjects text[]` | One target only. One rule for each target and action. One or more subjects. The rule is deleted with its target. A GIN index on `subjects` serves the start page (section 7.4). |
 | `credential` | `id`, `namespace_id`, `git_instance`, `name`, `status` | `unique (namespace_id, name)`. The foreign key to `namespace` does not cascade. Keys are deleted with their credential. |
 | `credential_key` | `id`, `credential_id`, `status`, `public_key`, `fingerprint`, encryption columns | Partial unique indexes for one `ACTIVE` key and one `PENDING` key. `id` has no default, because Folio gets it first (section 5.2). `public_key` has no comment. Folio adds the API ID when it shows the line. |
-| `git_source` | `config_set_id`, `credential_id`, `repository_path`, `branch`, `root_path`, sync state, lease | Deleted with its `config_set`. The foreign key to `credential` does not cascade. |
-| `git_revision` | `config_set_id`, `commit_id`, `published_at` | Deleted with its `git_source`. The statement that records a sync writes it. |
+| `git_source` | `config_set_id`, `credential_id`, `repository_path`, `branch`, `root_path`, sync state, lease | Deleted with its `config_set`. The foreign key to `credential` does not cascade. Slice 6 adds the columns of the sync state and the lease, with the code that writes them. |
+| `git_revision` | `config_set_id`, `commit_id`, `published_at` | Primary key `(config_set_id, commit_id)`. Deleted with its `git_source`. The statement that records a sync writes it. A publish of a commit that is already there sets a new `published_at` (section 10.6). |
 | `audit_event` | `id`, `occurred_at`, actor, resource, path, `details jsonb` | No foreign keys |
 | `spring_session`, `spring_session_attributes` | The schema of Spring Session JDBC | UI sessions (section 6.2). Flyway creates them, not Spring Session. |
 
@@ -1600,9 +1679,11 @@ so no other table changes. Section 5.3 gives the rules.
   validation need no Git.
   - The adapter is in the test sources. Tests publish revisions through it, and they can make it fail with a
     `ContentException`.
-  - The adapter registers for `SourceType.GIT`, because the catalog has no other type. The Git slice must decide how
-    the in-memory adapter and the Git adapter share the type in tests. One option is a `SourceType` for tests only.
-    Another option is that content tests use the Git adapter with the SSH Git server.
+  - The adapter registers for `SourceType.GIT`, because the catalog has no other type. In the context of the content
+    tests, a test post-processor removes the bean definition of the Git adapter before Spring creates beans. Thus
+    the in-memory adapter is the only adapter for `SourceType.GIT` there, and the start check of section 9 passes.
+  - The Git tests use a second application context with the Git adapter and the SSH Git server. A test fixture
+    publishes revisions through the fetch and the publish step of the `git` module, which sync calls in slice 6.
 - **Git** tests use an SSH Git server in Testcontainers. The test builds the image from a pinned `alpine` image with
   `openssh` and `git`. Thus the test controls the host key and the authorized keys, and needs no third-party image.
   The tests include these cases:
@@ -1615,7 +1696,9 @@ so no other table changes. Section 5.3 gives the rules.
   CSRF protection. v1 has no browser tests.
 - **Local development.** `bootTestRun` starts PostgreSQL, the SSH Git server and a mock OIDC provider in
   Testcontainers. Thus a developer can sign in to the UI and test each slice without a real identity provider. The
-  mock provider is `ghcr.io/navikt/mock-oauth2-server` at a pinned version. One test signs in through it.
+  mock provider is `ghcr.io/navikt/mock-oauth2-server` at a pinned version. One test signs in through it. The SSH Git
+  server has the Git instance `test-server` and the repository `repos/sample.git`. The log gives the command that
+  authorizes the public key of a credential on the server.
 - **Tokens in tests.** The other integration tests use an issuer in the test process. Thus a test can sign a token
   with any claims, key, issuer or expiry time, and Folio validates it with its production decoder.
 - Tests that need Docker have `@Tag("integration")`.
@@ -1791,11 +1874,31 @@ decision here with its reason.
 | A key that does not decrypt gives an `IllegalStateException` that names the key and the credential. | Callers never see crypto types. The operator can find the credential to replace, and a failed re-encryption can then complete. | 8.3, 11.3 |
 | Content finds and authorizes in one snapshot, through `ConfigSets.requireReadable`, and calls the adapter outside a transaction. | A decision uses one snapshot. The catalog owns the order "find, then authorize". A slow read or a fetch holds no database connection. | 8.1, 8.2 |
 | A revision ID has 1 to 64 lowercase letters and digits, and is never `latest`. | Content rejects a malformed value with 400 before it finds the ConfigSet. An ID needs no escape in a URL. | 9, 12.1 |
-| Content selects the adapter at the time of a read. Two adapters for one type stop the start. | The main code has no adapter until the Git slice, and Folio must still start. | 9, 20 |
+| Each Source type needs exactly one adapter. Two adapters for one type, or a type without an adapter, stop the start. | A missing adapter is a defect of the build. The start shows it, not the first read. | 9 |
 | The metadata shows `latestRevision: null` before the first publish. Only reads of `latest` give `NOT_PUBLISHED_YET`. | A consumer can see that the ConfigSet exists but has no content yet. | 5.5, 12.1 |
 | The content pages are in `content`. The ConfigSet page links to them by path, and the files page names the latest revision. | Each module serves its own pages, and the catalog does not depend on `content`. | 12.3 |
 | The UI shows text only for files of 3 MB or less. | Folio keeps only these files in memory. A larger file is a download. | 9, 12.3 |
-| The in-memory adapter is in the test sources and registers for `SourceType.GIT`. | It is for tests only (section 4.1). The catalog has no other type until the Git slice decides. | 17 |
+| The in-memory adapter is in the test sources and registers for `SourceType.GIT`. A test post-processor removes the Git adapter from the context of the content tests. The Git tests use their own context with the Git adapter. | It is for tests only (section 4.1). A `SourceType` for tests only would put test code in the main enum, and content tests with the SSH Git server would test Git again in each content test. | 17 |
 | YAML validation reads parser events and checks the limits of the composer itself. | A node graph uses about 60 times the size of the file. Each read of a file of 3 MB or less validates it again. | 13 |
 | The INI checker reads UTF-8 only. | `configparser` uses the locale encoding, which Folio cannot know. UTF-8 is the common encoding of configuration files. | 13 |
 | `SourceFailed` (502) and `SourceTimedOut` (504) are two errors. | Each expected failure has one subclass and one kind (section 8.6). A flag would hide the choice at the call site of an adapter. | 9 |
+| Onboarding calls `ConfigSets.create` before `Credentials.requireUsable`. | `ConfigSets.create` takes the exclusive tree lock. The lock-order rule of section 8.1 needs it before `Access` takes the shared form. | 8.1, 10.3 |
+| Onboarding writes `CONFIG_SET_CREATED` and `GIT_SOURCE_CREATED`, two records in one transaction. | Each module records its own operation (section 8.5). A query for one operation finds all of its records. | 14 |
+| `GET /configsets/{id}/git` needs `MANAGE` on the ConfigSet. | The Source definition and the sync state are administration data, as the check and the manual sync are. | 10.3 |
+| The check does not publish a revision. | Sync owns the change detection and the audit records of publishes. | 10.3, 10.6 |
+| A disabled credential is a check result after the authorization, and a wrong pending key is a 409 error. | The caller learns the state only after the authorization (section 11.1). A wrong key ID is a wrong request, not a state of the source. | 10.3 |
+| `git_revision` has one row for each commit. A commit that the branch returns to gets a new `published_at`. | The newest row is always the last published commit, so `latest` needs no sync state. A force push back to an earlier commit makes that commit latest again. | 10.6, 16 |
+| Slice 6 adds the sync-state and lease columns of `git_source`. | Each column comes with the code that writes it. Slice 5 reads the published state from `git_revision`. | 16, 20 |
+| Until slice 6, a read of a published commit that the cache lacks fails with `RevisionUnavailable`. | A fetch on demand without the limits of section 10.8 lets anonymous readers start fetches without a limit. | 10.8, 20 |
+| The Git adapter leaves files whose names are not item paths out of the file list, and logs only their number. | A consumer cannot read such a file. A name can contain text that the repository controls. | 9 |
+| The branch has a maximum of 250 characters, and the root path a maximum of 1,000. The root path has the normal form of an item path. | Each value from a request has a limit. A root path in normal form cannot lead outside the repository. | 10.2 |
+| `GitException` is in the top-level package of `git`, but no other module uses it. | Section 8.6 puts the errors of a module in its public API. Only the Git routes throw them. | 8, 8.6 |
+| The fetch watchdog is one virtual thread for each fetch that sleeps until the deadline. | A sleeping virtual thread is cheap, and Folio does not pool threads for blocking work (section 8.7). | 10.7 |
+| `folio.git.cache-directory` is mandatory and absolute. | Each deployment must select a disk for the cache. A relative path would depend on the working directory. | 10.5 |
+| A transaction takes the tree lock before a row lock. A credential change authorizes before it locks the credential row. | Onboarding holds the exclusive tree lock and then waits for the credential row at the foreign key of `git_source`. The other order deadlocks. | 8.1, 11.1 |
+| JGit streams blobs above 3 MB. The git module sets the stream threshold of JGit when the cache starts. | The default threshold of JGit is 50 MiB, so each read below it would hold the full file in memory (section 9). | 9, 10.5 |
+| The Git file list visits a maximum of 10,000 tree entries, and fails with `TOO_MANY_FILES` above it. | Shared subtrees let a small commit name billions of files. Each value from outside has a limit. | 9 |
+| The Git adapter logs skipped file names at `INFO`. | Any reader of a public ConfigSet can repeat a list, so the line must not alert. | 9 |
+| `Fetcher.fetch` is the one fetch step. It opens the key, finds the Git instance and fetches. | Sync, the check and the fetch on demand need the same order and the same failure codes. Each failure gets one log line. | 10.6 |
+| A delete or a new start of a cache repository waits for reads only until the fetch deadline. | A slow download would otherwise hold a fetch past its deadline, and new reads would wait behind the delete. | 10.5, 10.7 |
+| A timeout of a connect or of an idle read gives `UNREACHABLE`. | Exception types do not show which timeout occurred, so the summary names both causes. | 10.3 |

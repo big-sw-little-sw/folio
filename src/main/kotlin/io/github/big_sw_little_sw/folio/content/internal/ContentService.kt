@@ -37,16 +37,7 @@ class ContentService(
     adapters: ObjectProvider<ConfigSource>,
     private val properties: ContentProperties,
 ) {
-    /**
-     * Two adapters for one Source type stop the start of Folio. A Source type without an adapter fails only when a read
-     * needs it, with status 500, so Folio can start before each Source type has an adapter.
-     */
-    private val sources: Map<SourceType, ConfigSource> =
-        adapters.orderedStream().toList().let { all ->
-            val duplicates = all.groupBy { it.type }.filterValues { it.size > 1 }.keys
-            check(duplicates.isEmpty()) { "More than one ConfigSource adapter for $duplicates" }
-            all.associateBy { it.type }
-        }
+    private val sources: Map<SourceType, ConfigSource> = sourcesByType(adapters.orderedStream().toList())
 
     /** Uses the cache policy of `latest`, because the metadata names the latest revision. */
     fun metadata(caller: Caller, id: ConfigSetId): Cached<Metadata> {
@@ -102,8 +93,8 @@ class ContentService(
     private fun cacheControlOf(readable: ReadableConfigSet, selector: RevisionSelector): String =
         cacheControl(selector, readable.public, properties.latestMaxAge)
 
-    private fun sourceOf(configSet: ConfigSet): ConfigSource =
-        sources[configSet.sourceType] ?: error("No ConfigSource adapter for ${configSet.sourceType}")
+    /** [sourcesByType] makes sure at startup that each Source type has an adapter, so `getValue` never fails. */
+    private fun sourceOf(configSet: ConfigSet): ConfigSource = sources.getValue(configSet.sourceType)
 
     private fun revisionOf(source: ConfigSource, id: ConfigSetId, selector: RevisionSelector): RevisionId =
         when (selector) {
@@ -115,4 +106,16 @@ class ContentService(
         /** The revision list has no pagination, so this limit keeps each response small. */
         const val MAX_REVISIONS = 100
     }
+}
+
+/**
+ * Maps each Source type to its adapter. Each Source type needs exactly one adapter, so two adapters for one type or a
+ * type without an adapter stop the start of Folio.
+ */
+fun sourcesByType(adapters: List<ConfigSource>): Map<SourceType, ConfigSource> {
+    val duplicates = adapters.groupBy { it.type }.filterValues { it.size > 1 }.keys
+    check(duplicates.isEmpty()) { "More than one ConfigSource adapter for $duplicates" }
+    val missing = SourceType.entries - adapters.map { it.type }.toSet()
+    check(missing.isEmpty()) { "No ConfigSource adapter for $missing" }
+    return adapters.associateBy { it.type }
 }

@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service
 /** A credential that the caller can connect to a repository. [gitInstance] names the Git server of the repository. */
 data class UsableCredential(val id: CredentialId, val namespaceId: NamespaceId, val gitInstance: Slug)
 
-/** Other modules use credentials through this class. The `git` module calls it at onboarding. */
+/** Other modules use credentials through this class. The `git` module calls it at onboarding and for the check. */
 @Service
 class Credentials(private val credentialRepository: CredentialRepository, private val access: Access) {
     /**

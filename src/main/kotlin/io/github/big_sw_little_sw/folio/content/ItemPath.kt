@@ -19,7 +19,8 @@ value class ItemPath(val value: String) {
 
     override fun toString(): String = value
 
-    private companion object {
+    companion object {
+        /** True if [text] is an item path in normal form. Thus a caller can test text and get no exception. */
         fun isValid(text: String): Boolean = text.none { it == '\\' || it == '\u0000' } &&
             text.split('/').none { it.isEmpty() || it == "." || it == ".." }
     }

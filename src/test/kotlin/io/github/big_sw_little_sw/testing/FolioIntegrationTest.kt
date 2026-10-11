@@ -14,10 +14,10 @@ import java.net.http.HttpResponse
 /**
  * A test of the full application through MockMvc, with PostgreSQL in Testcontainers and [TestIssuer] as the identity
  * provider. [HtmlCheckConfiguration] examines each HTML response. [TestCatalog] builds catalog trees, [TestCredentials]
- * sets up credentials, and [TestAudit] reads audit records. [InMemorySource] is the Source of the ConfigSets, and tests
- * publish revisions with it. [TestLocks] runs tasks while another transaction holds a lock. All classes with this
- * annotation share one application context and one database. Each test must read only the data that it made, because
- * data from other tests stays in the database.
+ * sets up credentials, and [TestAudit] reads audit records. [InMemorySource] replaces the Git adapter
+ * ([InMemorySourceOnly]), and tests publish revisions with it. [TestLocks] runs tasks while another transaction holds a
+ * lock. All classes with this annotation share one application context and one database. Each test must read only the
+ * data that it made, because data from other tests stays in the database.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
@@ -32,10 +32,35 @@ import java.net.http.HttpResponse
     TestCatalog::class,
     TestCredentials::class,
     InMemorySource::class,
+    InMemorySourceOnly::class,
     TestAudit::class,
     TestLocks::class,
 )
 annotation class FolioIntegrationTest
+
+/**
+ * A test of the `git` module and of reads through the Git adapter. The context has the Git adapter and [SshGitServer]
+ * as its Git instance. [TestGit] connects repositories and publishes their revisions. The other fixtures are the
+ * fixtures of [FolioIntegrationTest]. All classes with this annotation share one application context. The file limit
+ * is 1 KB, so a test can push a file above the limit quickly.
+ */
+@Target(AnnotationTarget.CLASS)
+@Retention(AnnotationRetention.RUNTIME)
+@Tag("integration")
+@SpringBootTest(properties = ["folio.content.max-file-size=1KB"])
+@AutoConfigureMockMvc
+@Import(
+    TestcontainersConfiguration::class,
+    TestIssuerConfiguration::class,
+    SshGitServerConfiguration::class,
+    HtmlCheckConfiguration::class,
+    TestCatalog::class,
+    TestCredentials::class,
+    TestGit::class,
+    TestAudit::class,
+    TestLocks::class,
+)
+annotation class GitIntegrationTest
 
 /**
  * This annotation marks a test of the full application on real ports. The management port is random, so it differs

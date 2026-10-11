@@ -7,6 +7,7 @@ import io.github.big_sw_little_sw.folio.credential.KeyId
 import io.github.big_sw_little_sw.folio.credential.internal.Credential
 import io.github.big_sw_little_sw.folio.credential.internal.CredentialService
 import io.github.big_sw_little_sw.folio.credential.internal.Key
+import io.github.big_sw_little_sw.folio.credential.internal.KeyStatus
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.uniqueSlug
 import org.springframework.boot.test.context.TestComponent
@@ -40,3 +41,6 @@ class TestCredentials(private val credentials: CredentialService, private val ca
         credentials.delete(SUPER_ADMIN, id)
     }
 }
+
+/** The active key of the credential. Each credential always has exactly one active key (design 11.1). */
+val Credential.activeKey: Key get() = keys.single { it.status == KeyStatus.ACTIVE }

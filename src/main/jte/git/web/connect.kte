@@ -1,0 +1,58 @@
+<%--
+    The form that connects a Git repository to a new ConfigSet (design 10.3, 12.3). The create does not connect to the
+    Git server. The catalog does not depend on the git module, so the Namespace page links to this page by its URL only.
+--%>
+@import io.github.big_sw_little_sw.folio.catalog.Namespace
+@import io.github.big_sw_little_sw.folio.git.web.ConnectForm
+@import io.github.big_sw_little_sw.folio.web.FolioException
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param namespace: Namespace
+@param namespaceReadable: Boolean
+@param form: ConnectForm
+@param problem: FolioException? = null
+@template.web.layout(page = page, title = "Connect a Git repository", content = @`
+    <nav class="crumbs" aria-label="Path">
+        <a href="/">Catalog</a> /
+        @if(namespaceReadable)
+            <a href="/namespaces/${namespace.id.toApiId()}">${namespace.path.toString()}</a>
+        @else
+            ${namespace.path.toString()}
+        @endif
+        /
+        Connect a Git repository
+    </nav>
+    <h1>Connect a Git repository</h1>
+    <p>
+        Folio creates a ConfigSet in <code>${namespace.path.toString()}</code> with this Git source. The Git source does
+        not change after the create. Then register the public key of the credential with the Git service, and run the
+        check.
+    </p>
+    @if(problem != null)
+        @template.web.problem(code = problem.code, detail = problem.detail)
+    @endif
+    <form class="stacked" method="post" action="/git/configsets">
+        @template.web.csrfField(page = page)
+        <input type="hidden" name="namespaceId" value="${namespace.id.toApiId()}">
+        <label for="slug">Slug</label>
+        <input id="slug" name="slug" value="${form.slug}" required maxlength="100" pattern="[a-z0-9]+(-[a-z0-9]+)*" aria-describedby="slug-help">
+        <small id="slug-help">The name of the ConfigSet. 1 to 100 lowercase letters, digits and single hyphens between them.</small>
+        <label for="description">Description</label>
+        <textarea id="description" name="description" maxlength="1000" rows="3" aria-describedby="description-help">
+${form.description}</textarea>
+        <small id="description-help">Optional. 1,000 characters or fewer.</small>
+        <label for="credential-id">Credential</label>
+        <input id="credential-id" name="credentialId" value="${form.credentialId}" required pattern="cred_[0-9a-f]{32}" aria-describedby="credential-id-help">
+        <small id="credential-id-help">The ID of the credential, for example <code>cred_0192f0c1e8a47c3b9d2e5f6a7b8c9d0e</code>. The credential names the Git instance. You need MANAGE on the Namespace that owns it.</small>
+        <label for="repository-path">Repository path</label>
+        <input id="repository-path" name="repositoryPath" value="${form.repositoryPath}" required maxlength="500" aria-describedby="repository-path-help">
+        <small id="repository-path-help">The path of the repository on the Git instance, for example <code>org/repo.git</code>.</small>
+        <label for="branch">Branch</label>
+        <input id="branch" name="branch" value="${form.branch}" required maxlength="250" aria-describedby="branch-help">
+        <small id="branch-help">The branch name without <code>refs/heads/</code>, for example <code>main</code>.</small>
+        <label for="root-path">Root path</label>
+        <input id="root-path" name="rootPath" value="${form.rootPath}" maxlength="1000" aria-describedby="root-path-help">
+        <small id="root-path-help">Optional. The directory with the configuration files, for example <code>config</code>. Empty is the root of the repository.</small>
+        <button type="submit">Connect</button>
+    </form>
+`)
