@@ -67,7 +67,7 @@ class ConfigSets(
     @SnapshotRead
     fun requireReadable(caller: Caller, id: ConfigSetId): ReadableConfigSet {
         val (configSet, ancestry) = authorized(caller, Action.READ, id)
-        val public = authorizer.decide(Caller.Anonymous, Action.READ, ancestry).allowed
+        val public = authorizer.decideUncounted(Caller.Anonymous, Action.READ, ancestry).allowed
         return ReadableConfigSet(configSet, public)
     }
 

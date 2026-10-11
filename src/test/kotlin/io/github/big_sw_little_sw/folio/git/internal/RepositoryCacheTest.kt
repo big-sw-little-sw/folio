@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.testing.*
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.eclipse.jgit.lib.Repository
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -19,7 +20,7 @@ class RepositoryCacheTest {
     @TempDir
     lateinit var root: Path
 
-    private val cache by lazy { RepositoryCache(GitProperties(root.resolve("cache"))) }
+    private val cache by lazy { RepositoryCache(GitProperties(root.resolve("cache")), SimpleMeterRegistry()) }
     private val branch = Branch("main")
 
     @Test

@@ -1,6 +1,8 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
 import org.eclipse.jgit.lib.ObjectId
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataAccessException
@@ -25,6 +27,9 @@ sealed interface SyncAttempt {
 
 /**
  * Syncs Git sources under leases. Each object of this class has its own lease owner, so it acts as one Folio instance.
+ *
+ * The meter `folio.sync.attempts` counts each recorded attempt. An attempt that lost its lease records nothing, so the
+ * meter does not count it. The timer `folio.sync.fetch.duration` measures each fetch of sync, also a failed fetch.
  */
 @Service
 class Synchronizer(
@@ -33,11 +38,14 @@ class Synchronizer(
     private val cache: RepositoryCache,
     private val recorder: SyncRecorder,
     gitProperties: GitProperties,
+    private val meters: MeterRegistry,
 ) {
     /** The lease owner of this object. The owner is random, so each start of the process has a new owner. */
     val owner = LeaseOwner(UUID.randomUUID())
 
     private val leaseLength: Duration = gitProperties.fetchDeadline + LEASE_MARGIN
+
+    private val fetchDuration = Timer.builder("folio.sync.fetch.duration").register(meters)
 
     /** Claims a maximum of [limit] due ConfigSets, never one of [excluding]. */
     fun claim(limit: Int, excluding: Set<ConfigSetId> = emptySet()): List<SyncLease> =
@@ -52,10 +60,12 @@ class Synchronizer(
      */
     fun sync(lease: SyncLease): Boolean {
         val attempt = attempt(lease)
-        val recorded = recorder.record(lease, attempt)
-        if (!recorded) {
+        if (!recorder.record(lease, attempt)) {
             log.info("The sync of ConfigSet {} lost its lease and recorded nothing", lease.configSet.toApiId())
-        } else if (attempt is SyncAttempt.Publish && attempt.skipped > 0) {
+            return false
+        }
+        count(attempt)
+        if (attempt is SyncAttempt.Publish && attempt.skipped > 0) {
             // The level is INFO, not WARN, because the revision still publishes and no operator must act. The line
             // never names the files, because the repository controls the names.
             log.info(
@@ -64,7 +74,7 @@ class Synchronizer(
                 attempt.skipped,
             )
         }
-        return recorded
+        return true
     }
 
     /**
@@ -84,13 +94,30 @@ class Synchronizer(
         }
     }
 
+    /**
+     * A success gets the code tag `none`, so each series of the meter has the same tag keys. Prometheus requires the
+     * same tag keys for all series of one meter.
+     */
+    private fun count(attempt: SyncAttempt) {
+        val (outcome, code) =
+            when (attempt) {
+                is SyncAttempt.Unchanged -> "unchanged" to NO_CODE
+                is SyncAttempt.Publish -> "published" to NO_CODE
+                is SyncAttempt.Failed -> "failed" to attempt.code.name
+            }
+        meters.counter(ATTEMPTS, "outcome", outcome, "code", code).increment()
+    }
+
     private fun attempt(lease: SyncLease): SyncAttempt {
+        val fetch = Timer.start()
         val tip =
             try {
                 fetcher.fetch(lease.configSet, lease.source)
             } catch (failure: GitFailure) {
                 // The fetch step already logged the failure.
                 return SyncAttempt.Failed(failure.code, null)
+            } finally {
+                fetch.stop(fetchDuration)
             }
         if (tip == lease.lastPublished) return SyncAttempt.Unchanged(tip)
         val started = System.nanoTime()
@@ -117,6 +144,9 @@ class Synchronizer(
 
     private companion object {
         val log = LoggerFactory.getLogger(Synchronizer::class.java)
+
+        const val ATTEMPTS = "folio.sync.attempts"
+        const val NO_CODE = "none"
 
         /**
          * The lease is the fetch deadline plus this margin. The deadline cannot stop SSH authentication, which sshd

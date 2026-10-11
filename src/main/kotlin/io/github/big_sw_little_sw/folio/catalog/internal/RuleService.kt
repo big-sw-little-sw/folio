@@ -78,7 +78,7 @@ class RuleService(
             } else {
                 superAdmins.caller(described.subject, described.groups, described.applicationId)
             }
-        val decision = authorizer.decide(explained, action, ancestry)
+        val decision = authorizer.decideUncounted(explained, action, ancestry)
         val (matched, decidingResource) =
             when (decision) {
                 Decision.SuperAdmin -> superAdmins.entryFor(explained) to null

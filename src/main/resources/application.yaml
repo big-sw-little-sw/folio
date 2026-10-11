@@ -6,6 +6,14 @@ spring:
       # Requests, scheduled tasks and async work run on virtual threads. Git and database calls block, and virtual
       # threads make blocking calls cheap.
       enabled: true
+  datasource:
+    hikari:
+      data-source-properties:
+        # Without this setting, the PostgreSQL driver puts the server detail of an error into the exception message.
+        # The detail of a unique violation has the key values, for example a slug. A failed statement records the
+        # message in its span, and the log line of an unexpected error contains it. Spans and logs must never contain
+        # such values (design 15.1).
+        logServerErrorDetail: false
   session:
     jdbc:
       # Flyway creates the session tables in V1__spring_session.sql. Spring Session must not create them again.
@@ -50,6 +58,32 @@ management:
       exposure:
         # Folio exposes only these endpoints. Other endpoints, such as env and configprops, show configuration values.
         include: health, prometheus
+  # Folio records meters with Micrometer (design 15.1). Prometheus scrapes the meters from /actuator/prometheus on
+  # the management port. To push the meters to an OpenTelemetry collector too, do these steps:
+  #   1. Set otlp.metrics.export.enabled to true.
+  #   2. Set otlp.metrics.export.url to the collector, for example http://collector:4318/v1/metrics.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  # Traces are off by default, because the sampling probability is 0. To turn traces on, do these steps:
+  #   1. Set tracing.sampling.probability above 0, for example 0.1.
+  #   2. Set opentelemetry.tracing.export.otlp.endpoint to the collector, for example http://collector:4318/v1/traces.
+  # Without the endpoint, Folio exports no spans. The sampler follows the sampled flag of an incoming traceparent
+  # header. Thus, with an endpoint and probability 0, Folio still exports the spans of each request whose traceparent
+  # is sampled. A span can contain a ConfigSet ID, but never a path, a subject, a token, file content or an exception
+  # message.
+  tracing:
+    sampling:
+      probability: 0.0
+# The datasource-micrometer library gives the spans of database calls (design 15.1): one span for the use of each
+# connection and one span for each statement. Folio does not include the spans of result sets, because they would add
+# many spans with little information.
+jdbc:
+  includes: connection, query
+  datasource-proxy:
+    # The parameter values of a statement can contain paths and subjects. Spans must never contain these values.
+    include-parameter-values: false
 # Folio has these settings of its own. The default of each setting is in parentheses.
 #   folio.security.claims.subject (sub), .groups (groups) and .application-id (azp) name the claims that give the
 #     caller.
