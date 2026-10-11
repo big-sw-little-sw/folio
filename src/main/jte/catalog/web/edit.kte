@@ -1,0 +1,22 @@
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@import io.github.big_sw_little_sw.folio.web.FolioException
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param resource: ResourceView
+@param slug: String?
+@param description: String?
+@param problem: FolioException? = null
+@template.web.layout(page = page, title = "Rename or describe " + resource.path, content = @`
+    @template.catalog.web.crumbs(resource = resource)
+    <h1>Rename or describe the ${resource.kind}</h1>
+    <p>A rename changes the path, not the ID. The old path stops resolving immediately.</p>
+    @if(problem != null)
+        @template.web.problem(code = problem.code, detail = problem.detail)
+    @endif
+    <form class="stacked" method="post" action="${resource.url}/edit">
+        @template.web.csrfField(page = page)
+        @template.catalog.web.slugField(slug = slug)
+        @template.catalog.web.descriptionField(description = description)
+        <button type="submit">Save</button>
+    </form>
+`)

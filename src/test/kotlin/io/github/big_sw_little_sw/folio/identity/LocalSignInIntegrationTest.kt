@@ -3,6 +3,7 @@ package io.github.big_sw_little_sw.folio.identity
 import io.github.big_sw_little_sw.folio.MockOidcProvider
 import io.github.big_sw_little_sw.folio.MockOidcProviderConfiguration
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
+import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.testing.*
 import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
@@ -26,12 +27,13 @@ import kotlin.test.*
  */
 @Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(TestcontainersConfiguration::class, MockOidcProviderConfiguration::class, TestRoutes::class)
+@Import(TestcontainersConfiguration::class, MockOidcProviderConfiguration::class, TestRoutes::class, TestCatalog::class)
 class LocalSignInIntegrationTest(
     @Value("\${local.server.port}") private val port: Int,
     @Autowired private val provider: MockOidcProvider,
     @Autowired private val json: JsonMapper,
     @Autowired private val sessions: FindByIndexNameSessionRepository<*>,
+    @Autowired private val catalog: TestCatalog,
 ) {
     private val folio = "http://localhost:$port"
     private val cookies = CookieManager()
@@ -41,8 +43,8 @@ class LocalSignInIntegrationTest(
     fun `a person signs in to the UI and the session does not authenticate the API`() {
         val page = signIn("alice")
 
-        assertContains(page, "Signed in as <strong>alice</strong>")
-        assertContains(page, "<code>team-a</code>")
+        assertContains(page, "Signed in as <a href=\"/me\"><strong>alice</strong></a>")
+        assertContains(get("$folio/me").body(), "<code>team-a</code>")
         val lastAccess =
             sessions
                 .findByPrincipalName("alice")
@@ -60,6 +62,22 @@ class LocalSignInIntegrationTest(
                 .single()
                 .lastAccessedTime,
         )
+    }
+
+    @Test
+    fun `an anonymous browser goes to sign-in and then back to the page`() {
+        val top = catalog.namespace()
+        catalog.rule(top, Action.READ, "user:carol")
+        val page = "/namespaces/${top.toApiId()}"
+
+        assertEquals("/sign-in", URI.create(location(get("$folio$page"))).path)
+        val authorization = URI.create(folio).resolve(location(get("$folio/sign-in"))).toString()
+        val back = URI.create(folio).resolve(location(get(callback(authorization, "carol"))))
+
+        assertEquals(page, back.path)
+        val response = get(back.toString())
+        assertEquals(200, response.statusCode())
+        assertContains(response.body(), "<code>${top.toApiId()}</code>")
     }
 
     @Test
@@ -106,14 +124,17 @@ class LocalSignInIntegrationTest(
     }
 
     /** Signs in through the mock provider with the groups `team-a`, and gives the start page. */
-    private fun signIn(username: String): String {
-        val authorize = location(get("$folio/oauth2/authorization/folio"))
+    private fun signIn(username: String): String =
+        get(location(get(callback("$folio/oauth2/authorization/folio", username)))).body()
+
+    /** Starts the sign-in at [authorization] and gives the callback URL of Folio after the login at the provider. */
+    private fun callback(authorization: String, username: String): String {
+        val authorize = location(get(authorization))
         assertTrue(authorize.startsWith("${provider.issuer()}/authorize?"), authorize)
         assertContains(authorize, "code_challenge_method=S256")
 
         val login = form(mapOf("username" to username, "claims" to """{"groups": ["team-a"]}"""))
-        val callback = location(browser.send(post(authorize, login), STRING))
-        return get(location(get(callback))).body()
+        return location(browser.send(post(authorize, login), STRING))
     }
 
     private fun get(url: String) = browser.send(HttpRequest.newBuilder(URI.create(url)).build(), STRING)

@@ -1,11 +1,11 @@
-<%-- The routes /sign-in and /sign-out belong to the identity module. --%>
+<%-- The routes /me, /sign-in and /sign-out belong to the identity module. --%>
 @import io.github.big_sw_little_sw.folio.web.PageContext
 @param page: PageContext
 <header class="site">
     <a class="brand" href="/">Folio</a>
     <nav>
         @if(page.signedInAs != null)
-            <span>Signed in as <strong>${page.signedInAs}</strong></span>
+            <span>Signed in as <a href="/me"><strong>${page.signedInAs}</strong></a></span>
             <form method="post" action="/sign-out">
                 @template.web.csrfField(page = page)
                 <button type="submit">Sign out</button>

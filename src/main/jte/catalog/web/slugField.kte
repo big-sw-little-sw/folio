@@ -1,0 +1,4 @@
+@param slug: String?
+<label for="slug">Slug</label>
+<input id="slug" name="slug" value="${slug}" required maxlength="100" pattern="[a-z0-9]+(-[a-z0-9]+)*" aria-describedby="slug-help">
+<small id="slug-help">1 to 100 lowercase letters, digits and single hyphens between them.</small>

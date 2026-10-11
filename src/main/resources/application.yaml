@@ -46,3 +46,5 @@ management:
 #   folio.security.directory (token): the origin of groups.
 #   folio.ui.session-timeout (1h): a UI session ends after this time without use.
 #   folio.audit.retention (90d): Folio deletes older audit records one time each day.
+#   folio.super-admins (none): subjects that can do all actions, for example group:<id> (design 7.2). Keep the list
+#     small. Without super admins, nobody can create a top-level Namespace.

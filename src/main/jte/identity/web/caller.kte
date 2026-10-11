@@ -2,8 +2,8 @@
 @import io.github.big_sw_little_sw.folio.web.PageContext
 @param page: PageContext
 @param caller: Caller
-@template.web.layout(page = page, title = "Home", content = @`
-    <h1>Folio</h1>
+@template.web.layout(page = page, title = "Your identity", content = @`
+    <h1>Your identity</h1>
     @if(caller is Caller.Authenticated)
         <p>Folio knows you as this caller. Rules name these values.</p>
         <dl>
@@ -23,6 +23,6 @@
             <dd>@if(caller.applicationId != null)<code>${caller.applicationId}</code>@else None @endif</dd>
         </dl>
     @else
-        <p>You are not signed in. <a href="/sign-in">Sign in</a> to see the configuration that you can read.</p>
+        <p>You are not signed in. <a href="/sign-in">Sign in</a> to see how Folio knows you.</p>
     @endif
 `)

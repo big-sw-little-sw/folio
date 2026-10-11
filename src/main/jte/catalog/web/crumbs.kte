@@ -1,0 +1,10 @@
+<%-- The path of a resource, with a link to each Namespace above it. --%>
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@param resource: ResourceView
+<nav class="crumbs" aria-label="Path">
+    <a href="/">Catalog</a>
+    @for(crumb in resource.crumbs)
+        / <a href="${crumb.url}">${crumb.label}</a>
+    @endfor
+    / <a href="${resource.url}" aria-current="page">${resource.slug}</a>
+</nav>

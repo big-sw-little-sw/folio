@@ -1,0 +1,27 @@
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@import io.github.big_sw_little_sw.folio.web.FolioException
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param parent: ResourceView?
+@param slug: String?
+@param description: String?
+@param problem: FolioException? = null
+@template.web.layout(page = page, title = "Create a Namespace", content = @`
+    @if(parent != null)
+        @template.catalog.web.crumbs(resource = parent)
+    @endif
+    <h1>Create a Namespace</h1>
+    <p>@if(parent != null)In <code>${parent.path}</code>.@else At the top level.@endif</p>
+    @if(problem != null)
+        @template.web.problem(code = problem.code, detail = problem.detail)
+    @endif
+    <form class="stacked" method="post" action="/namespaces">
+        @template.web.csrfField(page = page)
+        @if(parent != null)
+            <input type="hidden" name="parentId" value="${parent.id}">
+        @endif
+        @template.catalog.web.slugField(slug = slug)
+        @template.catalog.web.descriptionField(description = description)
+        <button type="submit">Create</button>
+    </form>
+`)

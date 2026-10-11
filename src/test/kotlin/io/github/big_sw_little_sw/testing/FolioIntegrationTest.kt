@@ -13,9 +13,9 @@ import java.net.http.HttpResponse
 
 /**
  * A test of the full application through MockMvc, with PostgreSQL in Testcontainers and [TestIssuer] as the identity
- * provider. [HtmlCheckConfiguration] examines each HTML response. All classes with this annotation share one
- * application context and one database. Each test must read only the data that it made, because data from other tests
- * stays in the database.
+ * provider. [HtmlCheckConfiguration] examines each HTML response. [TestCatalog] builds catalog trees. All classes with
+ * this annotation share one application context and one database. Each test must read only the data that it made,
+ * because data from other tests stays in the database.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
@@ -27,6 +27,7 @@ import java.net.http.HttpResponse
     TestIssuerConfiguration::class,
     TestRoutes::class,
     HtmlCheckConfiguration::class,
+    TestCatalog::class,
 )
 annotation class FolioIntegrationTest
 

@@ -25,3 +25,8 @@ spring:
           folio:
             # A placeholder, as above.
             issuer-uri: http://issuer.invalid
+folio:
+  # Tests and local runs: a caller with the group folio-admins is a super admin. With bootTestRun, sign in with the
+  # claims {"groups": ["folio-admins"]}.
+  super-admins:
+    - group:folio-admins

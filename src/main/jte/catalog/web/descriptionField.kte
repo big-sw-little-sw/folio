@@ -1,0 +1,6 @@
+@param description: String?
+<%-- The HTML parser drops one line break after <textarea>, so a description that starts with a line break keeps it. --%>
+<label for="description">Description</label>
+<textarea id="description" name="description" maxlength="1000" rows="3" aria-describedby="description-help">
+${description}</textarea>
+<small id="description-help">Optional. 1,000 characters or fewer.</small>

@@ -7,13 +7,16 @@ import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.GetMapping
 
-/** The start page, which shows the caller, and the sign-in route that the layout links to. */
+/**
+ * The caller page and the sign-in route that the layout links to. The caller page shows the subject, the groups and the
+ * application ID, which rules name. The catalog serves the start page.
+ */
 @Controller
 class IdentityPages(private val currentCaller: CurrentCaller) {
-    @GetMapping("/")
-    fun home(model: Model): String {
+    @GetMapping("/me")
+    fun caller(model: Model): String {
         model.addAttribute("caller", currentCaller.get())
-        return "identity/web/home"
+        return "identity/web/caller"
     }
 
     @GetMapping("/sign-in")

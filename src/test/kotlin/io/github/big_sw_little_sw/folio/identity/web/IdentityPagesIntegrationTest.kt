@@ -30,9 +30,9 @@ class IdentityPagesIntegrationTest(
 
     @Test
     fun `a signed-in caller sees the caller, a sign-out form and the CSRF token for htmx`() {
-        val page = mvc.page("/", alice)
+        val page = mvc.page("/me", alice)
 
-        assertContains(page, "Signed in as <strong>alice</strong>")
+        assertContains(page, "Signed in as <a href=\"/me\"><strong>alice</strong></a>")
         assertContains(page, "<code>team-a</code>")
         assertContains(page, "<code>cli</code>")
         assertContains(page, """<form method="post" action="/sign-out">""")
@@ -81,7 +81,7 @@ class IdentityPagesIntegrationTest(
         mvc.post("/sign-out") { with(signedIn(alice)) }.andExpect {
             status { isForbidden() }
             content { string(containsString("<code>CSRF_TOKEN_INVALID</code>")) }
-            content { string(containsString("Signed in as <strong>alice</strong>")) }
+            content { string(containsString("Signed in as <a href=\"/me\"><strong>alice</strong></a>")) }
         }
         mvc
             .post("/sign-out") {
