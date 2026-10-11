@@ -64,7 +64,9 @@ class ActuatorIntegrationTest(
 
     @Test
     fun `OTLP metrics and traces are off by default`() {
-        val registries = ((meters as? CompositeMeterRegistry)?.registries ?: setOf(meters)).map { it.javaClass.simpleName }
+        val registries = ((meters as? CompositeMeterRegistry)?.registries ?: setOf(meters)).map {
+            it.javaClass.simpleName
+        }
         val span = tracer.nextSpan()
         span.end()
 

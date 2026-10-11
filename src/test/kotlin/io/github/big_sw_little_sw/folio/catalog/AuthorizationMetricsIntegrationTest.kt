@@ -6,13 +6,13 @@ import io.github.big_sw_little_sw.testing.FolioIntegrationTest
 import io.github.big_sw_little_sw.testing.TestCatalog
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.jsonBody
+import io.github.big_sw_little_sw.testing.send
 import io.github.big_sw_little_sw.testing.tagKeys
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.HttpMethod
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -68,10 +68,12 @@ class AuthorizationMetricsIntegrationTest(
 
         assertFalse(configSets.requireReadable(SUPER_ADMIN, configSet).public)
         mvc
-            .post("/api/v1/admin/configsets/${configSet.toApiId()}/explain") {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"action": "READ", "caller": {"subject": "alice"}}""")
-            }.andExpect { status { isOk() } }
+            .send(
+                HttpMethod.POST,
+                "/api/v1/admin/configsets/${configSet.toApiId()}/explain",
+                SUPER_ADMIN,
+                """{"action": "READ", "caller": {"subject": "alice"}}""",
+            ).andExpect { status { isOk() } }
 
         assertEquals(1.0, callerRead.added())
         assertEquals(0.0, otherReads.sumOf { it.added() })

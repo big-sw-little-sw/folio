@@ -8,7 +8,6 @@ import io.github.big_sw_little_sw.testing.TestGit
 import io.github.big_sw_little_sw.testing.TestIssuer
 import io.github.big_sw_little_sw.testing.andExpectProblem
 import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.jsonBody
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter
@@ -18,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
+import org.springframework.http.MediaType
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
@@ -118,7 +118,8 @@ class TracingIntegrationTest(
         mvc
             .post("/api/v1/admin/namespaces") {
                 bearer(token)
-                jsonBody("""{"slug": "$slug"}""")
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"slug": "$slug"}"""
             }.andExpectProblem(409, "SLUG_TAKEN")
         SshGitServer.revokeAll()
         git.sync(configSet)

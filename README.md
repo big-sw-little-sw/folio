@@ -30,6 +30,7 @@ real identity provider and no real Git service.
 2. To call the API, read the issuer URI from the log. Get a token with the client credentials flow. The subject of the
    token is the client ID:
    `curl -d grant_type=client_credentials -d client_id=my-app -d client_secret=x -d scope=folio <issuer>/token`.
+   The mock provider puts no application ID in the token, so a rule names this client as `user:my-app`.
 3. To connect a repository, create a credential with the Git instance `test-server`. The log gives the command that
    authorizes its public key on the SSH Git server. Then connect `repos/sample.git` with the root path `config`.
 4. The management port 8081 serves `/actuator/health` and `/actuator/prometheus`.
