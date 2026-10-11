@@ -20,39 +20,42 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * An OIDC issuer in the test process. It serves the discovery document and the signing keys, so Folio validates
- * tokens with its production decoder. Tests sign tokens with any claims, key, issuer or expiry time.
+ * This object is an OIDC issuer in the test process. It serves the discovery document and the signing keys, so Folio
+ * validates tokens with its production decoder. Tests can sign tokens with any claims, key, issuer or expiry time.
  */
 object TestIssuer {
-    /** Matches `audiences` in src/test/resources/config/application.yaml. */
+    /** This value must match `audiences` in src/test/resources/config/application.yaml. */
     const val AUDIENCE = "folio"
     private const val KEY_SIZE = 2048
     private const val KEY_ID = "test-key"
 
     private val key: RSAKey = RSAKeyGenerator(KEY_SIZE).keyID(KEY_ID).generate()
 
-    /** Another key with the same key ID, for tokens with a signature that is not valid. */
+    /**
+     * This key has the same key ID as the issuer key, but other key material. A token that it signs has a signature
+     * that is not valid.
+     */
     val foreignKey: RSAKey = RSAKeyGenerator(KEY_SIZE).keyID(KEY_ID).generate()
 
     val uri: String = startIssuer(JWKSet(key.toPublicJWK()).toString())
 
     fun token(
         claims: Map<String, Any> = mapOf("sub" to "alice"),
-        /** Null gives a token without the `aud` claim. */
+        /** A null audience gives a token without the `aud` claim. */
         audience: String? = AUDIENCE,
         issuer: String = uri,
         expiresAt: Instant = Instant.now() + Duration.ofMinutes(5),
         signingKey: RSAKey = key,
     ): String {
-        val claimSet =
+        val builder =
             JwtClaimsSet
                 .builder()
                 .issuer(issuer)
                 .issuedAt(expiresAt - Duration.ofMinutes(10))
                 .expiresAt(expiresAt)
                 .claims { it.putAll(claims) }
-                .apply { audience?.let { audience(listOf(it)) } }
-                .build()
+        if (audience != null) builder.audience(listOf(audience))
+        val claimSet = builder.build()
         val header = JwsHeader.with(SignatureAlgorithm.RS256).keyId(KEY_ID).build()
         return NimbusJwtEncoder(ImmutableJWKSet(JWKSet(signingKey)))
             .encode(JwtEncoderParameters.from(header, claimSet))
@@ -68,7 +71,7 @@ object KeylessIssuer {
     val uri: String = startIssuer(keys = null)
 }
 
-/** Makes [TestIssuer] the issuer of the API and of the UI client. */
+/** This configuration makes [TestIssuer] the issuer of the API and of the UI client. */
 @TestConfiguration(proxyBeanMethods = false)
 class TestIssuerConfiguration {
     @Bean

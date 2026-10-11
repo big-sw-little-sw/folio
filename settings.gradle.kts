@@ -1,5 +1,5 @@
 plugins {
-    // Downloads the Java 25 toolchain on machines that do not have it installed.
+    // This plugin downloads the Java 25 toolchain when a machine does not have Java 25.
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 

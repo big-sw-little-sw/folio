@@ -1,18 +1,31 @@
 package io.github.big_sw_little_sw.folio.catalog.internal
 
 import io.github.big_sw_little_sw.folio.catalog.Action
+import io.github.big_sw_little_sw.folio.catalog.CatalogException
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.catalog.ResourceId
+import io.github.big_sw_little_sw.folio.identity.Subject
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import java.sql.ResultSet
 import java.util.UUID
 
-/** A grant of one action on one resource to one or more subjects (design 7.2). */
-data class Rule(val action: Action, val subjects: Set<Subject>)
+/**
+ * A grant of one action to one or more subjects (design 7.2). [RuleRepository] stores each rule on one resource. The
+ * constructor throws [CatalogException.NoSubjects]. Thus a request without subjects fails with 400 before Folio finds
+ * the resource.
+ */
+data class Rule(val action: Action, val subjects: Set<Subject>) {
+    init {
+        if (subjects.isEmpty()) throw CatalogException.NoSubjects()
+    }
+}
 
-/** Rows of `rule`. A rule has one target: `namespace_id` or `config_set_id`. */
+/**
+ * Reads and writes the rows of the `rule` table. Each row names its resource in one column: `namespace_id` or
+ * `config_set_id`.
+ */
 @Repository
 class RuleRepository(private val jdbc: JdbcClient) {
     /** The subjects of the rules for [action] on [resources], for each resource that has such a rule. */
@@ -28,7 +41,7 @@ class RuleRepository(private val jdbc: JdbcClient) {
             .param("ids", resources.map { it.value })
             .query { rs, _ -> rs.target() to rs.subjects() }
             .list()
-            // A UUID of the other resource type is a different resource.
+            // The query matches each ID in both columns. A match in the column of the other type is another resource.
             .filter { it.first in resources }
             .toMap()
     }
@@ -47,7 +60,7 @@ class RuleRepository(private val jdbc: JdbcClient) {
         .query(Boolean::class.java)
         .single()
 
-    /** Replaces the rule of [resource] for the action of [rule]. */
+    /** Inserts or replaces the rule of [resource] for the action of [rule]. */
     fun put(resource: ResourceId, rule: Rule) {
         val column = resource.column()
         jdbc

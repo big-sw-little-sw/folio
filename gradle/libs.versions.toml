@@ -1,5 +1,5 @@
-# Versions that Spring Boot's dependency management does not cover.
-# Boot-managed dependencies stay version-less in build.gradle.kts.
+# This catalog gives only the versions that Spring Boot dependency management does not manage.
+# build.gradle.kts declares the other dependencies without versions, so Spring Boot keeps them consistent.
 
 [versions]
 kotlin = "2.3.21"

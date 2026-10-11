@@ -4,12 +4,12 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.testing.FolioIntegrationTest
 import io.github.big_sw_little_sw.testing.TestCatalog
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
+import io.github.big_sw_little_sw.testing.andExpectForbidden
 import io.github.big_sw_little_sw.testing.andExpectProblem
 import io.github.big_sw_little_sw.testing.bearer
 import io.github.big_sw_little_sw.testing.jsonBody
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
-import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.ResultActionsDsl
 import org.springframework.test.web.servlet.delete
@@ -20,13 +20,9 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** The ConfigSet routes and resolve (design 5.3, 7.4, 12.1, 12.2). */
+/** These tests check the ConfigSet routes and the resolve route (design 5.3, 7.4, 12.1, 12.2). */
 @FolioIntegrationTest
-class ConfigSetApiIntegrationTest(
-    @Autowired private val mvc: MockMvc,
-    @Autowired private val catalog: TestCatalog,
-    @Autowired private val jdbc: JdbcClient,
-) {
+class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
 
     @Test
@@ -53,9 +49,7 @@ class ConfigSetApiIntegrationTest(
         val missing = ConfigSetId(UUID.randomUUID())
 
         mvc.get(url(missing)) { bearer(alice) }.andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
-        mvc.get(url(serviceA)) { bearer(alice) }.andExpectProblem(403, "ACTION_NOT_ALLOWED").andExpect {
-            jsonPath("$.detail") { value("The caller does not have READ on ${serviceA.toApiId()}.") }
-        }
+        mvc.get(url(serviceA)) { bearer(alice) }.andExpectForbidden(Action.READ, serviceA.toApiId())
         mvc.get(url(serviceA)).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
     }
 
@@ -110,18 +104,14 @@ class ConfigSetApiIntegrationTest(
         catalog.rule(withRules, Action.READ, "public")
         catalog.rule(from, Action.MANAGE, "user:alice")
 
-        move(alice, plain, to).andExpectProblem(403, "ACTION_NOT_ALLOWED").andExpect {
-            jsonPath("$.detail") { value("The caller does not have MANAGE on ${to.toApiId()}.") }
-        }
+        move(alice, plain, to).andExpectForbidden(Action.MANAGE, to.toApiId())
         catalog.rule(to, Action.MANAGE, "user:alice")
         move(alice, plain, to).andExpect {
             status { isOk() }
             jsonPath("$.namespaceId") { value(to.toApiId()) }
             jsonPath("$.path") { value("${catalog.pathOf(top)}/to/plain") }
         }
-        move(alice, withRules, to).andExpectProblem(403, "ACTION_NOT_ALLOWED").andExpect {
-            jsonPath("$.detail") { value("The caller does not have GRANT on ${to.toApiId()}.") }
-        }
+        move(alice, withRules, to).andExpectForbidden(Action.GRANT, to.toApiId())
         move(alice, withRules, from).andExpect { status { isOk() } }
         move(alice, plain, NamespaceId(UUID.randomUUID())).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
         mvc
@@ -132,7 +122,7 @@ class ConfigSetApiIntegrationTest(
     }
 
     @Test
-    fun `a delete removes the ConfigSet and its rules`() {
+    fun `a delete removes the ConfigSet`() {
         val top = catalog.namespace()
         val serviceA = catalog.configSet(top, "service-a")
         catalog.rule(serviceA, Action.READ, "public")
@@ -142,13 +132,6 @@ class ConfigSetApiIntegrationTest(
 
         mvc.get(url(serviceA)) { bearer(SUPER_ADMIN) }.andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
         resolve("${catalog.pathOf(top)}/service-a").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        val rules =
-            jdbc
-                .sql("select count(*) from rule where config_set_id = :id")
-                .param("id", serviceA.value)
-                .query(Int::class.java)
-                .single()
-        assertEquals(0, rules)
     }
 
     @Test

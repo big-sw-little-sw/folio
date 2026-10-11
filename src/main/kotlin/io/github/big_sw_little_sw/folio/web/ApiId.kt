@@ -21,7 +21,7 @@ class ApiId<T : Any>(type: String, private val toId: (UUID) -> T, private val to
 
     fun format(id: T): String = prefix + toUuid(id).toString().replace("-", "")
 
-    /** Throws [InvalidApiId] (status 400) if [value] is not exactly this prefix and 32 lowercase hex characters. */
+    /** Throws [InvalidApiId] (status 400) if [value] is not this prefix and then 32 lowercase hex characters. */
     fun parse(value: String): T {
         val hex = value.removePrefix(prefix)
         val valid = value.startsWith(prefix) && hex.length == HEX_LENGTH && hex.all { it in '0'..'9' || it in 'a'..'f' }
@@ -41,7 +41,7 @@ class ApiId<T : Any>(type: String, private val toId: (UUID) -> T, private val to
     }
 }
 
-/** The detail does not repeat the value, because a client can send any text. */
+/** The detail does not repeat the value, because a client can send any text and the error page would show it. */
 class InvalidApiId(prefix: String) :
     FolioException(
         ErrorKind.INVALID,

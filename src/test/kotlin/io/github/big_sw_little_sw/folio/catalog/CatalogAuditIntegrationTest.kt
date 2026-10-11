@@ -7,10 +7,9 @@ import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.andExpectProblem
 import io.github.big_sw_little_sw.testing.bearer
 import io.github.big_sw_little_sw.testing.jsonBody
-import io.github.big_sw_little_sw.testing.signedIn
+import io.github.big_sw_little_sw.testing.postForm
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
-import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.patch
@@ -22,7 +21,10 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** The audit records of the catalog (design 14). Each test reads only the records of its own resources. */
+/**
+ * These tests check the audit records of the catalog (design 14). Test classes share the database, so each test reads
+ * only the records of its own resources.
+ */
 @FolioIntegrationTest
 class CatalogAuditIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -46,6 +48,23 @@ class CatalogAuditIntegrationTest(
         assertEquals("root", record["actor_subject"])
         assertEquals(true, record["actor_super_admin"])
         assertEquals(json("""{"parentId": null, "description": "Top"}"""), json(record["details"]))
+    }
+
+    @Test
+    fun `identity sets the super-admin flag of a record from the bearer token`() {
+        val top = catalog.namespace()
+        catalog.rule(top, Action.MANAGE, "user:alice")
+
+        patch("/api/v1/admin/namespaces/${top.toApiId()}", """{"description": "By root"}""")
+        mvc
+            .patch("/api/v1/admin/namespaces/${top.toApiId()}") {
+                bearer(alice)
+                jsonBody("""{"description": "By alice"}""")
+            }.andExpect { status { isOk() } }
+
+        val records = records(top.value).filter { it["operation"] == "NAMESPACE_DESCRIBED" }
+        assertEquals(listOf("root", "alice"), records.map { it["actor_subject"] })
+        assertEquals(listOf(true, false), records.map { it["actor_super_admin"] })
     }
 
     @Test
@@ -135,12 +154,12 @@ class CatalogAuditIntegrationTest(
             .andExpect { status { isOk() } }
 
         mvc
-            .post("/namespaces/${search.toApiId()}/edit") {
-                with(signedIn(SUPER_ADMIN))
-                with(csrf())
-                param("slug", "find")
-                param("description", "line 1\r\nline 2")
-            }.andExpect { status { is3xxRedirection() } }
+            .postForm(
+                "/namespaces/${search.toApiId()}/edit",
+                SUPER_ADMIN,
+                "slug" to "find",
+                "description" to "line 1\r\nline 2",
+            ).andExpect { status { is3xxRedirection() } }
 
         val records = records(search.value).drop(2)
         assertEquals(listOf("NAMESPACE_RENAMED"), records.map { it["operation"] })
@@ -296,7 +315,7 @@ class CatalogAuditIntegrationTest(
         )
     }
 
-    /** `jsonb` keeps no key order, so the tests compare JSON trees. */
+    /** `jsonb` does not keep the key order, so the tests compare JSON trees and not strings. */
     private fun json(value: Any?): JsonNode = mapper.readTree(value.toString())
 
     private fun patch(url: String, body: String) = mvc.patch(url) {

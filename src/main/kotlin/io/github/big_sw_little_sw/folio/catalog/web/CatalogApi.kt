@@ -10,9 +10,8 @@ import io.github.big_sw_little_sw.folio.catalog.internal.Edit
 import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceService
 import io.github.big_sw_little_sw.folio.catalog.internal.Rule
 import io.github.big_sw_little_sw.folio.catalog.internal.RuleService
-import io.github.big_sw_little_sw.folio.catalog.internal.Subject
-import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.folio.identity.CurrentCaller
+import io.github.big_sw_little_sw.folio.identity.Subject
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.media.Schema
 import org.springframework.http.HttpStatus
@@ -30,8 +29,8 @@ import org.springframework.web.bind.annotation.RestController
 import java.net.URI
 
 /**
- * The catalog routes of the API (design 12.1, 12.2). They take the caller from the request, convert API IDs and slugs,
- * and call the services. The services authorize.
+ * NamespaceApi, ConfigSetApi and RuleApi serve the catalog routes of the API (design 12.1, 12.2). Each route takes the
+ * caller from the request, converts API IDs and slugs, and calls a service. The services authorize.
  */
 @RestController
 class NamespaceApi(private val currentCaller: CurrentCaller, private val namespaces: NamespaceService) {
@@ -48,6 +47,14 @@ class NamespaceApi(private val currentCaller: CurrentCaller, private val namespa
             .created(URI.create("$ADMIN/namespaces/${namespace.id.toApiId()}"))
             .body(namespace.toResponse())
     }
+
+    /**
+     * The top-level Namespaces that the caller can READ. A caller with `READ` only deeper in the tree gets an empty
+     * list. The start page of the UI shows those deeper resources (design 12.2, 12.3).
+     */
+    @GetMapping("$ADMIN/namespaces")
+    fun list(): NamespacesResponse =
+        NamespacesResponse(namespaces.topLevel(currentCaller.get()).map { it.toResponse() })
 
     /** The Namespace with the child Namespaces and ConfigSets that the caller can READ. */
     @GetMapping("$ADMIN/namespaces/{id}")
@@ -73,8 +80,9 @@ class NamespaceApi(private val currentCaller: CurrentCaller, private val namespa
 @RestController
 class ConfigSetApi(private val currentCaller: CurrentCaller, private val configSets: ConfigSetService) {
     /**
-     * Finds the ConfigSet at a path such as `engineering/search/service-a`. Keep the ID: a rename or a move changes
-     * the path. A path that does not exist and a path that the caller cannot read give the same response.
+     * Finds the ConfigSet at a path such as `engineering/search/service-a`. A consumer keeps the ID, because a rename
+     * or a move changes the path. A path that does not exist and a path that the caller cannot read give the same
+     * response.
      */
     @GetMapping("/api/v1/configsets:resolve")
     fun resolve(@RequestParam path: String): ResolveResponse {
@@ -103,8 +111,8 @@ class ConfigSetApi(private val currentCaller: CurrentCaller, private val configS
 }
 
 /**
- * Rules and explanations on Namespaces and ConfigSets. All routes need `GRANT`. One route serves both collections, so
- * the OpenAPI document lists the two values of `collection`.
+ * The rules and explanations of Namespaces and ConfigSets. All routes need `GRANT`. Each route serves both collections,
+ * so the `@Parameter` annotation lists the two values of `collection` for the OpenAPI document.
  */
 @RestController
 class RuleApi(private val currentCaller: CurrentCaller, private val rules: RuleService) {
@@ -144,14 +152,14 @@ class RuleApi(private val currentCaller: CurrentCaller, private val rules: RuleS
         @PathVariable id: String,
         @RequestBody request: ExplainRequest,
     ): ExplanationResponse {
-        val explained = request.caller?.toCaller() ?: Caller.Anonymous
-        return rules.explain(currentCaller.get(), resourceOf(collection, id), request.action, explained).toResponse()
+        val described = request.caller?.toCaller()
+        return rules.explain(currentCaller.get(), resourceOf(collection, id), request.action, described).toResponse()
     }
 }
 
 private const val ADMIN = "/api/v1/admin"
 
-/** An absent description stays the same. A null or blank description clears it. */
+/** An absent description keeps the current description. A null or blank description clears the description. */
 private fun EditRequest.toEdit() = Edit(
     slug?.let(::Slug),
     description?.let { DescriptionChange.Replace(it.orElse(null)) } ?: DescriptionChange.Keep,

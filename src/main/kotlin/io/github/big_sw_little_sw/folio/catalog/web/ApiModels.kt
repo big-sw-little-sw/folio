@@ -15,16 +15,19 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import java.util.Optional
 
 data class CreateNamespaceRequest(
-    /** Null creates a top-level Namespace. Only super admins can do that. */
+    /** A null parent creates a top-level Namespace. Only a super admin can create a top-level Namespace. */
     val parentId: String? = null,
     val slug: String,
     val description: String? = null,
 )
 
-/** A PATCH. An absent field stays the same. A null or blank description clears it. */
+/**
+ * The body of a PATCH. An absent field keeps its value. A null or blank description clears the description. Thus
+ * [description] is an Optional: null means an absent field, and an empty Optional means JSON null.
+ */
 data class EditRequest(val slug: String? = null, val description: Optional<String>? = null)
 
-/** Null moves the Namespace to the top level. Only super admins can do that. */
+/** A null [parentId] moves the Namespace to the top level. Only a super admin can move a Namespace to the top level. */
 data class MoveNamespaceRequest(val parentId: String? = null)
 
 data class MoveConfigSetRequest(val namespaceId: String)
@@ -33,10 +36,14 @@ data class PutRuleRequest(val subjects: List<String>)
 
 data class ExplainRequest(
     val action: Action,
-    /** The caller to explain. Null is an anonymous caller. */
+    /** The caller to explain. A null caller is an anonymous caller. */
     val caller: CallerRequest? = null,
 )
 
+/**
+ * The request cannot set a super-admin status. The explanation takes the status from the configuration, as identity
+ * does for a token.
+ */
 data class CallerRequest(
     val subject: String,
     val groups: Set<String> = emptySet(),
@@ -52,6 +59,9 @@ data class NamespaceResponse(
     val path: String,
     val description: String?,
 )
+
+/** The top-level Namespaces that the caller can READ, in slug order. */
+data class NamespacesResponse(val namespaces: List<NamespaceResponse>)
 
 /** A Namespace with the children that the caller can READ. */
 data class NamespaceDetailsResponse(
@@ -79,7 +89,7 @@ data class RulesResponse(val rules: List<RuleResponse>)
 
 data class RuleResponse(val action: Action, val subjects: List<String>)
 
-/** Why Folio permits or denies the action (design 7.2). */
+/** The reason why Folio permits or denies the action (design 7.2). */
 enum class ExplanationReason {
     /** A super-admin entry matched. Rules do not count. */
     SUPER_ADMIN,
@@ -98,13 +108,19 @@ data class ExplanationResponse(
     val action: Action,
     val allowed: Boolean,
     val reason: ExplanationReason,
-    /** The super-admin entry or the subject of the rule that matched the caller. */
+    /**
+     * The super-admin entry or the subject of the rule that matched the caller. The value is null if no entry or
+     * subject matched.
+     */
     val matchedSubject: String?,
-    /** The rule that decided. Null for `SUPER_ADMIN` and `NO_RULE`. */
+    /** The rule that decided. The value is null for `SUPER_ADMIN` and `NO_RULE`. */
     val rule: DecidingRuleResponse?,
 )
 
-/** The rule that decided. It has no subjects: they can be on a resource where the caller has no `GRANT`. */
+/**
+ * The rule that decided. The response has no subjects, because the rule can be on a resource where the caller has no
+ * `GRANT`.
+ */
 data class DecidingRuleResponse(val resourceId: String, val path: String)
 
 fun Namespace.toResponse() =
@@ -126,23 +142,26 @@ fun ConfigSet.toResponse() =
 fun Rule.toResponse() = RuleResponse(action, subjects.map { it.toString() })
 
 fun Explanation.toResponse(): ExplanationResponse {
-    val (reason, matched) =
+    val reason =
         when (decision) {
-            is Decision.SuperAdmin -> ExplanationReason.SUPER_ADMIN to decision.entry
-            is Decision.Granted -> ExplanationReason.GRANTED to decision.subject
-            is Decision.NotGranted -> ExplanationReason.NOT_GRANTED to null
-            Decision.NoRule -> ExplanationReason.NO_RULE to null
+            Decision.SuperAdmin -> ExplanationReason.SUPER_ADMIN
+            is Decision.Granted -> ExplanationReason.GRANTED
+            is Decision.NotGranted -> ExplanationReason.NOT_GRANTED
+            Decision.NoRule -> ExplanationReason.NO_RULE
         }
     return ExplanationResponse(
         action = action,
         allowed = decision.allowed,
         reason = reason,
-        matchedSubject = matched?.toString(),
+        matchedSubject = matchedSubject?.toString(),
         rule = rule?.let { DecidingRuleResponse(it.resource.toApiId(), it.path.toString()) },
     )
 }
 
-/** The resource of a rule route: `namespaces` or `configsets` and an API ID of that type. */
+/**
+ * The resource of a route that serves both collections. [collection] is `namespaces` or `configsets`, and [id] is an
+ * API ID of that type.
+ */
 fun resourceOf(collection: String, id: String): ResourceId = when (collection) {
     NAMESPACES -> NAMESPACE_ID.parse(id)
     else -> CONFIG_SET_ID.parse(id)

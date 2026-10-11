@@ -6,14 +6,14 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.testing.FolioIntegrationTest
 import io.github.big_sw_little_sw.testing.TestCatalog
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.assertNoInlineScriptsOrStyles
+import io.github.big_sw_little_sw.testing.andExpectProblemPage
+import io.github.big_sw_little_sw.testing.postForm
 import io.github.big_sw_little_sw.testing.signedIn
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.not
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
-import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
@@ -24,34 +24,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
-/** The catalog pages (design 12.3) through MockMvc with signed-in test sessions. */
+/** These tests check the catalog pages (design 12.3) through MockMvc with signed-in test sessions. */
 @FolioIntegrationTest
 class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
-
-    @Test
-    fun `the start page lists the top-level Namespaces that the caller can read`() {
-        val open = catalog.namespace()
-        val closed = catalog.namespace()
-        catalog.rule(open, Action.READ, "public")
-
-        mvc.get("/").andExpect {
-            status { isOk() }
-            content {
-                string(
-                    allOf(
-                        containsString("""<a href="/namespaces/${open.toApiId()}">${catalog.pathOf(open)}</a>"""),
-                        not(containsString(closed.toApiId())),
-                        not(containsString("Create a top-level Namespace")),
-                    ),
-                )
-            }
-            header { doesNotExist(HttpHeaders.SET_COOKIE) }
-        }
-        mvc.get("/") { with(signedIn(SUPER_ADMIN)) }.andExpect {
-            content { string(allOf(containsString(closed.toApiId()), containsString("Create a top-level Namespace"))) }
-        }
-    }
 
     @Test
     fun `a Namespace page shows the path and the children`() {
@@ -101,34 +77,32 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         operations.forEach { assertContains(admin, it) }
     }
 
-    /** LocalSignInIntegrationTest follows the sign-in back to the page. */
+    /**
+     * This test checks only the redirect to sign-in. LocalSignInIntegrationTest checks that the sign-in returns the
+     * caller to the page.
+     */
     @Test
     fun `an anonymous caller goes to sign-in for a page that needs a signed-in caller`() {
         val top = catalog.namespace()
 
         mvc.get("/namespaces/${top.toApiId()}").andExpect { redirectedUrl("/sign-in") }
-        mvc.get("/namespaces/${NamespaceId(UUID.randomUUID()).toApiId()}").andExpect {
-            status { isNotFound() }
-            content { string(containsString("<code>NAMESPACE_NOT_FOUND</code>")) }
-        }
+        mvc
+            .get("/namespaces/${NamespaceId(UUID.randomUUID()).toApiId()}")
+            .andExpectProblemPage(404, "NAMESPACE_NOT_FOUND")
     }
 
     @Test
     fun `an anonymous form post fails the CSRF check first`() {
-        mvc.post("/namespaces") { param("slug", "anonymous") }.andExpect {
-            status { isForbidden() }
-            content { string(containsString("<code>CSRF_TOKEN_INVALID</code>")) }
-        }
+        mvc.post("/namespaces") { param("slug", "anonymous") }.andExpectProblemPage(403, "CSRF_TOKEN_INVALID")
     }
 
     @Test
     fun `a signed-in caller without READ gets an error page with the code`() {
         val top = catalog.namespace()
 
-        mvc.get("/namespaces/${top.toApiId()}") { with(signedIn(alice)) }.andExpect {
-            status { isForbidden() }
-            content { string(containsString("<code>ACTION_NOT_ALLOWED</code>")) }
-        }
+        mvc
+            .get("/namespaces/${top.toApiId()}") { with(signedIn(alice)) }
+            .andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
     }
 
     @Test
@@ -167,13 +141,8 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         }
         val created =
             mvc
-                .post("/namespaces") {
-                    with(signedIn(alice))
-                    with(csrf())
-                    param("parentId", top.toApiId())
-                    param("slug", "search")
-                    param("description", "")
-                }.andExpect { status { is3xxRedirection() } }
+                .postForm("/namespaces", alice, "parentId" to top.toApiId(), "slug" to "search", "description" to "")
+                .andExpect { status { is3xxRedirection() } }
                 .andReturn()
         val location = assertNotNull(created.response.redirectedUrl)
         assertEquals("Namespace ${catalog.pathOf(top)}/search created.", created.flashMap["notice"])
@@ -186,10 +155,7 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             .post("/namespaces") {
                 with(signedIn(SUPER_ADMIN))
                 param("slug", "no-token")
-            }.andExpect {
-                status { isForbidden() }
-                content { string(containsString("<code>CSRF_TOKEN_INVALID</code>")) }
-            }
+            }.andExpectProblemPage(403, "CSRF_TOKEN_INVALID")
     }
 
     @Test
@@ -198,36 +164,23 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.namespace(top, "taken")
 
         mvc
-            .post("/namespaces") {
-                with(signedIn(SUPER_ADMIN))
-                with(csrf())
-                param("parentId", top.toApiId())
-                param("slug", "taken")
-            }.andExpect {
-                status { isConflict() }
-                content {
-                    string(
-                        allOf(
-                            containsString("<code>SLUG_TAKEN</code>"),
-                            containsString("is already in use"),
-                            containsString("""value="taken""""),
-                        ),
-                    )
-                }
+            .postForm("/namespaces", SUPER_ADMIN, "parentId" to top.toApiId(), "slug" to "taken")
+            .andExpectProblemPage(409, "SLUG_TAKEN")
+            .andExpect {
+                content { string(allOf(containsString("is already in use"), containsString("""value="taken""""))) }
             }
     }
 
+    /**
+     * Only a super admin can create a top-level Namespace (design 7.3). The create form has the same check as the
+     * create operation.
+     */
     @Test
-    fun `a form that the caller cannot submit shows the denial`() {
-        mvc
-            .post("/namespaces") {
-                with(signedIn(alice))
-                with(csrf())
-                param("slug", "top-level")
-            }.andExpect {
-                status { isForbidden() }
-                content { string(containsString("<code>ACTION_NOT_ALLOWED</code>")) }
-            }
+    fun `the top-level create form and its post need a super admin`() {
+        mvc.get("/namespaces/new").andExpect { redirectedUrl("/sign-in") }
+        mvc.get("/namespaces/new") { with(signedIn(alice)) }.andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
+        mvc.postForm("/namespaces", alice, "slug" to "top-level").andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
+        mvc.get("/namespaces/new") { with(signedIn(SUPER_ADMIN)) }.andExpect { status { isOk() } }
     }
 
     @Test
@@ -263,13 +216,28 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             content { string(containsString("""value="empty""")) }
         }
         mvc.get("/namespaces/new?parentId=${top.toApiId()}") { with(signedIn(alice)) }.andExpect { status { isOk() } }
-        mvc
-            .post("$page/delete") {
-                with(signedIn(alice))
-                with(csrf())
-            }.andExpect { redirectedUrl("/namespaces/${top.toApiId()}") }
+        // Alice has no READ on the parent, so the parent page would give 403. The delete therefore redirects to the
+        // start page.
+        mvc.postForm("$page/delete", alice).andExpect { redirectedUrl("/") }
     }
 
+    @Test
+    fun `a caller that cannot READ the parent sees it as plain text, and a delete goes to the start page`() {
+        val dana = Caller.Authenticated(UUID.randomUUID().toString(), emptySet(), null)
+        val top = catalog.namespace()
+        val serviceA = catalog.configSet(top, "service-a")
+        catalog.rule(serviceA, Action.READ, "user:${dana.subject}")
+        catalog.rule(serviceA, Action.MANAGE, "user:${dana.subject}")
+        val page = "/configsets/${serviceA.toApiId()}"
+
+        mvc.get(page) { with(signedIn(dana)) }.andExpect {
+            status { isOk() }
+            content { string(not(containsString(top.toApiId()))) }
+        }
+        mvc.postForm("$page/delete", dana).andExpect { redirectedUrl("/") }
+    }
+
+    /** [HtmlCheckConfiguration] examines the HTML of each page that this test gets. */
     @Test
     fun `pages have no inline scripts or styles`() {
         val top = catalog.namespace()
@@ -287,13 +255,8 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         ).forEach { url ->
             val response = mvc.get(url) { with(signedIn(SUPER_ADMIN)) }.andReturn().response
             assertEquals(200, response.status, url)
-            assertNoInlineScriptsOrStyles(response.contentAsString)
         }
     }
 
-    private fun post(url: String, vararg params: Pair<String, String>) = mvc.post(url) {
-        with(signedIn(SUPER_ADMIN))
-        with(csrf())
-        params.forEach { (name, value) -> param(name, value) }
-    }
+    private fun post(url: String, vararg params: Pair<String, String>) = mvc.postForm(url, SUPER_ADMIN, *params)
 }

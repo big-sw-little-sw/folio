@@ -1,5 +1,8 @@
 @param description: String?
-<%-- The HTML parser drops one line break after <textarea>, so a description that starts with a line break keeps it. --%>
+<%--
+    The HTML parser removes the first line break after <textarea>. The template puts a line break there for the parser
+    to remove. Without that line break, a description that starts with a line break loses its first line break.
+--%>
 <label for="description">Description</label>
 <textarea id="description" name="description" maxlength="1000" rows="3" aria-describedby="description-help">
 ${description}</textarea>

@@ -3,7 +3,7 @@ package io.github.big_sw_little_sw.folio.catalog.internal
 import io.github.big_sw_little_sw.folio.catalog.CatalogException
 import io.github.big_sw_little_sw.folio.catalog.Slug
 
-/** The changes of a rename, a describe or both. A null [slug] stays the same. */
+/** The changes of a rename, a describe or both. A null [slug] keeps the current slug. */
 data class Edit(val slug: Slug? = null, val description: DescriptionChange = DescriptionChange.Keep) {
     fun slugOf(current: Slug): Slug = slug ?: current
 
@@ -13,13 +13,14 @@ data class Edit(val slug: Slug? = null, val description: DescriptionChange = Des
     }
 }
 
-/** What an [Edit] does to the description. */
+/** The change that an [Edit] makes to the description. */
 sealed interface DescriptionChange {
     data object Keep : DescriptionChange
 
     /**
-     * Sets the description. A null or blank text clears it. Throws [CatalogException.InvalidDescription] when it is
-     * built, so a request fails with 400 before Folio finds the resource.
+     * Sets the description. A null or blank text clears the description. The constructor throws
+     * [CatalogException.InvalidDescription]. Thus a request with an invalid description fails with 400 before Folio
+     * finds the resource (design 8.1).
      */
     class Replace(text: String?) : DescriptionChange {
         val text: String? = validDescription(text)
@@ -29,10 +30,12 @@ sealed interface DescriptionChange {
 private const val MAX_DESCRIPTION_LENGTH = 1000
 
 /**
- * The description to store (design 5.1). A blank description is no description, so that an empty form field clears
- * it. CRLF line breaks become LF, because browsers send textarea values with CRLF and API clients send LF. Thus the
- * same text from the UI and the API is the same value. Throws [CatalogException.InvalidDescription] above 1,000
- * characters (code points, as `char_length` in SQL counts them) or for a NUL character, which PostgreSQL rejects.
+ * Returns the description to store (design 5.1). A blank description becomes null, so an empty form field clears the
+ * description. The function changes CRLF line breaks to LF. Browsers send textarea values with CRLF, and API clients
+ * send LF. Without the change, the same text from the UI and the API would give two different values.
+ *
+ * Throws [CatalogException.InvalidDescription] for more than 1,000 characters or for a NUL character. The function
+ * counts code points, as `char_length` in SQL does. PostgreSQL text rejects a NUL character.
  */
 fun validDescription(text: String?): String? {
     val normalized = text?.replace("\r\n", "\n") ?: return null

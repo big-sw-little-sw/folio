@@ -20,7 +20,7 @@
         <ul class="children">
             @for(namespace in details.namespaces)
                 <li>
-                    <a href="/namespaces/${namespace.id.toApiId()}">${namespace.slug.value}</a>
+                    <a href="${ResourceView.pageOf(namespace.id)}">${namespace.slug.value}</a>
                     @if(namespace.description != null)<span class="muted">${namespace.description}</span>@endif
                 </li>
             @endfor
@@ -33,7 +33,7 @@
         <ul class="children">
             @for(configSet in details.configSets)
                 <li>
-                    <a href="/configsets/${configSet.id.toApiId()}">${configSet.slug.value}</a>
+                    <a href="${ResourceView.pageOf(configSet.id)}">${configSet.slug.value}</a>
                     @if(configSet.description != null)<span class="muted">${configSet.description}</span>@endif
                 </li>
             @endfor

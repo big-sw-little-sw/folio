@@ -52,7 +52,8 @@ class LocalSignInIntegrationTest(
                 .single()
                 .lastAccessedTime
         Thread.sleep(Duration.ofMillis(SESSION_CLOCK_STEP_MILLIS))
-        // The browser sends the session cookie also to the API.
+        // The browser also sends the session cookie to the API. The API must ignore the session, so the caller is
+        // anonymous and the session keeps its last access time.
         assertContains(get("$folio/api/test/caller").body(), "ANONYMOUS")
         assertEquals(
             lastAccess,
@@ -93,7 +94,7 @@ class LocalSignInIntegrationTest(
 
         assertEquals("$folio/", URI.create(folio).resolve(location(signOut)).toString())
         assertContains(get("$folio/").body(), SIGN_IN_LINK)
-        // A client that kept the cookie has no session either.
+        // Sign-out ends the session on the server, so a client that kept the old cookie is also not signed in.
         val replay = HttpRequest.newBuilder(URI.create("$folio/")).header("Cookie", "SESSION=$session").build()
         assertContains(HttpClient.newHttpClient().send(replay, STRING).body(), SIGN_IN_LINK)
     }
@@ -123,11 +124,11 @@ class LocalSignInIntegrationTest(
         assertContains(caller.body(), "\"subject\":\"my-app\"")
     }
 
-    /** Signs in through the mock provider with the groups `team-a`, and gives the start page. */
+    /** Signs in through the mock provider with the group `team-a`, and returns the start page. */
     private fun signIn(username: String): String =
         get(location(get(callback("$folio/oauth2/authorization/folio", username)))).body()
 
-    /** Starts the sign-in at [authorization] and gives the callback URL of Folio after the login at the provider. */
+    /** Starts the sign-in at [authorization] and returns the callback URL of Folio after the login at the provider. */
     private fun callback(authorization: String, username: String): String {
         val authorize = location(get(authorization))
         assertTrue(authorize.startsWith("${provider.issuer()}/authorize?"), authorize)

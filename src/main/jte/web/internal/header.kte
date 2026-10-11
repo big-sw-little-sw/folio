@@ -1,4 +1,7 @@
-<%-- The routes /me, /sign-in and /sign-out belong to the identity module. --%>
+<%--
+    The routes /me, /sign-in and /sign-out belong to the identity module. The header links to them by path only,
+    because the identity module depends on the web module, not the reverse.
+--%>
 @import io.github.big_sw_little_sw.folio.web.PageContext
 @param page: PageContext
 <header class="site">

@@ -1,15 +1,23 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 /**
- * The operation that a rule permits (design 7.1). The actions are independent: `MANAGE` does not include `READ`.
+ * The operation that a rule permits (design 7.1). The actions are independent: `MANAGE` does not include `READ`. A
+ * person who needs both actions needs a grant of each.
  */
 enum class Action {
-    /** See the resource, its path and its children. Resolve it. Read the content of a ConfigSet. */
+    /**
+     * The caller can see the resource, its path and its children, and can resolve the resource. On a ConfigSet, the
+     * caller can also read the metadata, the revisions and the files.
+     */
     READ,
 
-    /** Create children. Rename, describe, move and delete. Use the credentials that a Namespace owns. */
+    /**
+     * The caller can create children, and can rename, describe, move and delete the resource. On a ConfigSet, the
+     * caller can also create and check a Git source and request sync. On a Namespace, the caller can also create,
+     * rotate, disable and use the credentials that the Namespace owns.
+     */
     MANAGE,
 
-    /** List, put and delete rules. Explain decisions. */
+    /** The caller can list, put and delete the rules of the resource, and can explain the decisions on the resource. */
     GRANT,
 }

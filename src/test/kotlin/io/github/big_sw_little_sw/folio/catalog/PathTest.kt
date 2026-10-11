@@ -6,7 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/** Slugs and paths (design 5.3). */
+/** These tests check slugs and paths (design 5.3). */
 class PathTest {
     @ParameterizedTest
     @ValueSource(strings = ["a", "service-a", "a1-b2-c3", "0"])

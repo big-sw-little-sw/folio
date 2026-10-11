@@ -11,6 +11,7 @@ import io.github.big_sw_little_sw.folio.catalog.internal.DescriptionChange
 import io.github.big_sw_little_sw.folio.catalog.internal.Edit
 import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceService
 import io.github.big_sw_little_sw.folio.identity.CurrentCaller
+import io.github.big_sw_little_sw.folio.web.Redirect
 import io.github.big_sw_little_sw.folio.web.submit
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.GetMapping
@@ -22,8 +23,8 @@ import org.springframework.web.servlet.ModelAndView
 import org.springframework.web.servlet.mvc.support.RedirectAttributes
 
 /**
- * The rename and describe, move and delete pages of Namespaces and ConfigSets. The forms need `MANAGE`, as their
- * operations do (design 7.3). The services authorize the operations.
+ * The edit, move and delete pages of Namespaces and ConfigSets. The edit page renames and describes. Each form needs
+ * `MANAGE`, as its operation does (design 7.3). The services authorize the operations.
  */
 @Controller
 @RequestMapping("/{collection:namespaces|configsets}/{id}")
@@ -39,7 +40,7 @@ class ResourcePages(
         return editForm(resource, resource.slug, resource.description)
     }
 
-    /** An empty description clears it. */
+    /** An empty description field clears the description. */
     @PostMapping("/edit")
     fun edit(
         @PathVariable collection: String,
@@ -56,7 +57,7 @@ class ResourcePages(
                     is NamespaceId -> namespaces.edit(currentCaller.get(), resource, edit).path
                     is ConfigSetId -> configSets.edit(currentCaller.get(), resource, edit).path
                 }
-            ResourceView.pageOf(resource) to "${ResourceView.kindOf(resource)} $path saved."
+            Redirect(ResourceView.pageOf(resource), "${ResourceView.kindOf(resource)} $path saved.")
         }
     }
 
@@ -64,7 +65,7 @@ class ResourcePages(
     fun moveForm(@PathVariable collection: String, @PathVariable id: String): ModelAndView =
         moveForm(views.of(resourceOf(collection, id), Action.MANAGE), null)
 
-    /** [target] is the API ID of the new parent Namespace. Empty moves a Namespace to the top level. */
+    /** [target] is the API ID of the new parent Namespace. An empty [target] moves a Namespace to the top level. */
     @PostMapping("/move")
     fun move(
         @PathVariable collection: String,
@@ -86,7 +87,7 @@ class ResourcePages(
                         configSets.move(currentCaller.get(), resource, NAMESPACE_ID.parse(text)).path
                     }
                 }
-            ResourceView.pageOf(resource) to "${ResourceView.kindOf(resource)} moved to $path."
+            Redirect(ResourceView.pageOf(resource), "${ResourceView.kindOf(resource)} moved to $path.")
         }
     }
 
@@ -107,7 +108,7 @@ class ResourcePages(
                 is NamespaceId -> namespaces.delete(currentCaller.get(), resource)
                 is ConfigSetId -> configSets.delete(currentCaller.get(), resource)
             }
-            view.parentUrl to "${view.kind} ${view.path} deleted."
+            Redirect(view.parentUrl, "${view.kind} ${view.path} deleted.")
         }
     }
 

@@ -13,7 +13,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** The public interface of the catalog for other modules (design 8.1): Access and ConfigSets. */
+/**
+ * These tests check Access and ConfigSets, the public interface that the catalog gives to other modules (design 8.1).
+ */
 @FolioIntegrationTest
 class AccessIntegrationTest(
     @Autowired private val access: Access,
@@ -53,6 +55,27 @@ class AccessIntegrationTest(
         val serviceA = catalog.configSet(catalog.namespace())
 
         Action.entries.forEach { assertTrue(access.allows(SUPER_ADMIN, it, serviceA)) }
+    }
+
+    @Test
+    fun `Access reads the super-admin status from the caller, not from its groups`() {
+        val serviceA = catalog.configSet(catalog.namespace())
+        val unflagged = Caller.Authenticated("root", setOf("folio-admins"), null)
+
+        assertFalse(access.allows(unflagged, Action.READ, serviceA))
+        assertTrue(access.allows(bob.copy(superAdmin = true), Action.READ, serviceA))
+    }
+
+    @Test
+    fun `requireSuperAdmin permits only super admins, with the errors of the root`() {
+        access.requireSuperAdmin(SUPER_ADMIN)
+
+        val forbidden = assertFailsWith<CatalogException.Forbidden> { access.requireSuperAdmin(alice) }
+        assertEquals("The caller does not have MANAGE on the root.", forbidden.detail)
+        assertFailsWith<CatalogException.Forbidden> { access.requireSuperAdmin(Caller.System) }
+        val unauthenticated =
+            assertFailsWith<CatalogException.Unauthenticated> { access.requireSuperAdmin(Caller.Anonymous) }
+        assertEquals("AUTHENTICATION_REQUIRED", unauthenticated.code)
     }
 
     @Test

@@ -3,7 +3,10 @@ package io.github.big_sw_little_sw.folio.identity.web
 import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.testing.*
 import org.hamcrest.Matchers.*
+import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.system.CapturedOutput
+import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.http.HttpHeaders
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import org.springframework.session.SessionRepository
@@ -12,6 +15,7 @@ import java.time.Duration
 import kotlin.test.*
 
 @FolioIntegrationTest
+@ExtendWith(OutputCaptureExtension::class)
 class IdentityPagesIntegrationTest(
     @Autowired private val mvc: MockMvc,
     @Autowired private val sessions: SessionRepository<*>,
@@ -68,19 +72,23 @@ class IdentityPagesIntegrationTest(
         }
     }
 
+    /**
+     * This test uses one cause of a failed sign-in: a callback without its authorization request. All causes go through
+     * one failure handler, so one cause is sufficient.
+     */
     @Test
-    fun `a failed sign-in shows a page instead of a new redirect`() {
-        mvc.get("/sign-in?error").andExpect {
-            status { isOk() }
-            content { string(containsString("Sign-in failed")) }
+    fun `a failed sign-in shows an error page instead of a new redirect, and logs the cause`(output: CapturedOutput) {
+        mvc.get("/login/oauth2/code/folio?code=old&state=old").andExpectProblemPage(401, "SIGN_IN_FAILED").andExpect {
+            header { doesNotExist(HttpHeaders.LOCATION) }
+            header { doesNotExist(HttpHeaders.SET_COOKIE) }
         }
+        assertContains(output.all, "Sign-in failed")
+        assertContains(output.all, "authorization_request_not_found")
     }
 
     @Test
     fun `sign-out needs the CSRF token`() {
-        mvc.post("/sign-out") { with(signedIn(alice)) }.andExpect {
-            status { isForbidden() }
-            content { string(containsString("<code>CSRF_TOKEN_INVALID</code>")) }
+        mvc.post("/sign-out") { with(signedIn(alice)) }.andExpectProblemPage(403, "CSRF_TOKEN_INVALID").andExpect {
             content { string(containsString("Signed in as <a href=\"/me\"><strong>alice</strong></a>")) }
         }
         mvc
@@ -122,10 +130,7 @@ class IdentityPagesIntegrationTest(
                 with(signedIn(alice))
                 cookie(session)
                 header("X-CSRF-TOKEN", "wrong")
-            }.andExpect {
-                status { isForbidden() }
-                content { string(containsString("<code>CSRF_TOKEN_INVALID</code>")) }
-            }
+            }.andExpectProblemPage(403, "CSRF_TOKEN_INVALID")
     }
 
     @Test

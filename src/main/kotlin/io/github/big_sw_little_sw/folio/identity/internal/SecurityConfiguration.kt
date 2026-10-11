@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 import io.github.big_sw_little_sw.folio.identity.IdentityException
+import io.github.big_sw_little_sw.folio.identity.SuperAdmins
 import io.github.big_sw_little_sw.folio.web.CONTENT_SECURITY_POLICY
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -22,6 +23,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException
 import org.springframework.security.oauth2.core.oidc.OidcScopes
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.security.oauth2.jwt.JwtDecoder
@@ -31,6 +33,7 @@ import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.access.AccessDeniedHandler
 import org.springframework.security.web.access.AccessDeniedHandlerImpl
 import org.springframework.security.web.authentication.AuthenticationEntryPointFailureHandler
+import org.springframework.security.web.authentication.AuthenticationFailureHandler
 import org.springframework.security.web.csrf.CsrfException
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher
 import org.springframework.session.config.SessionRepositoryCustomizer
@@ -40,11 +43,12 @@ import org.springframework.web.servlet.HandlerExceptionResolver
 /**
  * Two filter chains. The services authorize each operation, so both chains let anonymous callers through.
  *
- * - `/api/` accepts only bearer tokens. It is stateless, ignores the session cookie and has no CSRF protection.
- * - All other routes are the UI. People sign in with the authorization code flow and PKCE. The session is in
- *   PostgreSQL, and forms need a CSRF token.
+ * - The API chain serves `/api/`. It accepts only bearer tokens, keeps no session, ignores the session cookie and has
+ *   no CSRF protection.
+ * - The UI chain serves all other routes. People sign in with the authorization code flow and PKCE. The UI session is
+ *   in PostgreSQL, and each form needs a CSRF token.
  *
- * Both chains give their failures to Spring MVC's exception resolvers, so the web module writes the error body.
+ * Both chains give their failures to the exception resolvers of Spring MVC, so the web module writes the error body.
  */
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration(
@@ -57,8 +61,8 @@ class SecurityConfiguration(
         require(!issuer.isNullOrBlank()) {
             "spring.security.oauth2.resourceserver.jwt.issuer-uri must name the one trusted issuer"
         }
-        // Spring Boot examines `aud` only when audiences are set. Without them, Folio would accept a token that the
-        // issuer signed for a different API.
+        // Spring Boot examines `aud` only when audiences are set. Without audiences, Folio would accept a token that
+        // the issuer signed for a different API.
         require(resourceServer.jwt.audiences.any { it.isNotBlank() }) {
             "spring.security.oauth2.resourceserver.jwt.audiences must name the audience of Folio's tokens"
         }
@@ -66,24 +70,26 @@ class SecurityConfiguration(
             requireNotNull(clients.findByRegistrationId(REGISTRATION_ID)) {
                 "spring.security.oauth2.client.registration.$REGISTRATION_ID must configure the web UI client"
             }
-        // The UI signs people in through the one trusted issuer. Spring examines `iss` of an ID token only against
-        // this value, and compares issuers as exact strings, so this check does too.
+        // The UI must sign people in through the one trusted issuer. Spring examines the `iss` claim of an ID token
+        // only against the issuer URI of the provider. Spring compares issuers as exact strings, and so does this
+        // check.
         require(registration.providerDetails.issuerUri == issuer) {
             "spring.security.oauth2.client.provider.$REGISTRATION_ID.issuer-uri must equal " +
                 "spring.security.oauth2.resourceserver.jwt.issuer-uri"
         }
-        // Without openid, Spring signs people in without an ID token, so sign-in makes no caller.
+        // Without the openid scope, Spring signs people in without an ID token. Then sign-in cannot make a caller.
         require(OidcScopes.OPENID in registration.scopes) {
             "spring.security.oauth2.client.registration.$REGISTRATION_ID.scope must contain openid"
         }
     }
 
     @Bean
-    fun callerFactory(properties: IdentityProperties): CallerFactory = CallerFactory(
+    fun callerFactory(properties: IdentityProperties, superAdmins: SuperAdmins): CallerFactory = CallerFactory(
         properties.claims,
         when (properties.directory) {
             IdentityProperties.DirectoryType.TOKEN -> TokenDirectory(properties.claims.groups)
         },
+        superAdmins,
     )
 
     @Bean
@@ -136,6 +142,7 @@ class SecurityConfiguration(
                 authorizationEndpoint { authorizationRequestResolver = withPkce() }
                 userInfoEndpoint { oidcUserService = SignedInUserService(callerFactory) }
                 authorizedClientRepository = NoAuthorizedClients
+                authenticationFailureHandler = signInFailed()
             }
             logout {
                 logoutUrl = "/sign-out"
@@ -149,7 +156,7 @@ class SecurityConfiguration(
         return http.build()
     }
 
-    /** Folio is a confidential client, and Spring Security uses PKCE by default only for public clients. */
+    /** Adds PKCE. Spring Security uses PKCE by default only for public clients, and Folio is a confidential client. */
     private fun withPkce() = DefaultOAuth2AuthorizationRequestResolver(
         clients,
         OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI,
@@ -157,7 +164,10 @@ class SecurityConfiguration(
         setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce())
     }
 
-    /** All UI routes permit all callers, so a CSRF failure is the expected cause of a denial. */
+    /**
+     * All UI routes permit all callers, so a CSRF failure is the expected cause of a denial. Other denials keep the
+     * default handling of Spring Security.
+     */
     private fun csrfRejected() = AccessDeniedHandler { request, response, exception ->
         if (exception is CsrfException) {
             fail(request, response, IdentityException.CsrfRejected())
@@ -167,19 +177,43 @@ class SecurityConfiguration(
     }
 
     /**
+     * Logs each failed sign-in, and shows the person only SIGN_IN_FAILED. Spring logs the cause only at DEBUG. Causes
+     * include a refusal of the identity provider, an ID token that gives no caller and an old callback URL. The level
+     * is WARN, not ERROR, because any browser can send an old callback URL.
+     */
+    private fun signInFailed() = AuthenticationFailureHandler { request, response, exception ->
+        // An ID token that gives no caller fails with InvalidClaims, which carries no OAuth2 error.
+        val error = (exception as? OAuth2AuthenticationException)?.error
+        val reason = listOfNotNull(error?.errorCode, error?.description ?: exception.message).joinToString(" ")
+        log.warn("Sign-in failed: {}", reason)
+        fail(request, response, IdentityException.SignInFailed())
+    }
+
+    /**
      * Spring gives [AuthenticationServiceException] when the decoder cannot get the discovery document or the signing
-     * keys of the issuer (see [OutageReportingJwtDecoder]).
+     * keys of the issuer (see [OutageReportingJwtDecoder]). The log gets a token whose claims give no caller, because
+     * the issuer signed that token for Folio, so the claim configuration is wrong. Other token failures are faults of
+     * the client, so only the client gets them.
      */
     private fun failToken(
         request: HttpServletRequest,
         response: HttpServletResponse,
         exception: AuthenticationException,
     ) {
-        if (exception is AuthenticationServiceException) {
-            log.warn("A bearer token was not validated, because the issuer is not available: {}", exception.message)
-            fail(request, response, IdentityException.IssuerUnavailable())
-        } else {
-            fail(request, response, IdentityException.InvalidToken())
+        when (exception) {
+            is AuthenticationServiceException -> {
+                log.warn("A bearer token was not validated, because the issuer is not available: {}", exception.message)
+                fail(request, response, IdentityException.IssuerUnavailable())
+            }
+
+            is InvalidClaims -> {
+                log.warn("A bearer token was refused: {}", exception.message)
+                fail(request, response, IdentityException.InvalidToken())
+            }
+
+            else -> {
+                fail(request, response, IdentityException.InvalidToken())
+            }
         }
     }
 
@@ -191,7 +225,10 @@ class SecurityConfiguration(
         errors.resolveException(request, response, null, exception) ?: throw exception
     }
 
-    /** Sessions end after `folio.ui.session-timeout`. Spring Boot's customizer runs first, so this one wins. */
+    /**
+     * Sessions end after `folio.ui.session-timeout`. The customizer of Spring Boot runs first, so this customizer sets
+     * the final value.
+     */
     @Bean
     fun sessionTimeout(ui: UiProperties) = SessionRepositoryCustomizer<JdbcIndexedSessionRepository> {
         it.setDefaultMaxInactiveInterval(ui.sessionTimeout)
@@ -201,7 +238,10 @@ class SecurityConfiguration(
         /** The client registration of the web UI. Its redirect URI is /login/oauth2/code/folio. */
         const val REGISTRATION_ID = "folio"
 
-        /** The API routes. [ApiWithoutCookies] uses the same matcher. */
+        /**
+         * The API routes. [ApiWithoutCookies] and [SignInRedirect] use the same matcher, so all three agree on which
+         * routes are the API.
+         */
         internal val API = PathPatternRequestMatcher.pathPattern("/api/**")
         private val log = LoggerFactory.getLogger(SecurityConfiguration::class.java)
     }

@@ -37,7 +37,9 @@ class OpenApiIntegrationTest(@Autowired private val mvc: MockMvc) {
     }
 
     private companion object {
-        /** One route serves the rules of Namespaces and ConfigSets. Its `collection` has two values. */
+        /**
+         * One route serves the rules of Namespaces and of ConfigSets, so its `collection` path variable has two values.
+         */
         const val RULES = "$.paths['/api/v1/admin/{collection}/{id}/rules']"
     }
 }

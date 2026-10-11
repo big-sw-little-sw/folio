@@ -6,15 +6,19 @@ import io.github.big_sw_little_sw.folio.catalog.ResourceId
 import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Component
 
-/** All authorization decisions of Folio (design 7). It reads the rules on an ancestry and applies [decide]. */
+/**
+ * The Authorizer makes all authorization decisions of Folio (design 7). It reads the rules on an ancestry and applies
+ * [decide]. Each caller carries its super-admin status, so Folio needs no query to find super admins.
+ */
 @Component
-class Authorizer(private val rules: RuleRepository, private val superAdmins: SuperAdmins) {
+class Authorizer(private val rules: RuleRepository) {
     fun decide(caller: Caller, action: Action, ancestry: Ancestry): Decision =
-        decide(caller, ancestry.resources, rules.subjects(action, ancestry.resources), superAdmins.entries)
+        decide(caller, ancestry.resources, rules.subjects(action, ancestry.resources))
 
     /**
-     * Throws [CatalogException.Unauthenticated] to an anonymous caller and [CatalogException.Forbidden] to others, if
-     * the caller cannot do [action]. The error names [target], or the root if it is null.
+     * Throws [CatalogException.Unauthenticated] to an anonymous caller if the caller cannot do [action]. Throws
+     * [CatalogException.Forbidden] to the other callers. The Forbidden error names [target], or the root if [target] is
+     * null.
      */
     fun require(
         caller: Caller,
@@ -23,20 +27,35 @@ class Authorizer(private val rules: RuleRepository, private val superAdmins: Sup
         target: ResourceId? = ancestry.links.lastOrNull()?.resource,
     ) {
         if (decide(caller, action, ancestry).allowed) return
-        val name = target?.toApiId() ?: "the root"
         throw when (caller) {
-            Caller.Anonymous -> CatalogException.Unauthenticated(action, name)
-            is Caller.Authenticated, Caller.System -> CatalogException.Forbidden(action, name)
+            Caller.Anonymous -> CatalogException.Unauthenticated(action)
+            is Caller.Authenticated, Caller.System -> CatalogException.Forbidden(action, target)
         }
     }
 
-    /** The [children] of [parent] that the caller can do [action] on. One query reads the rules for all of them. */
-    fun <T : ResourceId> allowedChildren(caller: Caller, action: Action, parent: Ancestry, children: List<T>): Set<T> {
-        val subjects = rules.subjects(action, parent.resources + children)
-        return children
-            .filter { decide(caller, parent.resources + it, subjects, superAdmins.entries).allowed }
-            .toSet()
+    /**
+     * The links of [ancestries] that the caller can READ. A nearer rule can take `READ` away, so each link gets its own
+     * decision (design 7.2). One query reads the rules for all links. For a super admin, the method returns all links
+     * without a query.
+     */
+    fun readable(caller: Caller, ancestries: Collection<Ancestry>): Set<ResourceId> {
+        val links = ancestries.flatMapTo(mutableSetOf()) { it.resources }
+        if (caller.superAdmin) return links
+        val subjects = rules.subjects(Action.READ, links)
+        return ancestries.flatMapTo(mutableSetOf()) { ancestry ->
+            val chain = ancestry.resources
+            chain.filterIndexed { index, _ -> decide(caller, chain.take(index + 1), subjects).allowed }
+        }
     }
 
-    fun isSuperAdmin(caller: Caller): Boolean = superAdmins.match(caller) != null
+    /**
+     * The [children] of [parent] that the caller can READ. Lists show only these children (design 7.4). One query reads
+     * the rules of the ancestry of [parent] and of all [children].
+     */
+    fun readable(caller: Caller, parent: Ancestry, children: List<ResourceId>): Set<ResourceId> {
+        val subjects = rules.subjects(Action.READ, parent.resources + children)
+        return children
+            .filter { decide(caller, parent.resources + it, subjects).allowed }
+            .toSet()
+    }
 }

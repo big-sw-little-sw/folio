@@ -21,10 +21,10 @@ class CurrentCaller {
      * caller would hide the fault as a permissions problem.
      */
     private fun callerOf(principal: Any?): Caller = when (principal) {
-        // A bearer token on /api. The token converter made the caller.
+        // An API request has a bearer token, and BearerTokenConverter made this caller.
         is Caller.Authenticated -> principal
 
-        // A browser session. Sign-in made the caller.
+        // A UI request has a browser session, and sign-in made this caller.
         is SignedInUser -> principal.caller
 
         else -> error("No caller for the principal type ${principal?.javaClass?.name}")

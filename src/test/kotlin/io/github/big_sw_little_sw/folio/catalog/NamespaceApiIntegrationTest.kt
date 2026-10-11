@@ -5,12 +5,16 @@ import io.github.big_sw_little_sw.testing.FolioIntegrationTest
 import io.github.big_sw_little_sw.testing.TestCatalog
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.uniqueSlug
+import io.github.big_sw_little_sw.testing.andExpectForbidden
 import io.github.big_sw_little_sw.testing.andExpectProblem
 import io.github.big_sw_little_sw.testing.bearer
 import io.github.big_sw_little_sw.testing.json
 import io.github.big_sw_little_sw.testing.jsonBody
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.hasItem
+import org.hamcrest.Matchers.hasItems
+import org.hamcrest.Matchers.not
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
 import org.springframework.test.web.servlet.MockHttpServletRequestDsl
@@ -20,8 +24,9 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
 import kotlin.test.Test
+import kotlin.test.assertTrue
 
-/** The Namespace routes (design 5, 7.3, 12.2), through HTTP with bearer tokens. */
+/** These tests check the Namespace routes (design 5, 7.3, 12.2) through HTTP with bearer tokens. */
 @FolioIntegrationTest
 class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -57,8 +62,7 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             .post(NAMESPACES) {
                 bearer(alice)
                 jsonBody("""{"slug": "${uniqueSlug()}"}""")
-            }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-            .andExpect { jsonPath("$.detail") { value("The caller does not have MANAGE on the root.") } }
+            }.andExpectForbidden(Action.MANAGE, null)
     }
 
     @Test
@@ -80,8 +84,7 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             .post(NAMESPACES) {
                 bearer(bob)
                 jsonBody(body)
-            }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-            .andExpect { jsonPath("$.detail") { value("The caller does not have MANAGE on ${top.toApiId()}.") } }
+            }.andExpectForbidden(Action.MANAGE, top.toApiId())
         mvc.post(NAMESPACES) { jsonBody(body) }.andExpectProblem(401, "AUTHENTICATION_REQUIRED").andExpect {
             header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") }
             jsonPath("$.detail") { value(containsString("MANAGE")) }
@@ -98,7 +101,8 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             """{"slug": "ok", "parentId": "ns_123"}""" to "INVALID_ID",
             """{"slug": "ok", "parentId": "${top.toApiId()}", "description": "${"x".repeat(1001)}"}""" to
                 "INVALID_DESCRIPTION",
-            // PostgreSQL rejects NUL in text, so Folio rejects it first.
+            // PostgreSQL rejects a NUL character in text. Folio rejects the description first, so the caller gets 400
+            // and not 500.
             """{"slug": "ok", "parentId": "${top.toApiId()}", "description": "x\u0000y"}""" to "INVALID_DESCRIPTION",
             """{"parentId": "${top.toApiId()}"}""" to "INVALID_REQUEST",
         ).forEach { (body, code) ->
@@ -178,6 +182,50 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
     }
 
     @Test
+    fun `the list shows only the top-level Namespaces that the caller can READ`() {
+        val carol = Caller.Authenticated(uniqueSlug("carol"), emptySet(), null)
+        val readable = catalog.namespace()
+        val open = catalog.namespace()
+        val hidden = catalog.namespace()
+        val deep = catalog.namespace(hidden, "deep")
+        catalog.rule(readable, Action.READ, "user:${carol.subject}")
+        catalog.rule(open, Action.READ, "public")
+        catalog.rule(deep, Action.READ, "user:${carol.subject}")
+        val ids = "$.namespaces[*].id"
+
+        mvc.get(NAMESPACES) { bearer(carol) }.andExpect {
+            status { isOk() }
+            jsonPath(ids) { value(hasItems(readable.toApiId(), open.toApiId())) }
+            jsonPath(ids) { value(not(hasItem(hidden.toApiId()))) }
+            jsonPath(ids) { value(not(hasItem(deep.toApiId()))) }
+            jsonPath("$.namespaces[?(@.id == '${readable.toApiId()}')].path") {
+                value(contains(catalog.pathOf(readable)))
+            }
+        }
+    }
+
+    @Test
+    fun `the list shows public Namespaces to anonymous callers and all to super admins, but not to a bad token`() {
+        // The test creates the Namespaces in the opposite order of their slugs. The list order then shows that the list
+        // uses the slug order.
+        val open = catalog.namespace(slug = uniqueSlug("b"))
+        val closed = catalog.namespace(slug = uniqueSlug("a"))
+        catalog.rule(open, Action.READ, "public")
+        val ids = "$.namespaces[*].id"
+
+        mvc.get(NAMESPACES).andExpect {
+            status { isOk() }
+            jsonPath(ids) { value(hasItem(open.toApiId())) }
+            jsonPath(ids) { value(not(hasItem(closed.toApiId()))) }
+        }
+        val all = mvc.get(NAMESPACES) { bearer(SUPER_ADMIN) }.json(ids)
+        assertTrue(all.indexOf(closed.toApiId()) in 0..<all.indexOf(open.toApiId()), "The list is in slug order")
+        mvc
+            .get(NAMESPACES) { header(HttpHeaders.AUTHORIZATION, "Bearer not-a-token") }
+            .andExpectProblem(401, "INVALID_TOKEN")
+    }
+
+    @Test
     fun `get finds the Namespace first, then authorizes`() {
         val top = catalog.namespace()
         val missing = NamespaceId(java.util.UUID.randomUUID()).toApiId()
@@ -188,10 +236,7 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             .get(
                 "$NAMESPACES/${top.toApiId()}",
             ) { bearer(alice) }
-            .andExpectProblem(403, "ACTION_NOT_ALLOWED")
-            .andExpect {
-                jsonPath("$.detail") { value("The caller does not have READ on ${top.toApiId()}.") }
-            }
+            .andExpectForbidden(Action.READ, top.toApiId())
         mvc.get("$NAMESPACES/${top.toApiId()}").andExpectProblem(401, "AUTHENTICATION_REQUIRED").andExpect {
             jsonPath("$.detail") { value(containsString("READ")) }
         }

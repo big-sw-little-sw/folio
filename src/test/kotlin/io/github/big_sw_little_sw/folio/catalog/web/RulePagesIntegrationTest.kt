@@ -5,17 +5,18 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.testing.FolioIntegrationTest
 import io.github.big_sw_little_sw.testing.TestCatalog
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
+import io.github.big_sw_little_sw.testing.andExpectProblemPage
+import io.github.big_sw_little_sw.testing.postForm
 import io.github.big_sw_little_sw.testing.signedIn
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.containsString
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import kotlin.test.Test
 
-/** The rules page with its explain form (design 12.3). It needs `GRANT` only. */
+/** These tests check the rules page and its explain form (design 12.3). The page needs `GRANT` and no other action. */
 @FolioIntegrationTest
 class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -30,13 +31,8 @@ class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired p
             status { isOk() }
             content { string(containsString("group:team-a\nuser:bob</textarea>")) }
         }
-        post("$rules/READ", "subjects" to "nobody").andExpect {
-            status { isBadRequest() }
-            content {
-                string(
-                    allOf(containsString("<code>INVALID_SUBJECT</code>"), containsString("nobody</textarea>")),
-                )
-            }
+        post("$rules/READ", "subjects" to "nobody").andExpectProblemPage(400, "INVALID_SUBJECT").andExpect {
+            content { string(containsString("nobody</textarea>")) }
         }
         post("$rules/READ/delete").andExpect { redirectedUrl(rules) }
         mvc.get(rules) { with(signedIn(SUPER_ADMIN)) }.andExpect {
@@ -54,12 +50,7 @@ class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired p
         mvc.get("$rules?action=READ&subject=bob") { with(signedIn(alice)) }.andExpect {
             content { string(containsString("No rule for READ exists on this resource or above it.")) }
         }
-        mvc
-            .post("$rules/READ") {
-                with(signedIn(alice))
-                with(csrf())
-                param("subjects", "user:bob")
-            }.andExpect { redirectedUrl(rules) }
+        mvc.postForm("$rules/READ", alice, "subjects" to "user:bob").andExpect { redirectedUrl(rules) }
     }
 
     @Test
@@ -91,9 +82,5 @@ class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired p
         }
     }
 
-    private fun post(url: String, vararg params: Pair<String, String>) = mvc.post(url) {
-        with(signedIn(SUPER_ADMIN))
-        with(csrf())
-        params.forEach { (name, value) -> param(name, value) }
-    }
+    private fun post(url: String, vararg params: Pair<String, String>) = mvc.postForm(url, SUPER_ADMIN, *params)
 }

@@ -21,11 +21,12 @@ enum class ErrorKind(val status: HttpStatus) {
 
 /**
  * The base type of each expected failure. Each module declares a sealed subtype in its public API, with one subclass
- * for each failure. Modules never select HTTP statuses.
+ * for each failure. A module selects an [ErrorKind], never an HTTP status. Thus one map in the web module decides the
+ * status of each failure.
  *
- * [code] is the stable part for clients, for example `ACTION_NOT_ALLOWED`. [detail] is for people and can change. It
- * goes to the client, so it must never contain a secret, a token or transport output. [retryAfter] tells the client
- * of an [ErrorKind.UNAVAILABLE] failure when to try again.
+ * [code] is the stable part for clients, for example `ACTION_NOT_ALLOWED`. [detail] is for people and can change. The
+ * client receives [detail], so [detail] must never contain a secret, a token or transport output. [retryAfter] tells
+ * the client of an [ErrorKind.UNAVAILABLE] failure when to try again.
  */
 abstract class FolioException(
     val kind: ErrorKind,

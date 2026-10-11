@@ -107,7 +107,7 @@ class AuditRetentionIntegrationTest(
             .update()
     }
 
-    /** The remaining records of this test, counted by their age in whole days. */
+    /** Counts the remaining records of this test by their age in whole days. */
     private fun countsByAgeInDays(): Map<Int, Int> = jdbc
         .sql(
             """

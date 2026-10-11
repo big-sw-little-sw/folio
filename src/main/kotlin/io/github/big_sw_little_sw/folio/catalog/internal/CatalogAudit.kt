@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.catalog.internal
 
 import io.github.big_sw_little_sw.folio.audit.AuditEntry
 import io.github.big_sw_little_sw.folio.audit.AuditLog
+import io.github.big_sw_little_sw.folio.catalog.ConfigSet
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.catalog.Path
@@ -11,20 +12,40 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Component
 
 /**
- * Writes the audit records of the catalog (design 14). Callers call it only for operations that changed something.
- * [edited] then writes one record for each field that changed.
+ * Writes the audit records of the catalog (design 14). The services call this class only for operations that changed
+ * something. [edited] writes one record for each field that changed.
  *
- * The resource type is `NAMESPACE` or `CONFIG_SET`, and operations start with it, for example `NAMESPACE_RENAMED`.
- * Rule operations are `RULE_PUT` and `RULE_DELETED`, with the type, the ID and the path of the target of the rule.
+ * The resource type is `NAMESPACE` or `CONFIG_SET`. Each operation name starts with the resource type, for example
+ * `NAMESPACE_RENAMED`. The rule operations are `RULE_PUT` and `RULE_DELETED`. A rule record has the type, the ID and
+ * the path of the resource of the rule.
  */
 @Component
-class CatalogAudit(private val auditLog: AuditLog, private val authorizer: Authorizer) {
-    fun created(caller: Caller, resource: ResourceId, path: Path, details: Map<String, Any?>) =
-        record(caller, "${typeOf(resource)}_CREATED", resource, path, details = details)
+class CatalogAudit(private val auditLog: AuditLog) {
+    fun created(caller: Caller, namespace: Namespace) = record(
+        caller,
+        "NAMESPACE_CREATED",
+        namespace.id,
+        namespace.path,
+        details = mapOf("parentId" to namespace.parentId?.toApiId(), "description" to namespace.description),
+    )
+
+    fun created(caller: Caller, configSet: ConfigSet) = record(
+        caller,
+        "CONFIG_SET_CREATED",
+        configSet.id,
+        configSet.path,
+        details =
+        mapOf(
+            "namespaceId" to configSet.namespaceId.toApiId(),
+            "sourceType" to configSet.sourceType.name,
+            "description" to configSet.description,
+        ),
+    )
 
     /**
-     * One record for each change, so that a PATCH of the slug and the description writes a rename and a describe.
-     * Thus a query for one operation finds all of them.
+     * Writes one record for each field that changed. Thus a PATCH of the slug and the description writes a rename
+     * record and a describe record. Without separate records, a query for one operation would miss the changes of a
+     * combined PATCH.
      */
     fun edited(
         caller: Caller,
@@ -46,8 +67,25 @@ class CatalogAudit(private val auditLog: AuditLog, private val authorizer: Autho
         }
     }
 
-    fun moved(caller: Caller, resource: ResourceId, path: Path, previousPath: Path, details: Map<String, Any?>) =
-        record(caller, "${typeOf(resource)}_MOVED", resource, path, previousPath, details)
+    /** [before] is the ancestry before the move. The record takes the previous path from [before]. */
+    fun moved(caller: Caller, before: Ancestry, namespace: Namespace, previousParentId: NamespaceId?) = record(
+        caller,
+        "NAMESPACE_MOVED",
+        namespace.id,
+        namespace.path,
+        before.path,
+        mapOf("parentId" to namespace.parentId?.toApiId(), "previousParentId" to previousParentId?.toApiId()),
+    )
+
+    /** [before] is the ancestry before the move. The record takes the previous path from [before]. */
+    fun moved(caller: Caller, before: Ancestry, configSet: ConfigSet, previousNamespaceId: NamespaceId) = record(
+        caller,
+        "CONFIG_SET_MOVED",
+        configSet.id,
+        configSet.path,
+        before.path,
+        mapOf("namespaceId" to configSet.namespaceId.toApiId(), "previousNamespaceId" to previousNamespaceId.toApiId()),
+    )
 
     fun deleted(caller: Caller, resource: ResourceId, path: Path) =
         record(caller, "${typeOf(resource)}_DELETED", resource, path)
@@ -88,7 +126,6 @@ class CatalogAudit(private val auditLog: AuditLog, private val authorizer: Autho
         auditLog.record(
             AuditEntry(
                 caller = caller,
-                superAdmin = authorizer.isSuperAdmin(caller),
                 operation = operation,
                 resourceType = typeOf(resource),
                 resourceId = resource.value,

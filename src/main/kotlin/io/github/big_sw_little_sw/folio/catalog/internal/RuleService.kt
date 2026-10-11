@@ -4,46 +4,51 @@ import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.CatalogException
 import io.github.big_sw_little_sw.folio.catalog.Path
 import io.github.big_sw_little_sw.folio.catalog.ResourceId
+import io.github.big_sw_little_sw.folio.catalog.SnapshotRead
 import io.github.big_sw_little_sw.folio.identity.Caller
+import io.github.big_sw_little_sw.folio.identity.Subject
+import io.github.big_sw_little_sw.folio.identity.SuperAdmins
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 
-/** Why Folio permits or denies an action on a resource for a caller (design 7.4). */
+/** The reason why Folio permits or denies an action on a resource for a caller (design 7.4). */
 data class Explanation(
     val action: Action,
     val decision: Decision,
+    /** The super-admin entry or the subject of the rule that matched the caller, or null if none matched. */
+    val matchedSubject: Subject?,
     /** The rule that decided, or null if a super-admin entry matched or no rule exists. */
     val rule: DecidingRule?,
 )
 
 /**
- * The rule that decided: its resource and path. It has no subjects, because the rule is often on a Namespace above,
- * and listing the rules there needs `GRANT` there (design 7.3, 7.4).
+ * The resource and the path of the rule that decided. The value has no subjects, because the rule is often on a
+ * Namespace above the resource. A caller needs `GRANT` on that Namespace to list its rules (design 7.3, 7.4). Without
+ * this limit, an explanation would show subjects that the caller cannot list.
  */
 data class DecidingRule(val resource: ResourceId, val path: Path)
 
-/** Rules and explanations. All operations need `GRANT` on the resource (design 7.3). */
+/** Lists, puts and deletes rules, and explains decisions. Each operation needs `GRANT` on the resource (design 7.3). */
 @Service
 class RuleService(
     private val tree: TreeRepository,
     private val rules: RuleRepository,
     private val authorizer: Authorizer,
     private val audit: CatalogAudit,
+    private val superAdmins: SuperAdmins,
 ) {
     /** The own rules of the resource, without inherited rules. */
-    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    @SnapshotRead
     fun rules(caller: Caller, resource: ResourceId): List<Rule> {
-        authorizer.require(caller, Action.GRANT, ancestry(resource))
+        authorizer.require(caller, Action.GRANT, tree.requireAncestry(resource))
         return rules.rules(resource)
     }
 
     /** Replaces the rule of the resource for the action of [rule]. */
     @Transactional
     fun put(caller: Caller, resource: ResourceId, rule: Rule): Rule {
-        if (rule.subjects.isEmpty()) throw CatalogException.NoSubjects()
         tree.lock()
-        val ancestry = ancestry(resource)
+        val ancestry = tree.requireAncestry(resource)
         authorizer.require(caller, Action.GRANT, ancestry)
         val previous = rule(resource, rule.action)
         if (previous?.subjects != rule.subjects) {
@@ -57,7 +62,7 @@ class RuleService(
     @Transactional
     fun delete(caller: Caller, resource: ResourceId, action: Action) {
         tree.lock()
-        val ancestry = ancestry(resource)
+        val ancestry = tree.requireAncestry(resource)
         authorizer.require(caller, Action.GRANT, ancestry)
         val previous = rule(resource, action) ?: return
         rules.delete(resource, action)
@@ -65,24 +70,31 @@ class RuleService(
     }
 
     /**
-     * How Folio decides [action] on the resource for [explained], a caller that the request describes. [caller] needs
-     * `GRANT` on the resource.
+     * Explains how Folio decides [action] on the resource for the caller that a request describes. A null [described]
+     * is an anonymous caller. The method ignores `described.superAdmin` and takes the super-admin status from the
+     * configuration, as identity does for a token. Thus a request cannot give a caller super-admin status. [caller]
+     * needs `GRANT` on the resource.
      */
-    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    fun explain(caller: Caller, resource: ResourceId, action: Action, explained: Caller): Explanation {
-        val ancestry = ancestry(resource)
+    @SnapshotRead
+    fun explain(caller: Caller, resource: ResourceId, action: Action, described: Caller.Authenticated?): Explanation {
+        val ancestry = tree.requireAncestry(resource)
         authorizer.require(caller, Action.GRANT, ancestry)
-        val decision = authorizer.decide(explained, action, ancestry)
-        val decidingResource =
-            when (decision) {
-                is Decision.Granted -> decision.resource
-                is Decision.NotGranted -> decision.resource
-                is Decision.SuperAdmin, Decision.NoRule -> null
+        val explained =
+            if (described == null) {
+                Caller.Anonymous
+            } else {
+                superAdmins.caller(described.subject, described.groups, described.applicationId)
             }
-        return Explanation(action, decision, decidingResource?.let { DecidingRule(it, ancestry.pathOf(it)) })
+        val decision = authorizer.decide(explained, action, ancestry)
+        val (matched, decidingResource) =
+            when (decision) {
+                Decision.SuperAdmin -> superAdmins.entryFor(explained) to null
+                is Decision.Granted -> decision.subject to decision.resource
+                is Decision.NotGranted -> null to decision.resource
+                Decision.NoRule -> null to null
+            }
+        return Explanation(action, decision, matched, decidingResource?.let { DecidingRule(it, ancestry.pathOf(it)) })
     }
 
     private fun rule(resource: ResourceId, action: Action): Rule? = rules.rules(resource).find { it.action == action }
-
-    private fun ancestry(resource: ResourceId): Ancestry = tree.ancestry(resource) ?: throw notFound(resource)
 }

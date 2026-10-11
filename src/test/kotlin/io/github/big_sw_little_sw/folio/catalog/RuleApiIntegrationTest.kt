@@ -4,6 +4,7 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.testing.FolioIntegrationTest
 import io.github.big_sw_little_sw.testing.TestCatalog
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
+import io.github.big_sw_little_sw.testing.andExpectForbidden
 import io.github.big_sw_little_sw.testing.andExpectProblem
 import io.github.big_sw_little_sw.testing.bearer
 import io.github.big_sw_little_sw.testing.json
@@ -20,7 +21,7 @@ import org.springframework.test.web.servlet.put
 import java.util.UUID
 import kotlin.test.Test
 
-/** The rule and explanation routes (design 7.2, 7.4, 12.2). They all need GRANT. */
+/** These tests check the rule routes and the explain route (design 7.2, 7.4, 12.2). All of these routes need GRANT. */
 @FolioIntegrationTest
 class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -73,9 +74,7 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         val rules = "/api/v1/admin/configsets/${serviceA.toApiId()}/rules"
 
         mvc.get(rules) { bearer(alice) }.andExpect { status { isOk() } }
-        mvc.get(rules) { bearer(bob) }.andExpectProblem(403, "ACTION_NOT_ALLOWED").andExpect {
-            jsonPath("$.detail") { value("The caller does not have GRANT on ${serviceA.toApiId()}.") }
-        }
+        mvc.get(rules) { bearer(bob) }.andExpectForbidden(Action.GRANT, serviceA.toApiId())
         mvc.get(rules).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
         mvc
             .put("$rules/READ") {
@@ -244,7 +243,10 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
             }.andExpectProblem(400, "INVALID_REQUEST")
     }
 
-    /** A Namespace `search` with a READ rule, and a ConfigSet in it. */
+    /**
+     * Creates a Namespace `search` with a READ rule below a new top-level Namespace. The Namespace `search` contains
+     * the ConfigSet `service-a`.
+     */
     private fun tree(): Pair<NamespaceId, ConfigSetId> {
         val search = catalog.namespace(catalog.namespace(), "search")
         catalog.rule(search, Action.READ, "user:bob", "group:team-a")

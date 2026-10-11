@@ -23,16 +23,6 @@ class AuditEntryTest {
         assertFailsWith<IllegalArgumentException> { entry(alice, "NAMESPACE_RENAMED", "Namespace") }
     }
 
-    @Test
-    fun `only an authenticated caller can be a super admin`() {
-        entry(alice, "NAMESPACE_RENAMED", "NAMESPACE", superAdmin = true)
-        listOf(Caller.System, Caller.Anonymous).forEach { caller ->
-            assertFailsWith<IllegalArgumentException>(caller.toString()) {
-                entry(caller, "NAMESPACE_RENAMED", "NAMESPACE", superAdmin = true)
-            }
-        }
-    }
-
-    private fun entry(caller: Caller, operation: String, resourceType: String, superAdmin: Boolean = false) =
-        AuditEntry(caller, superAdmin, operation, resourceType, UUID.randomUUID(), "a/b")
+    private fun entry(caller: Caller, operation: String, resourceType: String) =
+        AuditEntry(caller, operation, resourceType, UUID.randomUUID(), "a/b")
 }

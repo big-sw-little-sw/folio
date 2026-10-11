@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 import io.github.big_sw_little_sw.folio.identity.Caller
+import io.github.big_sw_little_sw.folio.identity.SuperAdmins
 import org.springframework.security.core.AuthenticationException
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest
 import org.springframework.security.oauth2.client.registration.ClientRegistration
@@ -17,7 +18,8 @@ import kotlin.test.*
 
 class SignedInUserServiceTest {
     private val names = IdentityProperties.ClaimNames(subject = "oid")
-    private val service = SignedInUserService(CallerFactory(names, TokenDirectory(names.groups)))
+    private val superAdmins = SuperAdmins(listOf("group:folio-admins"))
+    private val service = SignedInUserService(CallerFactory(names, TokenDirectory(names.groups), superAdmins))
 
     @Test
     fun `sign-in makes the caller from the ID token with the configured claim names`() {
@@ -25,7 +27,7 @@ class SignedInUserServiceTest {
 
         assertIs<SignedInUser>(user)
         assertEquals(Caller.Authenticated("alice", setOf("team-a"), null), user.caller)
-        // The layout shows the principal name, so it must be the subject of the caller.
+        // The layout shows the principal name, so the principal name must be the subject of the caller.
         assertEquals("alice", user.name)
     }
 
@@ -42,6 +44,20 @@ class SignedInUserServiceTest {
 
         assertIs<SignedInUser>(copy)
         assertEquals(Caller.Authenticated("alice", setOf("a", "b"), null), copy.caller)
+    }
+
+    /**
+     * The session keeps the super-admin status, so a change of `folio.super-admins` takes effect at the next sign-in. A
+     * change of groups takes effect in the same way.
+     */
+    @Test
+    fun `sign-in decides the super-admin status, and the session keeps it`() {
+        val user = service.loadUser(request(mapOf("sub" to "s", "oid" to "root", "groups" to listOf("folio-admins"))))
+
+        val copy = deserialize(serialize(user))
+
+        assertIs<SignedInUser>(copy)
+        assertEquals(Caller.Authenticated("root", setOf("folio-admins"), null, superAdmin = true), copy.caller)
     }
 
     private fun request(claims: Map<String, Any>): OidcUserRequest {

@@ -10,15 +10,15 @@ import io.github.big_sw_little_sw.folio.catalog.SourceType
 import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceService
 import io.github.big_sw_little_sw.folio.catalog.internal.Rule
 import io.github.big_sw_little_sw.folio.catalog.internal.RuleService
-import io.github.big_sw_little_sw.folio.catalog.internal.Subject
 import io.github.big_sw_little_sw.folio.identity.Caller
+import io.github.big_sw_little_sw.folio.identity.Subject
 import org.springframework.boot.test.context.TestComponent
 import java.util.UUID
 
 /**
- * Builds catalog trees for tests, as a super admin. Until the Git slice (design 20), it creates ConfigSets through
- * [ConfigSets.create] with [SourceType.GIT], as a Source adapter does. Test classes share the database, so each tree
- * starts with a top-level Namespace that has a unique slug.
+ * This component builds catalog trees for tests, as a super admin. Until the Git slice (design 20), the component
+ * creates ConfigSets through [ConfigSets.create] with [SourceType.GIT], as a Source adapter does. Test classes share
+ * the database, so each tree starts with a top-level Namespace that has a unique slug.
  */
 @TestComponent
 class TestCatalog(
@@ -36,15 +36,18 @@ class TestCatalog(
         rules.put(SUPER_ADMIN, resource, Rule(action, subjects.map(Subject::parse).toSet()))
     }
 
-    /** The current path of the Namespace. For a top-level Namespace, this is its slug. */
+    /** Returns the current path of [namespace]. The path of a top-level Namespace is its slug. */
     fun pathOf(namespace: NamespaceId): String = namespaces
         .get(SUPER_ADMIN, namespace)
         .namespace.path
         .toString()
 
     companion object {
-        /** A member of `folio-admins`, the super-admin group of the test configuration. */
-        val SUPER_ADMIN = Caller.Authenticated("root", setOf("folio-admins"), null)
+        /**
+         * This caller is a member of `folio-admins`, the super-admin group of the test configuration. A bearer token
+         * with the claims of this caller therefore also gives a super admin.
+         */
+        val SUPER_ADMIN = Caller.Authenticated("root", setOf("folio-admins"), null, superAdmin = true)
 
         fun uniqueSlug(prefix: String = "t"): String = "$prefix-${UUID.randomUUID().toString().take(8)}"
     }

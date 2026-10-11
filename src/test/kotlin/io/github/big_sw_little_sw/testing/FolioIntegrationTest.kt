@@ -32,9 +32,9 @@ import java.net.http.HttpResponse
 annotation class FolioIntegrationTest
 
 /**
- * A test of the full application on real ports. The management port is random, so it differs from the application
- * port, as in production. Metrics are on, so the Prometheus endpoint has content. [TestFilter] fails some requests
- * outside Spring MVC. All classes with this annotation share one application context.
+ * This annotation marks a test of the full application on real ports. The management port is random, so it differs
+ * from the application port, as in production. Metrics are on, so the Prometheus endpoint has content. [TestFilter]
+ * fails some requests outside Spring MVC. All classes with this annotation share one application context.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)

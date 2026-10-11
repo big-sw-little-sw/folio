@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.catalog.internal
 
 import io.github.big_sw_little_sw.folio.catalog.CatalogException
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
+import io.github.big_sw_little_sw.folio.catalog.Path
 import io.github.big_sw_little_sw.folio.catalog.Slug
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -9,10 +10,15 @@ import org.springframework.stereotype.Repository
 import java.sql.ResultSet
 import java.util.UUID
 
-/** A row of `namespace`. The path is not in the row, because a move of an ancestor changes it. */
-data class NamespaceRow(val id: NamespaceId, val parentId: NamespaceId?, val slug: Slug, val description: String?)
+/** A row of the `namespace` table. The row has no path, because a rename or a move of an ancestor changes the path. */
+data class NamespaceRow(val id: NamespaceId, val parentId: NamespaceId?, val slug: Slug, val description: String?) {
+    fun toNamespace(path: Path) = Namespace(id, parentId, slug, description, path)
+}
 
-/** Rows of `namespace`. It owns the unique constraint on sibling slugs, so it changes a violation to [SlugTaken]. */
+/**
+ * Reads and writes the rows of the `namespace` table. The repository owns the unique constraint on sibling slugs. Thus
+ * the repository changes a violation to [CatalogException.SlugTaken].
+ */
 @Repository
 class NamespaceRepository(private val jdbc: JdbcClient) {
     fun insert(parentId: NamespaceId?, slug: Slug, description: String?): NamespaceId = uniqueSlug(slug, parentId) {
@@ -37,14 +43,16 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
         .optional()
         .orElse(null)
 
-    /** The children of [parentId], or the top-level Namespaces if it is null, in slug order. */
+    /** The children of [parentId], or the top-level Namespaces if [parentId] is null, in slug order. */
     fun children(parentId: NamespaceId?): List<NamespaceRow> = jdbc
         .sql("select $COLUMNS from namespace where parent_id is not distinct from :parentId order by slug")
         .param("parentId", parentId?.value)
         .query { rs, _ -> rs.toRow() }
         .list()
 
-    /** Writes the slug, the description and the parent. The ID stays, so no other table changes (design 16). */
+    /**
+     * Writes the slug, the description and the parent. The ID does not change, so no other table changes (design 16).
+     */
     fun update(row: NamespaceRow) {
         uniqueSlug(row.slug, row.parentId) {
             jdbc
@@ -62,8 +70,8 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
     }
 
     /**
-     * Empty means no child Namespaces and no ConfigSets (design 5.4). The credential slice adds credentials to this
-     * query: `not exists (select 1 from credential where namespace_id = :id)`.
+     * True if the Namespace has no child Namespaces and no ConfigSets (design 5.4). The credential slice will add
+     * credentials to this query: `not exists (select 1 from credential where namespace_id = :id)`.
      */
     fun isEmpty(id: NamespaceId): Boolean = jdbc
         .sql(
@@ -75,16 +83,22 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
         .query(Boolean::class.java)
         .single()
 
-    /** Its rules go with it (cascade). The caller makes sure that it is empty. */
+    /**
+     * A foreign key that cascades deletes the rules of the Namespace. The caller must call [isEmpty] first, under the
+     * tree lock. Without that check, the foreign keys of the children make the delete fail with a database error.
+     */
     fun delete(id: NamespaceId) {
         jdbc.sql("delete from namespace where id = :id").param("id", id.value).update()
     }
 
-    /** IDs come from `uuidv7()`, so the sibling slug is the only unique value that a caller can repeat. */
+    /**
+     * IDs come from `uuidv7()`, so the sibling slug is the only unique value that a caller can repeat. Thus a duplicate
+     * key always means that a sibling has the slug.
+     */
     private fun <T> uniqueSlug(slug: Slug, parentId: NamespaceId?, write: () -> T): T = try {
         write()
     } catch (_: DuplicateKeyException) {
-        throw CatalogException.SlugTaken(slug, parentId?.toApiId() ?: "the top level")
+        throw CatalogException.SlugTaken(slug, parentId)
     }
 
     private fun ResultSet.toRow() = NamespaceRow(

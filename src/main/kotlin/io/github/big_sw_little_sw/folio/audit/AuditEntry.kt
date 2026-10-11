@@ -8,16 +8,15 @@ import java.util.UUID
  * module. [details] must never contain groups, keys, secrets, tokens, transport output or file content.
  */
 data class AuditEntry(
+    /** The record takes the actor and the super-admin status of the actor from this caller. */
     val caller: Caller,
-    /** True if the caller is a super admin. The catalog module decides this. */
-    val superAdmin: Boolean,
     /** For example `NAMESPACE_RENAMED`. */
     val operation: String,
-    /** For example `NAMESPACE` or `CREDENTIAL`. */
+    /** The type of the resource, for example `NAMESPACE` or `CREDENTIAL`. */
     val resourceType: String,
-    /** Null only for a resource without an ID, for example the master-key ring. */
+    /** The ID is null only for a resource without an ID, for example the master-key ring. */
     val resourceId: UUID?,
-    /** The path after the operation, or before it for a delete. Null for a resource without a path. */
+    /** The path after the operation, or the path before a delete. The path is null for a resource without a path. */
     val path: String?,
     /** The path before a rename or a move. */
     val previousPath: String? = null,
@@ -30,7 +29,6 @@ data class AuditEntry(
         require(
             NAME.matches(resourceType),
         ) { "A resource type is uppercase words joined by underscores: $resourceType" }
-        require(!superAdmin || caller is Caller.Authenticated) { "Only an authenticated caller can be a super admin" }
     }
 
     private companion object {

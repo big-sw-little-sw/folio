@@ -1,8 +1,9 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 /**
- * The name of a Namespace or ConfigSet in its parent (design 5.3): 1 to 100 lowercase letters, digits and single
- * hyphens between them, for example `service-a`. Throws [CatalogException.InvalidSlug] for other text.
+ * The name of a Namespace or ConfigSet in its parent (design 5.3). A slug has 1 to 100 characters: lowercase letters,
+ * digits and single hyphens between them, for example `service-a`. The constructor throws
+ * [CatalogException.InvalidSlug] for other text.
  */
 @JvmInline
 value class Slug(val value: String) {
@@ -21,8 +22,8 @@ value class Slug(val value: String) {
 }
 
 /**
- * Slugs from the top level down, joined by `/` (design 5.3). A path has one or more segments. A rename or a move
- * changes a path, never an ID, so paths are for people and for discovery only.
+ * The slugs from the top level down, joined by `/` (design 5.3). A path has one or more segments. A rename or a move
+ * changes a path, but never an ID. Thus paths are for people and for discovery only.
  */
 @JvmInline
 value class Path(val slugs: List<Slug>) {

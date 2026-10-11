@@ -1,4 +1,7 @@
-<%-- The operations that the caller can do on a resource. The services authorize again. --%>
+<%--
+    The page shows only the operations that the caller can do on the resource. The links are not a security check:
+    the services authorize each operation again.
+--%>
 @import io.github.big_sw_little_sw.folio.catalog.web.Operations
 @import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
 @param resource: ResourceView

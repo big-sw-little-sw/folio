@@ -1,5 +1,6 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
+import io.github.big_sw_little_sw.folio.identity.IdentityException
 import io.github.big_sw_little_sw.folio.web.ErrorKind
 import io.github.big_sw_little_sw.folio.web.FolioException
 import jakarta.servlet.http.HttpServletRequest
@@ -15,8 +16,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
  * Sends an anonymous browser to sign-in when a UI page needs an authenticated caller (design 12.3). After sign-in,
  * Spring Security sends the browser back to the page from the saved request.
  *
- * It handles only `GET` requests outside `/api`. Other requests, and other failures, go on to the error advice. An
- * anonymous caller has no CSRF token, so a form post never gets here.
+ * This resolver handles only `GET` requests outside `/api`. The error advice handles all other requests and failures.
+ * An anonymous caller has no CSRF token, so the CSRF filter rejects a form post before it gets to this resolver. A
+ * failed sign-in shows its error page, because a new sign-in could fail in the same way and loop.
  */
 @Configuration(proxyBeanMethods = false)
 class SignInRedirect :
@@ -37,6 +39,7 @@ class SignInRedirect :
         val signInNeeded =
             exception is FolioException &&
                 exception.kind == ErrorKind.UNAUTHENTICATED &&
+                exception !is IdentityException.SignInFailed &&
                 request.method == HttpMethod.GET.name() &&
                 !SecurityConfiguration.API.matches(request)
         if (!signInNeeded) return null

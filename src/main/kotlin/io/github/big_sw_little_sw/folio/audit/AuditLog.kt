@@ -31,7 +31,7 @@ class AuditLog(private val jdbc: JdbcClient, private val json: JsonMapper) {
             ).param("actorType", actorType(entry.caller))
             .param("subject", authenticated?.subject)
             .param("applicationId", authenticated?.applicationId)
-            .param("superAdmin", entry.superAdmin)
+            .param("superAdmin", entry.caller.superAdmin)
             .param("operation", entry.operation)
             .param("resourceType", entry.resourceType)
             .param("resourceId", entry.resourceId)

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository
 import java.sql.ResultSet
 import java.util.UUID
 
-/** A row of `config_set`. */
+/** A row of the `config_set` table. The row has no path, because a rename or a move of an ancestor changes the path. */
 data class ConfigSetRow(
     val id: ConfigSetId,
     val namespaceId: NamespaceId,
@@ -21,11 +21,13 @@ data class ConfigSetRow(
     val description: String?,
     val sourceType: SourceType,
 ) {
-    /** The ConfigSet with its current [path], which the row does not hold. */
     fun toConfigSet(path: Path) = ConfigSet(id, namespaceId, slug, description, sourceType, path)
 }
 
-/** Rows of `config_set`. It owns the unique constraint on slugs in a Namespace. */
+/**
+ * Reads and writes the rows of the `config_set` table. The repository owns the unique constraint on slugs in a
+ * Namespace. Thus the repository changes a violation to [CatalogException.SlugTaken].
+ */
 @Repository
 class ConfigSetRepository(private val jdbc: JdbcClient) {
     fun insert(namespaceId: NamespaceId, slug: Slug, description: String?, sourceType: SourceType): ConfigSetId =
@@ -60,7 +62,10 @@ class ConfigSetRepository(private val jdbc: JdbcClient) {
         .query { rs, _ -> rs.toRow() }
         .list()
 
-    /** Writes the slug, the description and the Namespace. The Source type never changes (design 10.2). */
+    /**
+     * Writes the slug, the description and the Namespace. The Source type of a ConfigSet never changes, so the update
+     * does not write the Source type (design 10.2).
+     */
     fun update(row: ConfigSetRow) {
         uniqueSlug(row.slug, row.namespaceId) {
             jdbc
@@ -78,8 +83,8 @@ class ConfigSetRepository(private val jdbc: JdbcClient) {
     }
 
     /**
-     * Its rules go with it. The tables of other modules, for example the Source definition and the revisions, have
-     * foreign keys that cascade from `config_set` (design 5.4).
+     * Foreign keys that cascade delete the rules of the ConfigSet. The tables of other modules, for example the Source
+     * definition and the revisions, also have foreign keys that cascade from `config_set` (design 5.4).
      */
     fun delete(id: ConfigSetId) {
         jdbc.sql("delete from config_set where id = :id").param("id", id.value).update()
@@ -88,7 +93,7 @@ class ConfigSetRepository(private val jdbc: JdbcClient) {
     private fun <T> uniqueSlug(slug: Slug, namespaceId: NamespaceId, write: () -> T): T = try {
         write()
     } catch (_: DuplicateKeyException) {
-        throw CatalogException.SlugTaken(slug, namespaceId.toApiId())
+        throw CatalogException.SlugTaken(slug, namespaceId)
     }
 
     private fun ResultSet.toRow() = ConfigSetRow(

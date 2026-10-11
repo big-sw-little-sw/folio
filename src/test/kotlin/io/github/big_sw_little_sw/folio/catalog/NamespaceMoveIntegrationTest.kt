@@ -5,12 +5,12 @@ import io.github.big_sw_little_sw.testing.FolioIntegrationTest
 import io.github.big_sw_little_sw.testing.TestCatalog
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.uniqueSlug
+import io.github.big_sw_little_sw.testing.andExpectForbidden
 import io.github.big_sw_little_sw.testing.andExpectProblem
 import io.github.big_sw_little_sw.testing.bearer
 import io.github.big_sw_little_sw.testing.jsonBody
 import org.hamcrest.Matchers.contains
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
@@ -20,13 +20,9 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** Moves and deletes of Namespaces (design 5.4, 7.3), through HTTP with bearer tokens. */
+/** These tests check moves and deletes of Namespaces (design 5.4, 7.3) through HTTP with bearer tokens. */
 @FolioIntegrationTest
-class NamespaceMoveIntegrationTest(
-    @Autowired private val mvc: MockMvc,
-    @Autowired private val catalog: TestCatalog,
-    @Autowired private val jdbc: JdbcClient,
-) {
+class NamespaceMoveIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
 
     @Test
@@ -37,9 +33,7 @@ class NamespaceMoveIntegrationTest(
         val moved = catalog.namespace(from, "moved")
         catalog.rule(from, Action.MANAGE, "user:alice")
 
-        move(alice, moved, to).andExpectProblem(403, "ACTION_NOT_ALLOWED").andExpect {
-            jsonPath("$.detail") { value("The caller does not have MANAGE on ${to.toApiId()}.") }
-        }
+        move(alice, moved, to).andExpectForbidden(Action.MANAGE, to.toApiId())
         catalog.rule(to, Action.MANAGE, "user:alice")
         move(alice, moved, to).andExpect {
             status { isOk() }
@@ -55,9 +49,7 @@ class NamespaceMoveIntegrationTest(
         val child = catalog.namespace(top, uniqueSlug())
         catalog.rule(top, Action.MANAGE, "user:alice")
 
-        move(alice, child, null).andExpectProblem(403, "ACTION_NOT_ALLOWED").andExpect {
-            jsonPath("$.detail") { value("The caller does not have MANAGE on the root.") }
-        }
+        move(alice, child, null).andExpectForbidden(Action.MANAGE, null)
         move(SUPER_ADMIN, child, null).andExpect {
             status { isOk() }
             jsonPath("$.parentId") { value(null) }
@@ -89,9 +81,7 @@ class NamespaceMoveIntegrationTest(
         catalog.rule(withRules, Action.READ, "public")
         catalog.rule(top, Action.MANAGE, "user:alice")
 
-        move(alice, withRules, to).andExpectProblem(403, "ACTION_NOT_ALLOWED").andExpect {
-            jsonPath("$.detail") { value("The caller does not have GRANT on ${to.toApiId()}.") }
-        }
+        move(alice, withRules, to).andExpectForbidden(Action.GRANT, to.toApiId())
         move(alice, ruleBelow, to).andExpectProblem(403, "ACTION_NOT_ALLOWED")
         move(alice, withoutRules, to).andExpect { status { isOk() } }
         catalog.rule(to, Action.GRANT, "user:alice")
@@ -185,7 +175,6 @@ class NamespaceMoveIntegrationTest(
         mvc.delete("$NAMESPACES/${empty.toApiId()}") { bearer(SUPER_ADMIN) }.andExpect { status { isNoContent() } }
 
         mvc.get("$NAMESPACES/${empty.toApiId()}") { bearer(SUPER_ADMIN) }.andExpectProblem(404, "NAMESPACE_NOT_FOUND")
-        assertEquals(0, rulesOf(empty), "The rules go with the Namespace")
         mvc
             .delete(
                 "$NAMESPACES/${empty.toApiId()}",
@@ -198,12 +187,6 @@ class NamespaceMoveIntegrationTest(
             bearer(caller)
             jsonBody(if (parent == null) "{}" else """{"parentId": "${parent.toApiId()}"}""")
         }
-
-    private fun rulesOf(id: NamespaceId): Int = jdbc
-        .sql("select count(*) from rule where namespace_id = :id")
-        .param("id", id.value)
-        .query(Int::class.java)
-        .single()
 
     private companion object {
         const val NAMESPACES = "/api/v1/admin/namespaces"

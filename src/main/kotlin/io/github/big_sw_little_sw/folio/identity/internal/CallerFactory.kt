@@ -1,13 +1,18 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 import io.github.big_sw_little_sw.folio.identity.Caller
+import io.github.big_sw_little_sw.folio.identity.SuperAdmins
 import org.springframework.security.authentication.BadCredentialsException
 
 /**
  * Makes the caller from the claims of a token. Bearer tokens and the ID tokens of browser sign-in use this one factory,
  * so a person is the same caller in the API and in the UI.
  */
-class CallerFactory(private val names: IdentityProperties.ClaimNames, private val directory: Directory) {
+class CallerFactory(
+    private val names: IdentityProperties.ClaimNames,
+    private val directory: Directory,
+    private val superAdmins: SuperAdmins,
+) {
     /** Throws [InvalidClaims] if the subject is missing or a claim has the wrong type. */
     fun toCaller(claims: Map<String, Any>): Caller.Authenticated {
         val subject = claims[names.subject]
@@ -18,7 +23,7 @@ class CallerFactory(private val names: IdentityProperties.ClaimNames, private va
         if (applicationId != null && applicationId !is String) {
             throw InvalidClaims("Claim '${names.applicationId}' must be a string")
         }
-        return Caller.Authenticated(subject, directory.groups(claims), applicationId)
+        return superAdmins.caller(subject, directory.groups(claims), applicationId)
     }
 }
 

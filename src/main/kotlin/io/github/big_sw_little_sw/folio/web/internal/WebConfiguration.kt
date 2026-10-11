@@ -20,7 +20,7 @@ import org.springframework.web.servlet.support.RequestContextUtils
 class WebConfiguration : WebMvcConfigurer {
     /**
      * The build compiles the templates into classes in [TEMPLATE_PACKAGE] (see `jte` in build.gradle.kts). The jte
-     * starter can find precompiled templates only in its default package, so Folio makes the engine.
+     * starter finds precompiled templates only in its default package. Thus Folio makes its own engine.
      */
     @Bean
     fun jteTemplateEngine(): TemplateEngine =
@@ -35,10 +35,13 @@ class WebConfiguration : WebMvcConfigurer {
     }
 }
 
-/** Treats Spring's anonymous authentication as not signed in. */
+/**
+ * Spring Security gives an anonymous caller an authentication too. The resolver treats that authentication as not
+ * signed in.
+ */
 private val trustResolver = AuthenticationTrustResolverImpl()
 
-/** Adds the [PageContext] to each model that a template renders. JSON responses and redirects have no such model. */
+/** Adds the [PageContext] to each model that a template renders. JSON responses and redirects render no template. */
 private object PageContextInterceptor : HandlerInterceptor {
     override fun postHandle(
         request: HttpServletRequest,
