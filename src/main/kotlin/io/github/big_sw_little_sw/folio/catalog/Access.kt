@@ -7,16 +7,13 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Service
 
 /**
- * Other modules authorize through this class (design 8.1). The caller finds the resource first, so Access never reports
- * "not found". A super admin ([Caller.superAdmin]) can do all actions. For other callers, the nearest rule for the
- * action decides (design 7.2).
+ * Other modules authorize through this class, because only the catalog reads rules. Other modules find the resource
+ * first, so Access never reports "not found".
  *
- * [Caller.System] matches no rule and is never a super admin. Background work acts without authorization, so it does
- * not call Access. If background work calls Access, Access denies it with status 403.
+ * Background work acts without authorization and does not call Access. If background work calls Access,
+ * [Caller.System] gets status 403.
  *
- * Each method that reads rules reads the ancestry and the rules in one snapshot ([SnapshotRead]). When Access joins the
- * transaction of a caller, that transaction sets the isolation. Thus a caller that authorizes a read must use
- * [SnapshotRead] too.
+ * A service that finds a resource and then calls Access must use [SnapshotRead].
  */
 @Service
 class Access(private val tree: TreeRepository, private val authorizer: Authorizer) {
@@ -31,23 +28,22 @@ class Access(private val tree: TreeRepository, private val authorizer: Authorize
         authorizer.decide(caller, action, ancestry(resource)).allowed
 
     /**
-     * True if an anonymous caller can READ the resource. The `content` module uses this method for Cache-Control. The
-     * call to [allows] does not go through the Spring proxy. Thus this method needs its own [SnapshotRead] annotation,
-     * or it runs without a snapshot.
+     * True if an anonymous caller can READ the resource. The call to [allows] does not go through the Spring proxy, so
+     * this method needs its own [SnapshotRead]. Without it, the method runs without a snapshot.
      */
     @SnapshotRead
     fun isPublic(resource: ResourceId): Boolean = allows(Caller.Anonymous, Action.READ, resource)
 
     /**
-     * Throws Forbidden (403) on the root or Unauthenticated (401) if the caller is not a super admin. Master-key
-     * operations use this check (design 7.3). The root has no rules, so this check is the same as `MANAGE` at the root.
-     * Thus a top-level create gives the same errors. The check needs no query.
+     * Throws Forbidden (403) on the root or Unauthenticated (401) if the caller is not a super admin. The root has no
+     * rules, so this check is the same as `MANAGE` at the root. Thus a master-key operation and a top-level create give
+     * the same errors.
      */
     fun requireSuperAdmin(caller: Caller) = authorizer.require(caller, Action.MANAGE, Ancestry.ROOT)
 
     /**
-     * A resource that was deleted after the caller found it has no ancestry. The root ancestry then applies, and the
-     * root has no rules. Thus only super admins pass, and the next step of the caller finds nothing.
+     * A resource that was deleted after the calling module found it has no ancestry. The root ancestry then applies, so
+     * only a super admin passes, and the next step of the calling module finds nothing.
      */
     private fun ancestry(resource: ResourceId): Ancestry = tree.ancestry(resource) ?: Ancestry.ROOT
 }

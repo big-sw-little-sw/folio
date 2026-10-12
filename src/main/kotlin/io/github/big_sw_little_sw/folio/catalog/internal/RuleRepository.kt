@@ -12,9 +12,8 @@ import java.sql.ResultSet
 import java.util.UUID
 
 /**
- * A grant of one action to one or more subjects (design 7.2). [RuleRepository] stores each rule on one resource. The
- * constructor throws [CatalogException.NoSubjects]. Thus a request without subjects fails with 400 before Folio finds
- * the resource.
+ * A grant of one action to one or more subjects. [RuleRepository] stores each rule on one resource. The constructor
+ * throws [CatalogException.NoSubjects], so a request without subjects fails with 400 before Folio finds the resource.
  */
 data class Rule(val action: Action, val subjects: Set<Subject>) {
     init {
@@ -41,7 +40,8 @@ class RuleRepository(private val jdbc: JdbcClient) {
             .param("ids", resources.map { it.value })
             .query { rs, _ -> rs.target() to rs.subjects() }
             .list()
-            // The query matches each ID in both columns. A match in the column of the other type is another resource.
+            // The query looks for each UUID in both columns. A Namespace and a ConfigSet can have the same UUID.
+            // Without this filter, the rule of a resource that the caller did not ask for gets into the result.
             .filter { it.first in resources }
             .toMap()
     }

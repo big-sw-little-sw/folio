@@ -23,10 +23,7 @@ sealed class IdentityException(kind: ErrorKind, code: String, detail: String) : 
             "Folio cannot validate the bearer token now, because the identity provider is not available.",
         )
 
-    /**
-     * Browser sign-in failed, for example because the ID token gives no caller. Only the log has the cause. The error
-     * page does not start a new sign-in, because a new sign-in could fail in the same way and loop.
-     */
+    /** Browser sign-in failed, for example because the ID token gives no caller. Only the log has the cause. */
     class SignInFailed :
         IdentityException(
             ErrorKind.UNAUTHENTICATED,

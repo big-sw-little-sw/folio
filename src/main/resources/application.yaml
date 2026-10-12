@@ -17,9 +17,8 @@ spring:
   #     client. Its redirect URI is https://<folio-host>/login/oauth2/code/folio.
   #   security.oauth2.client.provider.folio.issuer-uri: the same issuer. Folio does not start if the two differ.
 server:
-  # Each deployment puts Folio behind a TLS proxy on an internal address (design 6.2). The proxy sets
-  # X-Forwarded-Proto and X-Forwarded-Host. Tomcat trusts these headers only from internal addresses. Sign-in then
-  # uses an https redirect URI.
+  # Each deployment puts Folio behind a TLS proxy on an internal address. The proxy sets X-Forwarded-Proto and
+  # X-Forwarded-Host. Tomcat trusts these headers only from internal addresses. Sign-in then uses an https redirect URI.
   forward-headers-strategy: native
   servlet:
     session:
@@ -34,8 +33,8 @@ springdoc:
   paths-to-match: /api/**
 management:
   server:
-    # The application port never serves the actuator. Keep this port off public networks, because health and
-    # prometheus need no token. Probes use this port.
+    # The actuator has its own port, and the application port never serves it. Keep the management port off public
+    # networks, because health and prometheus need no token. Probes use the management port.
     port: 8081
   endpoints:
     web:
@@ -49,6 +48,6 @@ management:
 #   folio.ui.session-timeout (1h) is the time without use after which a UI session ends.
 #   folio.audit.retention (90d) is the age at which Folio deletes an audit record. Each instance deletes old records
 #     one time each day.
-#   folio.super-admins (none) lists the subjects of the super admins, for example group:<id> (design 7.2). Each entry
-#     is a user:, group: or application: subject. Keep the list small. Without super admins, nobody can create a
-#     top-level Namespace. A UI session keeps its super-admin status until the next sign-in.
+#   folio.super-admins (none) lists the subjects of the super admins, for example group:<id>. Each entry is a user:,
+#     group: or application: subject. Keep the list small. Without super admins, nobody can create a top-level
+#     Namespace. A UI session keeps its super-admin status until the next sign-in.

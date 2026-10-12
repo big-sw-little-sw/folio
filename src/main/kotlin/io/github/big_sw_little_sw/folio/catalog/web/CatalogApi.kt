@@ -28,10 +28,7 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import java.net.URI
 
-/**
- * NamespaceApi, ConfigSetApi and RuleApi serve the catalog routes of the API (design 12.1, 12.2). Each route takes the
- * caller from the request, converts API IDs and slugs, and calls a service. The services authorize.
- */
+/** The services authorize each catalog operation, so the catalog routes only convert values and call a service. */
 @RestController
 class NamespaceApi(private val currentCaller: CurrentCaller, private val namespaces: NamespaceService) {
     @PostMapping("$ADMIN/namespaces")
@@ -50,18 +47,16 @@ class NamespaceApi(private val currentCaller: CurrentCaller, private val namespa
 
     /**
      * The top-level Namespaces that the caller can READ. A caller with `READ` only deeper in the tree gets an empty
-     * list. The start page of the UI shows those deeper resources (design 12.2, 12.3).
+     * list. The start page of the UI shows those deeper resources.
      */
     @GetMapping("$ADMIN/namespaces")
     fun list(): NamespacesResponse =
         NamespacesResponse(namespaces.topLevel(currentCaller.get()).map { it.toResponse() })
 
-    /** The Namespace with the child Namespaces and ConfigSets that the caller can READ. */
     @GetMapping("$ADMIN/namespaces/{id}")
     fun get(@PathVariable id: String): NamespaceDetailsResponse =
         namespaces.get(currentCaller.get(), NAMESPACE_ID.parse(id)).toResponse()
 
-    /** Renames, describes or both. */
     @PatchMapping("$ADMIN/namespaces/{id}")
     fun edit(@PathVariable id: String, @RequestBody request: EditRequest): NamespaceResponse =
         namespaces.edit(currentCaller.get(), NAMESPACE_ID.parse(id), request.toEdit()).toResponse()
@@ -71,7 +66,6 @@ class NamespaceApi(private val currentCaller: CurrentCaller, private val namespa
         .move(currentCaller.get(), NAMESPACE_ID.parse(id), request.parentId?.let(NAMESPACE_ID::parse))
         .toResponse()
 
-    /** Deletes an empty Namespace. */
     @DeleteMapping("$ADMIN/namespaces/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun delete(@PathVariable id: String) = namespaces.delete(currentCaller.get(), NAMESPACE_ID.parse(id))
@@ -79,11 +73,6 @@ class NamespaceApi(private val currentCaller: CurrentCaller, private val namespa
 
 @RestController
 class ConfigSetApi(private val currentCaller: CurrentCaller, private val configSets: ConfigSetService) {
-    /**
-     * Finds the ConfigSet at a path such as `engineering/search/service-a`. A consumer keeps the ID, because a rename
-     * or a move changes the path. A path that does not exist and a path that the caller cannot read give the same
-     * response.
-     */
     @GetMapping("/api/v1/configsets:resolve")
     fun resolve(@RequestParam path: String): ResolveResponse {
         val configSet = configSets.resolve(currentCaller.get(), path)
@@ -94,7 +83,6 @@ class ConfigSetApi(private val currentCaller: CurrentCaller, private val configS
     fun get(@PathVariable id: String): ConfigSetResponse =
         configSets.get(currentCaller.get(), CONFIG_SET_ID.parse(id)).configSet.toResponse()
 
-    /** Renames, describes or both. */
     @PatchMapping("$ADMIN/configsets/{id}")
     fun edit(@PathVariable id: String, @RequestBody request: EditRequest): ConfigSetResponse =
         configSets.edit(currentCaller.get(), CONFIG_SET_ID.parse(id), request.toEdit()).toResponse()
@@ -104,19 +92,17 @@ class ConfigSetApi(private val currentCaller: CurrentCaller, private val configS
         .move(currentCaller.get(), CONFIG_SET_ID.parse(id), NAMESPACE_ID.parse(request.namespaceId))
         .toResponse()
 
-    /** Deletes the ConfigSet, its rules, its Source definition and its revisions. */
     @DeleteMapping("$ADMIN/configsets/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun delete(@PathVariable id: String) = configSets.delete(currentCaller.get(), CONFIG_SET_ID.parse(id))
 }
 
 /**
- * The rules and explanations of Namespaces and ConfigSets. All routes need `GRANT`. Each route serves both collections,
- * so the `@Parameter` annotation lists the two values of `collection` for the OpenAPI document.
+ * Each route serves the rules of Namespaces and of ConfigSets, so the `@Parameter` annotation lists the two values of
+ * `collection` for the OpenAPI document.
  */
 @RestController
 class RuleApi(private val currentCaller: CurrentCaller, private val rules: RuleService) {
-    /** The own rules of the resource. Inherited rules are on the resources above it. */
     @GetMapping("$ADMIN/{collection:namespaces|configsets}/{id}/rules")
     fun rules(
         @PathVariable @Parameter(schema = Schema(allowableValues = [NAMESPACES, CONFIG_SETS])) collection: String,
@@ -124,7 +110,6 @@ class RuleApi(private val currentCaller: CurrentCaller, private val rules: RuleS
     ): RulesResponse =
         RulesResponse(rules.rules(currentCaller.get(), resourceOf(collection, id)).map { it.toResponse() })
 
-    /** Replaces the rule for the action. */
     @PutMapping("$ADMIN/{collection:namespaces|configsets}/{id}/rules/{action}")
     fun put(
         @PathVariable @Parameter(schema = Schema(allowableValues = [NAMESPACES, CONFIG_SETS])) collection: String,
@@ -136,7 +121,6 @@ class RuleApi(private val currentCaller: CurrentCaller, private val rules: RuleS
         return rules.put(currentCaller.get(), resourceOf(collection, id), rule).toResponse()
     }
 
-    /** Removes the rule for the action, so that the action inherits again. A missing rule is not an error. */
     @DeleteMapping("$ADMIN/{collection:namespaces|configsets}/{id}/rules/{action}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun delete(
@@ -145,7 +129,6 @@ class RuleApi(private val currentCaller: CurrentCaller, private val rules: RuleS
         @PathVariable action: Action,
     ) = rules.delete(currentCaller.get(), resourceOf(collection, id), action)
 
-    /** Tells which rule or super-admin entry decides the action for the caller in the request. */
     @PostMapping("$ADMIN/{collection:namespaces|configsets}/{id}/explain")
     fun explain(
         @PathVariable @Parameter(schema = Schema(allowableValues = [NAMESPACES, CONFIG_SETS])) collection: String,
@@ -159,7 +142,6 @@ class RuleApi(private val currentCaller: CurrentCaller, private val rules: RuleS
 
 private const val ADMIN = "/api/v1/admin"
 
-/** An absent description keeps the current description. A null or blank description clears the description. */
 private fun EditRequest.toEdit() = Edit(
     slug?.let(::Slug),
     description?.let { DescriptionChange.Replace(it.orElse(null)) } ?: DescriptionChange.Keep,

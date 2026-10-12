@@ -3,13 +3,10 @@ package io.github.big_sw_little_sw.folio.identity
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
- * `folio.super-admins`: the subjects of the super admins (design 7.2). A super admin can do all actions on all
- * resources. The entries are not rules, so no rule can change the access of a super admin. Folio does not start if an
- * entry is not valid.
- *
- * Identity applies the entries when it makes a caller, for bearer tokens and for sign-in alike. Thus the caller carries
- * its super-admin status, and other modules read [Caller.superAdmin]. Outside `identity`, only an explanation uses this
- * class, for the caller that a request describes (design 7.4).
+ * `folio.super-admins`: the subjects of the super admins. Folio does not start if an entry is not valid. Other modules
+ * read [Caller.superAdmin]. Outside `identity`, only an explanation calls this class. The caller that an explanation
+ * describes comes from a request, not from a token, so the explanation must give it the status that a token with the
+ * same claims gets.
  */
 @ConfigurationProperties("folio")
 class SuperAdmins(superAdmins: List<String> = emptyList()) {
@@ -32,16 +29,15 @@ class SuperAdmins(superAdmins: List<String> = emptyList()) {
     }
 
     /**
-     * Makes the authenticated caller with these values and with the super-admin status from the configuration.
-     * Identity calls this function for bearer tokens and for sign-in. An explanation calls this function for the
-     * caller that a request describes (design 7.4).
+     * Makes the authenticated caller with the super-admin status from the configuration. Bearer tokens and sign-in use
+     * this one function, so a person has the same status in the API and in the UI.
      */
     fun caller(subject: String, groups: Set<String>, applicationId: String?): Caller.Authenticated {
         val caller = Caller.Authenticated(subject, groups, applicationId)
         return caller.copy(superAdmin = entryFor(caller) != null)
     }
 
-    /** The first entry that names [caller], or null. An explanation shows this entry as its reason (design 7.4). */
+    /** The first entry that names [caller], or null. An explanation shows this entry as its reason. */
     fun entryFor(caller: Caller): Subject? {
         val names = Subject.matching(caller)
         return entries.firstOrNull { it in names }

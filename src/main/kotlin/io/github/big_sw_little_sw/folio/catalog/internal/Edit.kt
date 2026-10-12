@@ -19,8 +19,8 @@ sealed interface DescriptionChange {
 
     /**
      * Sets the description. A null or blank text clears the description. The constructor throws
-     * [CatalogException.InvalidDescription]. Thus a request with an invalid description fails with 400 before Folio
-     * finds the resource (design 8.1).
+     * [CatalogException.InvalidDescription], so a request with an invalid description fails with 400 before Folio finds
+     * the resource.
      */
     class Replace(text: String?) : DescriptionChange {
         val text: String? = validDescription(text)
@@ -30,7 +30,7 @@ sealed interface DescriptionChange {
 private const val MAX_DESCRIPTION_LENGTH = 1000
 
 /**
- * Returns the description to store (design 5.1). A blank description becomes null, so an empty form field clears the
+ * Returns the description to store. A blank description becomes null, so an empty form field clears the
  * description. The function changes CRLF line breaks to LF. Browsers send textarea values with CRLF, and API clients
  * send LF. Without the change, the same text from the UI and the API would give two different values.
  *

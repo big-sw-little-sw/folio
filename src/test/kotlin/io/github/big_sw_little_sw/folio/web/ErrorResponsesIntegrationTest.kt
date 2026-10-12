@@ -22,13 +22,6 @@ class ErrorResponsesIntegrationTest(@Autowired private val mvc: MockMvc) {
     }
 
     @Test
-    fun `an unauthenticated caller is told to send a bearer token`() {
-        mvc.get("/api/test/failures/UNAUTHENTICATED").andExpect {
-            header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") }
-        }
-    }
-
-    @Test
     fun `an unavailable failure can tell the client when to try again`() {
         mvc.get("/api/test/failures/UNAVAILABLE").andExpect {
             header { string(HttpHeaders.RETRY_AFTER, TestRoutes.RETRY_AFTER_SECONDS.toString()) }

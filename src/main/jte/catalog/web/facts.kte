@@ -1,4 +1,4 @@
-<%-- Consumers keep the ID, because a rename or a move changes the path but not the ID. --%>
+<%-- The page shows the ID, because consumers keep the ID, not the path. --%>
 @import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
 @param resource: ResourceView
 <dt>ID</dt>

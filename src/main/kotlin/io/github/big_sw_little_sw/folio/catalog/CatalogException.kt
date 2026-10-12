@@ -4,8 +4,8 @@ import io.github.big_sw_little_sw.folio.web.ErrorKind
 import io.github.big_sw_little_sw.folio.web.FolioException
 
 /**
- * The expected failures of the catalog (design 8.6). A detail repeats a value from the client only after validation,
- * for example a slug. Thus a detail never contains text that Folio did not validate.
+ * The expected failures of the catalog. A detail repeats a value from the client only after validation, for example a
+ * slug. Thus a detail never contains text that Folio did not validate.
  */
 sealed class CatalogException(kind: ErrorKind, code: String, detail: String) : FolioException(kind, code, detail) {
     class NamespaceNotFound(id: NamespaceId) :
@@ -14,10 +14,7 @@ sealed class CatalogException(kind: ErrorKind, code: String, detail: String) : F
     class ConfigSetNotFound(id: ConfigSetId) :
         CatalogException(ErrorKind.NOT_FOUND, "CONFIG_SET_NOT_FOUND", "ConfigSet ${id.toApiId()} does not exist.")
 
-    /**
-     * Resolve gives the same failure for a path that does not exist and for a path that the caller cannot read. A
-     * person can guess a path, so a different failure would tell which paths exist (design 7.4).
-     */
+    /** Resolve gives this failure for a path that does not exist and for a path that the caller cannot read. */
     class PathNotFound :
         CatalogException(ErrorKind.NOT_FOUND, "PATH_NOT_FOUND", "No ConfigSet that the caller can read has this path.")
 
@@ -31,7 +28,7 @@ sealed class CatalogException(kind: ErrorKind, code: String, detail: String) : F
 
     /**
      * An anonymous caller cannot do the action. With a bearer token or after a sign-in, the caller can have the action.
-     * The detail names only the action, so resolve gives the same detail for all paths (design 7.4).
+     * The detail names only the action, so resolve gives the same detail for all paths.
      */
     class Unauthenticated(action: Action) :
         CatalogException(
@@ -62,10 +59,7 @@ sealed class CatalogException(kind: ErrorKind, code: String, detail: String) : F
             "A description has 1,000 characters or fewer and no NUL characters.",
         )
 
-    /**
-     * A rule without subjects would deny all callers below it. Such a rule is a deny rule, and v1 has no deny rules
-     * (design 7.2).
-     */
+    /** A rule without subjects would deny all callers below it. Such a rule is a deny rule, and Folio has none. */
     class NoSubjects : CatalogException(ErrorKind.INVALID, "NO_SUBJECTS", "A rule has one or more subjects.")
 
     /** A sibling already has the slug. [parent] is null at the top level. */

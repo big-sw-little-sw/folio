@@ -2,13 +2,8 @@ package io.github.big_sw_little_sw.folio.identity
 
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/** These tests check the subject format and how subjects match callers (design 2.1, 7.2). */
 class SubjectTest {
     private val alice = Caller.Authenticated("alice", setOf("team-a", "team b"), "cli")
 

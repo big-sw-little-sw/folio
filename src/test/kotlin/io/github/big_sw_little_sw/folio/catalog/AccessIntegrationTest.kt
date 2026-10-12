@@ -1,21 +1,13 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import org.springframework.beans.factory.annotation.Autowired
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/**
- * These tests check Access and ConfigSets, the public interface that the catalog gives to other modules (design 8.1).
- */
+/** Access and ConfigSets are the public interface that the catalog gives to other modules. */
 @FolioIntegrationTest
 class AccessIntegrationTest(
     @Autowired private val access: Access,

@@ -15,7 +15,7 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import java.util.Optional
 
 data class CreateNamespaceRequest(
-    /** A null parent creates a top-level Namespace. Only a super admin can create a top-level Namespace. */
+    /** A null parent creates a top-level Namespace. */
     val parentId: String? = null,
     val slug: String,
     val description: String? = null,
@@ -27,7 +27,7 @@ data class CreateNamespaceRequest(
  */
 data class EditRequest(val slug: String? = null, val description: Optional<String>? = null)
 
-/** A null [parentId] moves the Namespace to the top level. Only a super admin can move a Namespace to the top level. */
+/** A null [parentId] moves the Namespace to the top level. */
 data class MoveNamespaceRequest(val parentId: String? = null)
 
 data class MoveConfigSetRequest(val namespaceId: String)
@@ -40,10 +40,6 @@ data class ExplainRequest(
     val caller: CallerRequest? = null,
 )
 
-/**
- * The request cannot set a super-admin status. The explanation takes the status from the configuration, as identity
- * does for a token.
- */
 data class CallerRequest(
     val subject: String,
     val groups: Set<String> = emptySet(),
@@ -89,9 +85,9 @@ data class RulesResponse(val rules: List<RuleResponse>)
 
 data class RuleResponse(val action: Action, val subjects: List<String>)
 
-/** The reason why Folio permits or denies the action (design 7.2). */
+/** The reason why Folio permits or denies the action. */
 enum class ExplanationReason {
-    /** A super-admin entry matched. Rules do not count. */
+    /** A super-admin entry matched. */
     SUPER_ADMIN,
 
     /** A subject of the nearest rule matched. */
@@ -108,19 +104,12 @@ data class ExplanationResponse(
     val action: Action,
     val allowed: Boolean,
     val reason: ExplanationReason,
-    /**
-     * The super-admin entry or the subject of the rule that matched the caller. The value is null if no entry or
-     * subject matched.
-     */
     val matchedSubject: String?,
     /** The rule that decided. The value is null for `SUPER_ADMIN` and `NO_RULE`. */
     val rule: DecidingRuleResponse?,
 )
 
-/**
- * The rule that decided. The response has no subjects, because the rule can be on a resource where the caller has no
- * `GRANT`.
- */
+/** The rule that decided, without its subjects, as `DecidingRule` explains. */
 data class DecidingRuleResponse(val resourceId: String, val path: String)
 
 fun Namespace.toResponse() =

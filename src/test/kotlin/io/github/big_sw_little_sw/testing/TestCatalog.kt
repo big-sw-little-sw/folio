@@ -16,9 +16,9 @@ import org.springframework.boot.test.context.TestComponent
 import java.util.UUID
 
 /**
- * This component builds catalog trees for tests, as a super admin. Until the Git slice (design 20), the component
- * creates ConfigSets through [ConfigSets.create] with [SourceType.GIT], as a Source adapter does. Test classes share
- * the database, so each tree starts with a top-level Namespace that has a unique slug.
+ * This component builds catalog trees for tests, as a super admin. It creates ConfigSets as a Source adapter does,
+ * through [ConfigSets.create] with [SourceType.GIT]. Test classes share the database, so each tree starts with a
+ * top-level Namespace that has a unique slug.
  */
 @TestComponent
 class TestCatalog(
@@ -36,7 +36,7 @@ class TestCatalog(
         rules.put(SUPER_ADMIN, resource, Rule(action, subjects.map(Subject::parse).toSet()))
     }
 
-    /** Returns the current path of [namespace]. The path of a top-level Namespace is its slug. */
+    /** Returns the current path of [namespace]. */
     fun pathOf(namespace: NamespaceId): String = namespaces
         .get(SUPER_ADMIN, namespace)
         .namespace.path

@@ -13,8 +13,8 @@ import org.springframework.web.servlet.ModelAndView
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 
 /**
- * Sends an anonymous browser to sign-in when a UI page needs an authenticated caller (design 12.3). After sign-in,
- * Spring Security sends the browser back to the page from the saved request.
+ * Sends an anonymous browser to sign-in when a UI page needs an authenticated caller. After sign-in, Spring Security
+ * sends the browser back to the page from the saved request.
  *
  * This resolver handles only `GET` requests outside `/api`. The error advice handles all other requests and failures.
  * An anonymous caller has no CSRF token, so the CSRF filter rejects a form post before it gets to this resolver. A

@@ -9,20 +9,17 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
-/**
- * Source adapters create and find ConfigSets through this class (design 8.1). The HTTP routes of the catalog do the
- * other ConfigSet operations.
- */
+/** Source adapters create and find ConfigSets through this class. The HTTP routes do the other ConfigSet operations. */
 @Service
 class ConfigSets(
     private val tree: TreeRepository,
-    private val configSets: ConfigSetRepository,
+    private val configSetRepository: ConfigSetRepository,
     private val authorizer: Authorizer,
     private val audit: CatalogAudit,
 ) {
     /**
      * Creates the ConfigSet. The caller needs `MANAGE` on [namespace]. The adapter writes its Source definition in the
-     * same transaction. The adapter also authorizes the use of its credential (design 7.3).
+     * same transaction, and the adapter authorizes the use of its credential.
      */
     @Transactional
     fun create(
@@ -33,10 +30,8 @@ class ConfigSets(
         sourceType: SourceType,
     ): ConfigSet {
         val text = validDescription(description)
-        tree.lock()
-        val ancestry = tree.requireAncestry(namespace)
-        authorizer.require(caller, Action.MANAGE, ancestry)
-        val id = configSets.insert(namespace, slug, text, sourceType)
+        val ancestry = authorizer.authorize(caller, Action.MANAGE, namespace)
+        val id = configSetRepository.insert(namespace, slug, text, sourceType)
         val configSet = ConfigSet(id, namespace, slug, text, sourceType, ancestry.childPath(slug))
         audit.created(caller, configSet)
         return configSet
@@ -48,7 +43,7 @@ class ConfigSets(
      */
     @SnapshotRead
     fun find(id: ConfigSetId): ConfigSet? {
-        val row = configSets.find(id) ?: return null
+        val row = configSetRepository.find(id) ?: return null
         val ancestry = tree.ancestry(id) ?: return null
         return row.toConfigSet(ancestry.path)
     }

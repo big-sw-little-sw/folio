@@ -20,10 +20,6 @@ class IdentityPages(private val currentCaller: CurrentCaller) {
         return "identity/web/caller"
     }
 
-    /**
-     * A failed sign-in does not come back to this route, because a new sign-in could fail in the same way and loop.
-     * Instead, the failed sign-in shows the error page with `SIGN_IN_FAILED`.
-     */
     @GetMapping("/sign-in")
     fun signIn(): String = "redirect:$AUTHORIZATION_PATH"
 

@@ -1,8 +1,8 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 /**
- * The operation that a rule permits (design 7.1). The actions are independent: `MANAGE` does not include `READ`. A
- * person who needs both actions needs a grant of each.
+ * The operation that a rule permits. The actions are independent: `MANAGE` does not include `READ`. A person who needs
+ * both actions needs a grant of each.
  */
 enum class Action {
     /**

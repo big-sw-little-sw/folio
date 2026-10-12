@@ -1,32 +1,19 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.uniqueSlug
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.json
-import io.github.big_sw_little_sw.testing.jsonBody
-import org.hamcrest.Matchers.contains
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.hasItem
-import org.hamcrest.Matchers.hasItems
-import org.hamcrest.Matchers.not
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
-import org.springframework.test.web.servlet.MockHttpServletRequestDsl
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.patch
-import org.springframework.test.web.servlet.post
-import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.springframework.http.HttpMethod.GET
+import org.springframework.http.HttpMethod.PATCH
+import org.springframework.http.HttpMethod.POST
+import org.springframework.test.web.servlet.*
+import java.util.UUID
+import kotlin.test.*
 
-/** These tests check the Namespace routes (design 5, 7.3, 12.2) through HTTP with bearer tokens. */
 @FolioIntegrationTest
 class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -36,14 +23,10 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
     fun `a super admin creates a top-level Namespace`() {
         val slug = uniqueSlug()
 
-        val created =
-            mvc.post(NAMESPACES) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "$slug", "description": "All teams"}""")
-            }
+        val created = mvc.send(POST, NAMESPACES, SUPER_ADMIN, """{"slug": "$slug", "description": "All teams"}""")
         created.andExpect {
             status { isCreated() }
-            jsonPath("$.id") { value(org.hamcrest.Matchers.startsWith("ns_")) }
+            jsonPath("$.id") { value(startsWith("ns_")) }
             jsonPath("$.parentId") { value(null) }
             jsonPath("$.slug") { value(slug) }
             jsonPath("$.path") { value(slug) }
@@ -58,35 +41,26 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val top = catalog.namespace()
         catalog.rule(top, Action.MANAGE, "user:alice")
 
-        mvc
-            .post(NAMESPACES) {
-                bearer(alice)
-                jsonBody("""{"slug": "${uniqueSlug()}"}""")
-            }.andExpectForbidden(Action.MANAGE, null)
+        mvc.send(POST, NAMESPACES, alice, """{"slug": "${uniqueSlug()}"}""").andExpectForbidden(Action.MANAGE, null)
     }
 
+    /**
+     * One authorization check gives 403 to a caller without the action and 401 to an anonymous caller. Each route uses
+     * that check, so the 403 test of a route also covers its 401, and only this test checks the 401.
+     */
     @Test
-    fun `a child needs MANAGE on the parent`() {
+    fun `a child needs MANAGE on the parent, and an anonymous caller must authenticate`() {
         val top = catalog.namespace()
         catalog.rule(top, Action.MANAGE, "group:team-a")
         val body = """{"parentId": "${top.toApiId()}", "slug": "search"}"""
 
-        mvc
-            .post(NAMESPACES) {
-                bearer(alice)
-                jsonBody(body)
-            }.andExpect {
-                status { isCreated() }
-                jsonPath("$.parentId") { value(top.toApiId()) }
-                jsonPath("$.path") { value("${catalog.pathOf(top)}/search") }
-            }
-        mvc
-            .post(NAMESPACES) {
-                bearer(bob)
-                jsonBody(body)
-            }.andExpectForbidden(Action.MANAGE, top.toApiId())
-        mvc.post(NAMESPACES) { jsonBody(body) }.andExpectProblem(401, "AUTHENTICATION_REQUIRED").andExpect {
-            header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") }
+        mvc.send(POST, NAMESPACES, alice, body).andExpect {
+            status { isCreated() }
+            jsonPath("$.parentId") { value(top.toApiId()) }
+            jsonPath("$.path") { value("${catalog.pathOf(top)}/search") }
+        }
+        mvc.send(POST, NAMESPACES, bob, body).andExpectForbidden(Action.MANAGE, top.toApiId())
+        mvc.send(POST, NAMESPACES, null, body).andExpectProblem(401, "AUTHENTICATION_REQUIRED").andExpect {
             jsonPath("$.detail") { value(containsString("MANAGE")) }
         }
     }
@@ -94,7 +68,7 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
     @Test
     fun `create rejects requests that are not valid`() {
         val top = catalog.namespace()
-        val missing = NamespaceId(java.util.UUID.randomUUID()).toApiId()
+        val missing = NamespaceId(UUID.randomUUID()).toApiId()
 
         listOf(
             """{"slug": "Not-Valid"}""" to "INVALID_SLUG",
@@ -106,39 +80,25 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             """{"slug": "ok", "parentId": "${top.toApiId()}", "description": "x\u0000y"}""" to "INVALID_DESCRIPTION",
             """{"parentId": "${top.toApiId()}"}""" to "INVALID_REQUEST",
         ).forEach { (body, code) ->
-            mvc
-                .post(NAMESPACES) {
-                    bearer(SUPER_ADMIN)
-                    jsonBody(body)
-                }.andExpectProblem(400, code)
+            mvc.send(POST, NAMESPACES, SUPER_ADMIN, body).andExpectProblem(400, code)
         }
         mvc
-            .post(NAMESPACES) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "ok", "parentId": "$missing"}""")
-            }.andExpectProblem(404, "NAMESPACE_NOT_FOUND")
+            .send(POST, NAMESPACES, SUPER_ADMIN, """{"slug": "ok", "parentId": "$missing"}""")
+            .andExpectProblem(404, "NAMESPACE_NOT_FOUND")
     }
 
     @Test
     fun `a description has 1,000 characters, also when each character needs two UTF-16 units`() {
         val top = catalog.namespace()
-        val emoji = "\uD83D\uDE00"
+        val emoji = "😀"
+        fun body(slug: String, count: Int) =
+            """{"parentId": "${top.toApiId()}", "slug": "$slug", "description": "${emoji.repeat(count)}"}"""
 
-        mvc
-            .post(NAMESPACES) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"parentId": "${top.toApiId()}", "slug": "wide", "description": "${emoji.repeat(1000)}"}""")
-            }.andExpect {
-                status { isCreated() }
-                jsonPath("$.description") { value(emoji.repeat(1000)) }
-            }
-        mvc
-            .post(NAMESPACES) {
-                bearer(SUPER_ADMIN)
-                jsonBody(
-                    """{"parentId": "${top.toApiId()}", "slug": "wider", "description": "${emoji.repeat(1001)}"}""",
-                )
-            }.andExpectProblem(400, "INVALID_DESCRIPTION")
+        mvc.send(POST, NAMESPACES, SUPER_ADMIN, body("wide", 1000)).andExpect {
+            status { isCreated() }
+            jsonPath("$.description") { value(emoji.repeat(1000)) }
+        }
+        mvc.send(POST, NAMESPACES, SUPER_ADMIN, body("wider", 1001)).andExpectProblem(400, "INVALID_DESCRIPTION")
     }
 
     @Test
@@ -147,15 +107,11 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.namespace(top, "search")
 
         mvc
-            .post(NAMESPACES) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"parentId": "${top.toApiId()}", "slug": "search"}""")
-            }.andExpectProblem(409, "SLUG_TAKEN")
+            .send(POST, NAMESPACES, SUPER_ADMIN, """{"parentId": "${top.toApiId()}", "slug": "search"}""")
+            .andExpectProblem(409, "SLUG_TAKEN")
         mvc
-            .post(NAMESPACES) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "${catalog.pathOf(top)}"}""")
-            }.andExpectProblem(409, "SLUG_TAKEN")
+            .send(POST, NAMESPACES, SUPER_ADMIN, """{"slug": "${catalog.pathOf(top)}"}""")
+            .andExpectProblem(409, "SLUG_TAKEN")
     }
 
     @Test
@@ -169,7 +125,7 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(closed, Action.READ, "user:bob")
         catalog.rule(hidden, Action.READ, "user:bob")
 
-        mvc.get("$NAMESPACES/${top.toApiId()}") { bearer(alice) }.andExpect {
+        mvc.send(GET, url(top), alice).andExpect {
             status { isOk() }
             jsonPath("$.id") { value(top.toApiId()) }
             jsonPath("$.path") { value(catalog.pathOf(top)) }
@@ -193,7 +149,7 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(deep, Action.READ, "user:${carol.subject}")
         val ids = "$.namespaces[*].id"
 
-        mvc.get(NAMESPACES) { bearer(carol) }.andExpect {
+        mvc.send(GET, NAMESPACES, carol).andExpect {
             status { isOk() }
             jsonPath(ids) { value(hasItems(readable.toApiId(), open.toApiId())) }
             jsonPath(ids) { value(not(hasItem(hidden.toApiId()))) }
@@ -213,37 +169,26 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(open, Action.READ, "public")
         val ids = "$.namespaces[*].id"
 
-        mvc.get(NAMESPACES).andExpect {
+        mvc.send(GET, NAMESPACES, null).andExpect {
             status { isOk() }
             jsonPath(ids) { value(hasItem(open.toApiId())) }
             jsonPath(ids) { value(not(hasItem(closed.toApiId()))) }
         }
-        val all = mvc.get(NAMESPACES) { bearer(SUPER_ADMIN) }.json(ids)
+        val all = mvc.send(GET, NAMESPACES, SUPER_ADMIN).json(ids)
         assertTrue(all.indexOf(closed.toApiId()) in 0..<all.indexOf(open.toApiId()), "The list is in slug order")
-        mvc
-            .get(NAMESPACES) { header(HttpHeaders.AUTHORIZATION, "Bearer not-a-token") }
-            .andExpectProblem(401, "INVALID_TOKEN")
+        mvc.get(NAMESPACES) { bearer("not-a-token") }.andExpectProblem(401, "INVALID_TOKEN")
     }
 
     @Test
     fun `get finds the Namespace first, then authorizes`() {
         val top = catalog.namespace()
-        val missing = NamespaceId(java.util.UUID.randomUUID()).toApiId()
+        val missing = NamespaceId(UUID.randomUUID()).toApiId()
 
-        mvc.get("$NAMESPACES/$missing") { bearer(alice) }.andExpectProblem(404, "NAMESPACE_NOT_FOUND")
-        mvc.get("$NAMESPACES/$missing").andExpectProblem(404, "NAMESPACE_NOT_FOUND")
+        mvc.send(GET, "$NAMESPACES/$missing", alice).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
+        mvc.send(GET, "$NAMESPACES/$missing", null).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
+        mvc.send(GET, url(top), alice).andExpectForbidden(Action.READ, top.toApiId())
         mvc
-            .get(
-                "$NAMESPACES/${top.toApiId()}",
-            ) { bearer(alice) }
-            .andExpectForbidden(Action.READ, top.toApiId())
-        mvc.get("$NAMESPACES/${top.toApiId()}").andExpectProblem(401, "AUTHENTICATION_REQUIRED").andExpect {
-            jsonPath("$.detail") { value(containsString("READ")) }
-        }
-        mvc
-            .get(
-                "$NAMESPACES/cfg_0192f0c1e8a47c3b9d2e5f6a7b8c9d0e",
-            ) { bearer(alice) }
+            .send(GET, "$NAMESPACES/cfg_0192f0c1e8a47c3b9d2e5f6a7b8c9d0e", alice)
             .andExpectProblem(400, "INVALID_ID")
     }
 
@@ -253,7 +198,7 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val deep = catalog.namespace(catalog.namespace(top, "a"), "b")
         catalog.rule(deep, Action.READ, "user:alice")
 
-        mvc.get("$NAMESPACES/${deep.toApiId()}") { bearer(alice) }.andExpect {
+        mvc.send(GET, url(deep), alice).andExpect {
             status { isOk() }
             jsonPath("$.path") { value("${catalog.pathOf(top)}/a/b") }
         }
@@ -265,16 +210,12 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val search = catalog.namespace(top, "search", "Search team")
         catalog.rule(top, Action.MANAGE, "user:alice")
 
-        mvc
-            .patch("$NAMESPACES/${search.toApiId()}") {
-                bearer(alice)
-                jsonBody("""{"slug": "find"}""")
-            }.andExpect {
-                status { isOk() }
-                jsonPath("$.id") { value(search.toApiId()) }
-                jsonPath("$.path") { value("${catalog.pathOf(top)}/find") }
-                jsonPath("$.description") { value("Search team") }
-            }
+        mvc.send(PATCH, url(search), alice, """{"slug": "find"}""").andExpect {
+            status { isOk() }
+            jsonPath("$.id") { value(search.toApiId()) }
+            jsonPath("$.path") { value("${catalog.pathOf(top)}/find") }
+            jsonPath("$.description") { value("Search team") }
+        }
         catalog.namespace(top, "search")
     }
 
@@ -285,19 +226,15 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(search, "service-a")
         catalog.rule(top, Action.READ, "public")
 
-        mvc
-            .patch("$NAMESPACES/${search.toApiId()}") {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "find"}""")
-            }.andExpect { status { isOk() } }
+        mvc.send(PATCH, url(search), SUPER_ADMIN, """{"slug": "find"}""").andExpect { status { isOk() } }
 
         val topPath = catalog.pathOf(top)
-        resolve("$topPath/search/service-a") { bearer(alice) }.andExpectProblem(404, "PATH_NOT_FOUND")
-        resolve("$topPath/find/service-a") { bearer(alice) }.andExpect {
+        mvc.send(GET, "$RESOLVE$topPath/search/service-a", alice).andExpectProblem(404, "PATH_NOT_FOUND")
+        mvc.send(GET, "$RESOLVE$topPath/find/service-a", alice).andExpect {
             status { isOk() }
             jsonPath("$.id") { value(serviceA.toApiId()) }
         }
-        mvc.get("/api/v1/admin/configsets/${serviceA.toApiId()}") { bearer(alice) }.andExpect {
+        mvc.send(GET, "/api/v1/admin/configsets/${serviceA.toApiId()}", alice).andExpect {
             jsonPath("$.path") { value("$topPath/find/service-a") }
         }
     }
@@ -305,50 +242,31 @@ class NamespaceApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
     @Test
     fun `a describe sets or clears the description, and an absent field stays the same`() {
         val top = catalog.namespace(description = "Old")
-        val url = "$NAMESPACES/${top.toApiId()}"
 
-        mvc
-            .patch(url) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"description": "New"}""")
-            }.andExpect { jsonPath("$.description") { value("New") } }
-        mvc
-            .patch(url) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "${catalog.pathOf(top)}"}""")
-            }.andExpect { jsonPath("$.description") { value("New") } }
-        mvc
-            .patch(url) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"description": null}""")
-            }.andExpect { jsonPath("$.description") { value(null) } }
+        mvc.send(PATCH, url(top), SUPER_ADMIN, """{"description": "New"}""").andExpect {
+            jsonPath("$.description") { value("New") }
+        }
+        mvc.send(PATCH, url(top), SUPER_ADMIN, """{"slug": "${catalog.pathOf(top)}"}""").andExpect {
+            jsonPath("$.description") { value("New") }
+        }
+        mvc.send(PATCH, url(top), SUPER_ADMIN, """{"description": null}""").andExpect {
+            jsonPath("$.description") { value(null) }
+        }
     }
 
     @Test
-    fun `a rename to the slug of a sibling is a conflict, and a rename needs MANAGE`() {
+    fun `a rename to the slug of a sibling is a conflict`() {
         val top = catalog.namespace()
         catalog.namespace(top, "taken")
         val other = catalog.namespace(top, "other")
 
-        mvc
-            .patch("$NAMESPACES/${other.toApiId()}") {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "taken"}""")
-            }.andExpectProblem(409, "SLUG_TAKEN")
-        mvc
-            .patch("$NAMESPACES/${other.toApiId()}") {
-                bearer(alice)
-                jsonBody("""{"slug": "free"}""")
-            }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(PATCH, url(other), SUPER_ADMIN, """{"slug": "taken"}""").andExpectProblem(409, "SLUG_TAKEN")
     }
 
-    private fun resolve(path: String, dsl: MockHttpServletRequestDsl.() -> Unit) =
-        mvc.get("/api/v1/configsets:resolve") {
-            param("path", path)
-            dsl()
-        }
+    private fun url(id: NamespaceId) = "$NAMESPACES/${id.toApiId()}"
 
     private companion object {
         const val NAMESPACES = "/api/v1/admin/namespaces"
+        const val RESOLVE = "/api/v1/configsets:resolve?path="
     }
 }

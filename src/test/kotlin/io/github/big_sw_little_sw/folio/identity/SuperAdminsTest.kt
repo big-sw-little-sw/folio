@@ -1,16 +1,8 @@
 package io.github.big_sw_little_sw.folio.identity
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/**
- * These tests check that Folio validates `folio.super-admins` at startup. They also check that the identity module
- * applies the setting to each caller (design 7.2).
- */
+/** Folio validates `folio.super-admins` at startup, and the identity module applies the setting to each caller. */
 class SuperAdminsTest {
     private val superAdmins = SuperAdmins(listOf("group:folio-admins", "user:root", "application:ops"))
 

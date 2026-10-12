@@ -11,7 +11,7 @@ import io.github.big_sw_little_sw.folio.identity.SuperAdmins
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
-/** The reason why Folio permits or denies an action on a resource for a caller (design 7.4). */
+/** The reason why Folio permits or denies an action on a resource for a caller. */
 data class Explanation(
     val action: Action,
     val decision: Decision,
@@ -23,16 +23,15 @@ data class Explanation(
 
 /**
  * The resource and the path of the rule that decided. The value has no subjects, because the rule is often on a
- * Namespace above the resource. A caller needs `GRANT` on that Namespace to list its rules (design 7.3, 7.4). Without
- * this limit, an explanation would show subjects that the caller cannot list.
+ * Namespace above the resource. A caller needs `GRANT` on that Namespace to list its rules. Without this limit, an
+ * explanation would show subjects that the caller cannot list.
  */
 data class DecidingRule(val resource: ResourceId, val path: Path)
 
-/** Lists, puts and deletes rules, and explains decisions. Each operation needs `GRANT` on the resource (design 7.3). */
+/** Lists, puts and deletes rules, and explains decisions. Each operation needs `GRANT` on the resource. */
 @Service
 class RuleService(
-    private val tree: TreeRepository,
-    private val rules: RuleRepository,
+    private val ruleRepository: RuleRepository,
     private val authorizer: Authorizer,
     private val audit: CatalogAudit,
     private val superAdmins: SuperAdmins,
@@ -40,19 +39,17 @@ class RuleService(
     /** The own rules of the resource, without inherited rules. */
     @SnapshotRead
     fun rules(caller: Caller, resource: ResourceId): List<Rule> {
-        authorizer.require(caller, Action.GRANT, tree.requireAncestry(resource))
-        return rules.rules(resource)
+        authorizer.authorize(caller, Action.GRANT, resource)
+        return ruleRepository.rules(resource)
     }
 
     /** Replaces the rule of the resource for the action of [rule]. */
     @Transactional
     fun put(caller: Caller, resource: ResourceId, rule: Rule): Rule {
-        tree.lock()
-        val ancestry = tree.requireAncestry(resource)
-        authorizer.require(caller, Action.GRANT, ancestry)
+        val ancestry = authorizer.authorize(caller, Action.GRANT, resource)
         val previous = rule(resource, rule.action)
         if (previous?.subjects != rule.subjects) {
-            rules.put(resource, rule)
+            ruleRepository.put(resource, rule)
             audit.rulePut(caller, resource, ancestry.path, rule, previous)
         }
         return rule
@@ -61,24 +58,20 @@ class RuleService(
     /** Removes the rule, so that the action inherits again. A delete of a rule that does not exist succeeds. */
     @Transactional
     fun delete(caller: Caller, resource: ResourceId, action: Action) {
-        tree.lock()
-        val ancestry = tree.requireAncestry(resource)
-        authorizer.require(caller, Action.GRANT, ancestry)
+        val ancestry = authorizer.authorize(caller, Action.GRANT, resource)
         val previous = rule(resource, action) ?: return
-        rules.delete(resource, action)
+        ruleRepository.delete(resource, action)
         audit.ruleDeleted(caller, resource, ancestry.path, previous)
     }
 
     /**
      * Explains how Folio decides [action] on the resource for the caller that a request describes. A null [described]
      * is an anonymous caller. The method ignores `described.superAdmin` and takes the super-admin status from the
-     * configuration, as identity does for a token. Thus a request cannot give a caller super-admin status. [caller]
-     * needs `GRANT` on the resource.
+     * configuration. Thus a request cannot give a caller super-admin status.
      */
     @SnapshotRead
     fun explain(caller: Caller, resource: ResourceId, action: Action, described: Caller.Authenticated?): Explanation {
-        val ancestry = tree.requireAncestry(resource)
-        authorizer.require(caller, Action.GRANT, ancestry)
+        val ancestry = authorizer.authorize(caller, Action.GRANT, resource)
         val explained =
             if (described == null) {
                 Caller.Anonymous
@@ -96,5 +89,6 @@ class RuleService(
         return Explanation(action, decision, matched, decidingResource?.let { DecidingRule(it, ancestry.pathOf(it)) })
     }
 
-    private fun rule(resource: ResourceId, action: Action): Rule? = rules.rules(resource).find { it.action == action }
+    private fun rule(resource: ResourceId, action: Action): Rule? =
+        ruleRepository.rules(resource).find { it.action == action }
 }

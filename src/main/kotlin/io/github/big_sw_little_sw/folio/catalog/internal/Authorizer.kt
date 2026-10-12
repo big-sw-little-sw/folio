@@ -3,17 +3,31 @@ package io.github.big_sw_little_sw.folio.catalog.internal
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.CatalogException
 import io.github.big_sw_little_sw.folio.catalog.ResourceId
+import io.github.big_sw_little_sw.folio.catalog.SnapshotRead
 import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Component
+import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
- * The Authorizer makes all authorization decisions of Folio (design 7). It reads the rules on an ancestry and applies
- * [decide]. Each caller carries its super-admin status, so Folio needs no query to find super admins.
+ * Makes all authorization decisions of Folio, because only the catalog reads rules. Each caller carries its super-admin
+ * status, so a decision for a super admin needs no query.
  */
 @Component
-class Authorizer(private val rules: RuleRepository) {
+class Authorizer(private val tree: TreeRepository, private val ruleRepository: RuleRepository) {
+    /**
+     * Takes the tree lock in a write, finds the ancestry of [resource] (404) and then requires [action] on it (403 or
+     * 401). The calling service examines the tree only after this method, so a caller without permission gets 403 or
+     * 401, never a conflict. A read-only transaction is a [SnapshotRead] and takes no lock.
+     */
+    fun authorize(caller: Caller, action: Action, resource: ResourceId): Ancestry {
+        if (!TransactionSynchronizationManager.isCurrentTransactionReadOnly()) tree.lock()
+        val ancestry = tree.requireAncestry(resource)
+        require(caller, action, ancestry)
+        return ancestry
+    }
+
     fun decide(caller: Caller, action: Action, ancestry: Ancestry): Decision =
-        decide(caller, ancestry.resources, rules.subjects(action, ancestry.resources))
+        decide(caller, ancestry.resources, ruleRepository.subjects(action, ancestry.resources))
 
     /**
      * Throws [CatalogException.Unauthenticated] to an anonymous caller if the caller cannot do [action]. Throws
@@ -35,13 +49,12 @@ class Authorizer(private val rules: RuleRepository) {
 
     /**
      * The links of [ancestries] that the caller can READ. A nearer rule can take `READ` away, so each link gets its own
-     * decision (design 7.2). One query reads the rules for all links. For a super admin, the method returns all links
-     * without a query.
+     * decision. One query reads the rules for all links.
      */
     fun readable(caller: Caller, ancestries: Collection<Ancestry>): Set<ResourceId> {
         val links = ancestries.flatMapTo(mutableSetOf()) { it.resources }
         if (caller.superAdmin) return links
-        val subjects = rules.subjects(Action.READ, links)
+        val subjects = ruleRepository.subjects(Action.READ, links)
         return ancestries.flatMapTo(mutableSetOf()) { ancestry ->
             val chain = ancestry.resources
             chain.filterIndexed { index, _ -> decide(caller, chain.take(index + 1), subjects).allowed }
@@ -49,11 +62,11 @@ class Authorizer(private val rules: RuleRepository) {
     }
 
     /**
-     * The [children] of [parent] that the caller can READ. Lists show only these children (design 7.4). One query reads
-     * the rules of the ancestry of [parent] and of all [children].
+     * The [children] of [parent] that the caller can READ. Lists show only these children. One query reads the rules of
+     * the ancestry of [parent] and of all [children].
      */
     fun readable(caller: Caller, parent: Ancestry, children: List<ResourceId>): Set<ResourceId> {
-        val subjects = rules.subjects(Action.READ, parent.resources + children)
+        val subjects = ruleRepository.subjects(Action.READ, parent.resources + children)
         return children
             .filter { decide(caller, parent.resources + it, subjects).allowed }
             .toSet()

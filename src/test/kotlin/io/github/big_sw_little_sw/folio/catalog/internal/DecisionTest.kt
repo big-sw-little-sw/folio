@@ -6,10 +6,9 @@ import io.github.big_sw_little_sw.folio.catalog.ResourceId
 import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.folio.identity.Subject
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.*
 
-/** These tests check the nearest-rule algorithm (design 7.2) without Spring. */
+/** These tests check the nearest-rule algorithm without Spring. */
 class DecisionTest {
     private val engineering = NamespaceId(UUID.randomUUID())
     private val search = NamespaceId(UUID.randomUUID())

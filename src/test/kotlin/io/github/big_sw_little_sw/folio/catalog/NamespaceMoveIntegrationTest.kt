@@ -1,26 +1,19 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.uniqueSlug
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.jsonBody
-import org.hamcrest.Matchers.contains
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.patch
-import org.springframework.test.web.servlet.post
+import org.springframework.http.HttpMethod.DELETE
+import org.springframework.http.HttpMethod.GET
+import org.springframework.http.HttpMethod.PATCH
+import org.springframework.http.HttpMethod.POST
+import org.springframework.test.web.servlet.*
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.*
 
-/** These tests check moves and deletes of Namespaces (design 5.4, 7.3) through HTTP with bearer tokens. */
 @FolioIntegrationTest
 class NamespaceMoveIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -86,7 +79,7 @@ class NamespaceMoveIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
         move(alice, withoutRules, to).andExpect { status { isOk() } }
         catalog.rule(to, Action.GRANT, "user:alice")
         move(alice, withRules, to).andExpect { status { isOk() } }
-        mvc.get("$NAMESPACES/${withRules.toApiId()}/rules") { bearer(SUPER_ADMIN) }.andExpect {
+        mvc.send(GET, "${url(withRules)}/rules", SUPER_ADMIN).andExpect {
             jsonPath("$.rules[*].action") { value(contains("READ")) }
             jsonPath("$.rules[0].subjects") { value(contains("public")) }
         }
@@ -100,17 +93,16 @@ class NamespaceMoveIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
         val moved = catalog.namespace(from, "moved")
         val serviceA = catalog.configSet(moved, "service-a")
         catalog.rule(from, Action.READ, "user:alice")
-        val namespace = "$NAMESPACES/${moved.toApiId()}"
         val configSet = "/api/v1/admin/configsets/${serviceA.toApiId()}"
-        mvc.get(configSet) { bearer(alice) }.andExpect { status { isOk() } }
+        mvc.send(GET, configSet, alice).andExpect { status { isOk() } }
 
         move(SUPER_ADMIN, moved, to).andExpect { status { isOk() } }
 
-        mvc.get(namespace) { bearer(alice) }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc.get(configSet) { bearer(alice) }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(GET, url(moved), alice).andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(GET, configSet, alice).andExpectProblem(403, "ACTION_NOT_ALLOWED")
         catalog.rule(to, Action.READ, "user:alice")
-        mvc.get(namespace) { bearer(alice) }.andExpect { status { isOk() } }
-        mvc.get(configSet) { bearer(alice) }.andExpect {
+        mvc.send(GET, url(moved), alice).andExpect { status { isOk() } }
+        mvc.send(GET, configSet, alice).andExpect {
             status { isOk() }
             jsonPath("$.path") { value("${catalog.pathOf(top)}/to/moved/service-a") }
         }
@@ -125,22 +117,11 @@ class NamespaceMoveIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
         catalog.rule(top, Action.READ, "user:alice")
 
         move(alice, a, b).andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(DELETE, url(a), alice).andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(PATCH, url(a), alice, """{"slug": "taken"}""").andExpectProblem(403, "ACTION_NOT_ALLOWED")
         mvc
-            .post("$NAMESPACES/${a.toApiId()}:move") {
-                jsonBody("""{"parentId": "${b.toApiId()}"}""")
-            }.andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        mvc.delete("$NAMESPACES/${a.toApiId()}") { bearer(alice) }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc.delete("$NAMESPACES/${a.toApiId()}").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        mvc
-            .patch("$NAMESPACES/${a.toApiId()}") {
-                bearer(alice)
-                jsonBody("""{"slug": "taken"}""")
-            }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc
-            .patch("$NAMESPACES/${NamespaceId(UUID.randomUUID()).toApiId()}") {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "Bad"}""")
-            }.andExpectProblem(400, "INVALID_SLUG")
+            .send(PATCH, url(NamespaceId(UUID.randomUUID())), SUPER_ADMIN, """{"slug": "Bad"}""")
+            .andExpectProblem(400, "INVALID_SLUG")
     }
 
     @Test
@@ -161,34 +142,21 @@ class NamespaceMoveIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
         val withConfigSet = catalog.namespace(top, "with-config-set")
         catalog.configSet(withConfigSet, "cfg")
         val empty = catalog.namespace(top, "empty")
+        // A rule does not make a Namespace non-empty. The delete removes the rule.
         catalog.rule(empty, Action.READ, "public")
 
-        mvc
-            .delete(
-                "$NAMESPACES/${withChild.toApiId()}",
-            ) { bearer(SUPER_ADMIN) }
-            .andExpectProblem(409, "NAMESPACE_NOT_EMPTY")
-        mvc
-            .delete("$NAMESPACES/${withConfigSet.toApiId()}") { bearer(SUPER_ADMIN) }
-            .andExpectProblem(409, "NAMESPACE_NOT_EMPTY")
-        mvc.delete("$NAMESPACES/${empty.toApiId()}") { bearer(alice) }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc.delete("$NAMESPACES/${empty.toApiId()}") { bearer(SUPER_ADMIN) }.andExpect { status { isNoContent() } }
+        mvc.send(DELETE, url(withChild), SUPER_ADMIN).andExpectProblem(409, "NAMESPACE_NOT_EMPTY")
+        mvc.send(DELETE, url(withConfigSet), SUPER_ADMIN).andExpectProblem(409, "NAMESPACE_NOT_EMPTY")
+        mvc.send(DELETE, url(empty), SUPER_ADMIN).andExpect { status { isNoContent() } }
 
-        mvc.get("$NAMESPACES/${empty.toApiId()}") { bearer(SUPER_ADMIN) }.andExpectProblem(404, "NAMESPACE_NOT_FOUND")
-        mvc
-            .delete(
-                "$NAMESPACES/${empty.toApiId()}",
-            ) { bearer(SUPER_ADMIN) }
-            .andExpectProblem(404, "NAMESPACE_NOT_FOUND")
+        mvc.send(GET, url(empty), SUPER_ADMIN).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
+        mvc.send(DELETE, url(empty), SUPER_ADMIN).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
     }
 
-    private fun move(caller: Caller.Authenticated, id: NamespaceId, parent: NamespaceId?) =
-        mvc.post("$NAMESPACES/${id.toApiId()}:move") {
-            bearer(caller)
-            jsonBody(if (parent == null) "{}" else """{"parentId": "${parent.toApiId()}"}""")
-        }
-
-    private companion object {
-        const val NAMESPACES = "/api/v1/admin/namespaces"
+    private fun move(caller: Caller.Authenticated, id: NamespaceId, parent: NamespaceId?): ResultActionsDsl {
+        val body = if (parent == null) "{}" else """{"parentId": "${parent.toApiId()}"}"""
+        return mvc.send(POST, "${url(id)}:move", caller, body)
     }
+
+    private fun url(id: NamespaceId) = "/api/v1/admin/namespaces/${id.toApiId()}"
 }

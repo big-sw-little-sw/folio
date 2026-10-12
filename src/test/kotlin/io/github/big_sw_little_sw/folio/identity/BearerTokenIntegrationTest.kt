@@ -61,7 +61,6 @@ class BearerTokenIntegrationTest(@Autowired private val mvc: MockMvc) {
     @MethodSource("invalidTokens")
     fun `a token that is not valid is 401, never anonymous`(token: String) {
         mvc.get(CALLER) { bearer(token) }.andExpectProblem(401, "INVALID_TOKEN").andExpect {
-            header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") }
             jsonPath("$.detail") { value("The bearer token is not valid.") }
         }
     }

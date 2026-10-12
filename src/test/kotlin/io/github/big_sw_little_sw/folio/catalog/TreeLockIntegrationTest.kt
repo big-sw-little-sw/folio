@@ -1,28 +1,22 @@
 package io.github.big_sw_little_sw.folio.catalog
 
-import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceDetails
 import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceService
 import io.github.big_sw_little_sw.folio.catalog.internal.Rule
 import io.github.big_sw_little_sw.folio.catalog.internal.RuleService
 import io.github.big_sw_little_sw.folio.catalog.internal.TreeRepository
 import io.github.big_sw_little_sw.folio.identity.Subject
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.transaction.support.TransactionTemplate
-import java.util.concurrent.CountDownLatch
+import java.util.UUID
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the tree lock (design 8.1). Each catalog write takes the tree lock first, so the checks of a write
- * and its change see the same tree. Each test holds the lock in a transaction while two writes start. Both writes then
- * wait, and they run one after the other when the lock is free.
+ * Catalog writes take the tree lock first, so parallel writes run one after the other and see the same tree. Reads take
+ * no lock.
  */
 @FolioIntegrationTest
 class TreeLockIntegrationTest(
@@ -104,18 +98,10 @@ class TreeLockIntegrationTest(
     @Test
     fun `reads take no lock`() {
         val top = catalog.namespace()
-        val locked = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-            val holder = executor.submit { holdLock(locked, release) }
-            locked.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
-            val read = executor.submit<NamespaceDetails> { namespaces.get(SUPER_ADMIN, top) }
+        val read = whileHolding(::holdTreeLock) { namespaces.get(SUPER_ADMIN, top) }
 
-            assertEquals(top, read.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).namespace.id)
-            release.countDown()
-            holder.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        }
+        assertEquals(top, read.namespace.id)
     }
 
     /**
@@ -123,45 +109,27 @@ class TreeLockIntegrationTest(
      * blocks, so each task gets its own virtual thread. With a pool of platform threads, a write could wait for a free
      * thread and not for the lock, and the test would fail.
      */
-    private fun whileLocked(vararg writes: () -> Any): List<Result<Any>> {
-        val locked = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        return Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-            val holder = executor.submit { holdLock(locked, release) }
-            locked.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            val running = writes.map { write -> executor.submit<Result<Any>> { runCatching(write) } }
-            waitForLockWaiters(writes.size)
-            release.countDown()
-            holder.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            running.map { it.get(TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+    private fun whileLocked(vararg writes: () -> Any): List<Result<Any>> =
+        Executors.newVirtualThreadPerTaskExecutor().use { executor ->
+            val running =
+                whileHolding(::holdTreeLock) {
+                    val started = writes.map { write -> executor.submit<Result<Any>> { runCatching(write) } }
+                    // Without this wait, the holder could release the lock before a write asks for it.
+                    awaitUntil("The writes wait for the tree lock") { lockWaiters() >= writes.size }
+                    started
+                }
+            running.map { it.await() }
         }
+
+    private fun holdTreeLock(held: () -> Unit) = transactions.executeWithoutResult {
+        tree.lock()
+        held()
     }
 
-    private fun holdLock(locked: CountDownLatch, release: CountDownLatch) {
-        transactions.executeWithoutResult {
-            tree.lock()
-            locked.countDown()
-            release.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        }
-    }
-
-    /**
-     * Waits until [count] writes wait for the advisory lock. Without this wait, the holder could release the lock
-     * before a write asks for it.
-     */
-    private fun waitForLockWaiters(count: Int) {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS)
-        while (System.nanoTime() < deadline) {
-            val waiting =
-                jdbc
-                    .sql("select count(*) from pg_locks where locktype = 'advisory' and not granted")
-                    .query(Int::class.java)
-                    .single()
-            if (waiting >= count) return
-            Thread.sleep(POLL_MILLIS)
-        }
-        error("The writes did not wait for the tree lock")
-    }
+    private fun lockWaiters(): Int = jdbc
+        .sql("select count(*) from pg_locks where locktype = 'advisory' and not granted")
+        .query(Int::class.java)
+        .single()
 
     /** `union` removes repeated rows, so the recursive query ends even if the tree has a cycle. */
     private fun topOf(id: NamespaceId): NamespaceId? = jdbc
@@ -175,13 +143,8 @@ class TreeLockIntegrationTest(
                 select id from up where parent_id is null
             """.trimIndent(),
         ).param("id", id.value)
-        .query(java.util.UUID::class.java)
+        .query(UUID::class.java)
         .optional()
         .map(::NamespaceId)
         .orElse(null)
-
-    private companion object {
-        const val TIMEOUT_SECONDS = 20L
-        const val POLL_MILLIS = 20L
-    }
 }

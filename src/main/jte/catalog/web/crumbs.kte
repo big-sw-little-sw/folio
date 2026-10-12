@@ -1,6 +1,3 @@
-<%--
-    Each Namespace above the resource is a link only if the caller can read that Namespace. Other slugs are plain text.
---%>
 @import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
 @param resource: ResourceView
 <nav class="crumbs" aria-label="Path">

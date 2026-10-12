@@ -1,11 +1,11 @@
 package io.github.big_sw_little_sw.folio.identity
 
 /**
- * The identity that a rule or a super-admin entry names (design 2.1, 7.2). The text form is `public`, `authenticated`,
- * `user:<id>`, `group:<id>` or `application:<id>`. [toString] gives the text form.
+ * The identity that a rule or a super-admin entry names. The text form is `public`, `authenticated`, `user:<id>`,
+ * `group:<id>` or `application:<id>`. [toString] gives the text form.
  *
  * [matching] is the one definition of which subjects name a caller. Decisions, super-admin entries and the rule query
- * of the start page (design 7.4) all use [matching]. Thus these three cannot disagree about a caller.
+ * of the start page all use [matching]. Thus these three cannot disagree about a caller.
  */
 sealed interface Subject {
     /** Names each anonymous or authenticated caller. */

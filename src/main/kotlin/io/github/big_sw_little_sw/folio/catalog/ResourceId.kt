@@ -3,7 +3,7 @@ package io.github.big_sw_little_sw.folio.catalog
 import io.github.big_sw_little_sw.folio.web.ApiId
 import java.util.UUID
 
-/** The ID of a resource that rules can name: a Namespace or a ConfigSet (design 7). */
+/** The ID of a resource that rules can name: a Namespace or a ConfigSet. */
 sealed interface ResourceId {
     val value: UUID
 

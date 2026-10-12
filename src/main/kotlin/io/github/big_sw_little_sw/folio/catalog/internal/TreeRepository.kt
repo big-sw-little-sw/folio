@@ -16,20 +16,13 @@ import org.springframework.transaction.annotation.Transactional
 import java.sql.ResultSet
 import java.util.UUID
 
-/**
- * Runs the queries on the shape of the tree: the tree lock, ancestries, resolve, subtrees and the resources that rules
- * name.
- */
 @Repository
 class TreeRepository(private val jdbc: JdbcClient) {
     /**
-     * Takes the tree lock until the transaction ends (design 8.1). Each catalog write, also a rule write, calls this
-     * method first. Thus only one catalog write runs at a time. The tree does not change between the checks of a write
-     * and its change. The method needs an existing transaction, because the lock ends with the transaction.
-     *
-     * Reads take no lock. Instead, each read that authorizes is a [SnapshotRead], so the ancestry and the rules of a
-     * decision come from one snapshot. Writes keep `READ COMMITTED`, because their snapshot must start after this lock.
-     * Without that, a write would not see the commit of the previous write.
+     * Takes the tree lock until the transaction ends. Each catalog write, including a rule write, takes the lock before
+     * it reads the tree. Thus only one catalog write runs at a time. A write examines the tree and then changes it.
+     * Without the lock, a parallel write could change the tree between these two steps. For example, two moves could
+     * make a cycle. Reads take no lock, because each read that authorizes is a [SnapshotRead].
      */
     @Transactional(propagation = Propagation.MANDATORY)
     fun lock() {
@@ -66,7 +59,10 @@ class TreeRepository(private val jdbc: JdbcClient) {
         return links.takeIf { it.isNotEmpty() }?.let(::Ancestry)
     }
 
-    /** The ConfigSet at [path], or null. The last segment of [path] always names the ConfigSet (design 5.3). */
+    /**
+     * The ConfigSet at [path], or null. The last segment always names a ConfigSet. Thus a Namespace and a ConfigSet can
+     * have the same slug in one parent.
+     */
     fun resolve(path: Path): ConfigSetId? {
         val namespaces = path.slugs.dropLast(1)
         return jdbc
@@ -94,7 +90,7 @@ class TreeRepository(private val jdbc: JdbcClient) {
     /**
      * Finds each resource with a rule for [action] that names one or more of [subjects]. The result maps the ancestry
      * of each resource to the description of the resource. One query finds the rules through the GIN index on
-     * `rule.subjects`. The same query walks up the ancestry of each resource (design 7.4).
+     * `rule.subjects` and walks up the ancestry of each resource.
      */
     fun withRuleFor(action: Action, subjects: Set<Subject>): Map<Ancestry, String?> {
         if (subjects.isEmpty()) return emptyMap()

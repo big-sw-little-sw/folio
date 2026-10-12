@@ -6,7 +6,7 @@ import io.github.big_sw_little_sw.folio.catalog.Slug
 
 /**
  * A resource and the Namespaces above it, from the top level down. The last link is the resource. The root ancestry has
- * no links. [TreeRepository] reads an ancestry with a recursive query on `parent_id` (design 8.1).
+ * no links.
  */
 data class Ancestry(val links: List<Link>) {
     data class Link(val resource: ResourceId, val slug: Slug)

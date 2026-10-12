@@ -50,9 +50,7 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
         .query { rs, _ -> rs.toRow() }
         .list()
 
-    /**
-     * Writes the slug, the description and the parent. The ID does not change, so no other table changes (design 16).
-     */
+    /** Writes the slug, the description and the parent. The ID does not change, so no other table changes. */
     fun update(row: NamespaceRow) {
         uniqueSlug(row.slug, row.parentId) {
             jdbc
@@ -69,10 +67,7 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
         }
     }
 
-    /**
-     * True if the Namespace has no child Namespaces and no ConfigSets (design 5.4). The credential slice will add
-     * credentials to this query: `not exists (select 1 from credential where namespace_id = :id)`.
-     */
+    /** True if the Namespace has no child Namespaces and no ConfigSets. */
     fun isEmpty(id: NamespaceId): Boolean = jdbc
         .sql(
             """
@@ -84,8 +79,9 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
         .single()
 
     /**
-     * A foreign key that cascades deletes the rules of the Namespace. The caller must call [isEmpty] first, under the
-     * tree lock. Without that check, the foreign keys of the children make the delete fail with a database error.
+     * Deletes the Namespace, and a foreign key that cascades deletes its rules. The service must call [isEmpty] first,
+     * under the tree lock. Without that check, the foreign keys of the children make the delete fail with a database
+     * error.
      */
     fun delete(id: NamespaceId) {
         jdbc.sql("delete from namespace where id = :id").param("id", id.value).update()

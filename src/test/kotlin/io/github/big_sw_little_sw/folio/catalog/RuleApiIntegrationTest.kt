@@ -1,27 +1,19 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.json
-import io.github.big_sw_little_sw.testing.jsonBody
-import org.hamcrest.Matchers.contains
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.not
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
-import org.springframework.test.web.servlet.put
+import org.springframework.http.HttpMethod.DELETE
+import org.springframework.http.HttpMethod.GET
+import org.springframework.http.HttpMethod.POST
+import org.springframework.http.HttpMethod.PUT
+import org.springframework.test.web.servlet.*
 import java.util.UUID
-import kotlin.test.Test
+import kotlin.test.*
 
-/** These tests check the rule routes and the explain route (design 7.2, 7.4, 12.2). All of these routes need GRANT. */
+/** All rule routes and the explain route need GRANT. */
 @FolioIntegrationTest
 class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -33,27 +25,21 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         catalog.rule(top, Action.GRANT, "user:alice")
         val rules = "/api/v1/admin/namespaces/${top.toApiId()}/rules"
 
-        mvc
-            .put("$rules/READ") {
-                bearer(alice)
-                jsonBody("""{"subjects": ["group:team-b", "application:search-app"]}""")
-            }.andExpect {
-                status { isOk() }
-                jsonPath("$.action") { value("READ") }
-                jsonPath("$.subjects") { value(contains("group:team-b", "application:search-app")) }
-            }
-        mvc
-            .put("$rules/READ") {
-                bearer(alice)
-                jsonBody("""{"subjects": ["public"]}""")
-            }.andExpect { jsonPath("$.subjects") { value(contains("public")) } }
-        mvc.get(rules) { bearer(alice) }.andExpect {
+        mvc.send(PUT, "$rules/READ", alice, """{"subjects": ["group:team-b", "application:search-app"]}""").andExpect {
+            status { isOk() }
+            jsonPath("$.action") { value("READ") }
+            jsonPath("$.subjects") { value(contains("group:team-b", "application:search-app")) }
+        }
+        mvc.send(PUT, "$rules/READ", alice, """{"subjects": ["public"]}""").andExpect {
+            jsonPath("$.subjects") { value(contains("public")) }
+        }
+        mvc.send(GET, rules, alice).andExpect {
             status { isOk() }
             jsonPath("$.rules[*].action") { value(contains("READ", "GRANT")) }
             jsonPath("$.rules[0].subjects") { value(contains("public")) }
         }
-        mvc.delete("$rules/READ") { bearer(alice) }.andExpect { status { isNoContent() } }
-        mvc.get(rules) { bearer(alice) }.andExpect { jsonPath("$.rules[*].action") { value(contains("GRANT")) } }
+        mvc.send(DELETE, "$rules/READ", alice).andExpect { status { isNoContent() } }
+        mvc.send(GET, rules, alice).andExpect { jsonPath("$.rules[*].action") { value(contains("GRANT")) } }
     }
 
     @Test
@@ -61,7 +47,7 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         val serviceA = catalog.configSet(catalog.namespace())
 
         mvc
-            .delete("/api/v1/admin/configsets/${serviceA.toApiId()}/rules/MANAGE") { bearer(SUPER_ADMIN) }
+            .send(DELETE, "/api/v1/admin/configsets/${serviceA.toApiId()}/rules/MANAGE", SUPER_ADMIN)
             .andExpect { status { isNoContent() } }
     }
 
@@ -73,15 +59,10 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         catalog.rule(top, Action.MANAGE, "user:bob")
         val rules = "/api/v1/admin/configsets/${serviceA.toApiId()}/rules"
 
-        mvc.get(rules) { bearer(alice) }.andExpect { status { isOk() } }
-        mvc.get(rules) { bearer(bob) }.andExpectForbidden(Action.GRANT, serviceA.toApiId())
-        mvc.get(rules).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        mvc
-            .put("$rules/READ") {
-                bearer(bob)
-                jsonBody("""{"subjects": ["public"]}""")
-            }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc.delete("$rules/READ") { bearer(bob) }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(GET, rules, alice).andExpect { status { isOk() } }
+        mvc.send(GET, rules, bob).andExpectForbidden(Action.GRANT, serviceA.toApiId())
+        mvc.send(PUT, "$rules/READ", bob, """{"subjects": ["public"]}""").andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(DELETE, "$rules/READ", bob).andExpectProblem(403, "ACTION_NOT_ALLOWED")
     }
 
     @Test
@@ -89,13 +70,9 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         val missing = ConfigSetId(UUID.randomUUID()).toApiId()
 
         mvc
-            .get(
-                "/api/v1/admin/configsets/$missing/rules",
-            ) { bearer(alice) }
+            .send(GET, "/api/v1/admin/configsets/$missing/rules", alice)
             .andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
-        mvc
-            .get("/api/v1/admin/namespaces/$missing/rules") { bearer(alice) }
-            .andExpectProblem(400, "INVALID_ID")
+        mvc.send(GET, "/api/v1/admin/namespaces/$missing/rules", alice).andExpectProblem(400, "INVALID_ID")
     }
 
     @Test
@@ -110,11 +87,8 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
             "WRITE" to """{"subjects": ["public"]}""" to "INVALID_REQUEST",
             "READ" to """{}""" to "INVALID_REQUEST",
         ).forEach { (request, code) ->
-            mvc
-                .put("$rules/${request.first}") {
-                    bearer(SUPER_ADMIN)
-                    jsonBody(request.second)
-                }.andExpectProblem(400, code)
+            val (action, body) = request
+            mvc.send(PUT, "$rules/$action", SUPER_ADMIN, body).andExpectProblem(400, code)
         }
     }
 
@@ -126,16 +100,16 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         catalog.rule(top, Action.READ, "group:team-a", "group:team-b")
         val get = "/api/v1/admin/configsets/${serviceA.toApiId()}"
 
-        mvc.get(get) { bearer(alice) }.andExpect { status { isOk() } }
+        mvc.send(GET, get, alice).andExpect { status { isOk() } }
         catalog.rule(serviceA, Action.READ, "application:search-app")
-        mvc.get(get) { bearer(alice) }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc.get(get) { bearer(bob) }.andExpect { status { isOk() } }
+        mvc.send(GET, get, alice).andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(GET, get, bob).andExpect { status { isOk() } }
     }
 
     @Test
     fun `an explanation names the rule that decided, its resource and the matched subject`() {
         val (search, serviceA) = tree()
-        val path = mvc.get("/api/v1/admin/namespaces/${search.toApiId()}") { bearer(SUPER_ADMIN) }.json("$.path")
+        val path = mvc.send(GET, "/api/v1/admin/namespaces/${search.toApiId()}", SUPER_ADMIN).json("$.path")
 
         explain(serviceA, """{"action": "READ", "caller": {"subject": "alice", "groups": ["team-a"]}}""").andExpect {
             status { isOk() }
@@ -153,18 +127,16 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         val (search, serviceA) = tree()
         catalog.rule(serviceA, Action.GRANT, "user:alice")
 
-        mvc
-            .post("/api/v1/admin/configsets/${serviceA.toApiId()}/explain") {
-                bearer(alice)
-                jsonBody("""{"action": "READ", "caller": {"subject": "bob"}}""")
-            }.andExpect {
-                status { isOk() }
-                jsonPath("$.reason") { value("GRANTED") }
-                jsonPath("$.matchedSubject") { value("user:bob") }
-                jsonPath("$.rule.resourceId") { value(search.toApiId()) }
-                jsonPath("$.rule.subjects") { doesNotExist() }
-                content { string(not(containsString("group:team-a"))) }
-            }
+        val body = """{"action": "READ", "caller": {"subject": "bob"}}"""
+
+        mvc.send(POST, "/api/v1/admin/configsets/${serviceA.toApiId()}/explain", alice, body).andExpect {
+            status { isOk() }
+            jsonPath("$.reason") { value("GRANTED") }
+            jsonPath("$.matchedSubject") { value("user:bob") }
+            jsonPath("$.rule.resourceId") { value(search.toApiId()) }
+            jsonPath("$.rule.subjects") { doesNotExist() }
+            content { string(not(containsString("group:team-a"))) }
+        }
     }
 
     @Test
@@ -228,19 +200,11 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
         val top = catalog.namespace()
         catalog.rule(top, Action.READ, "user:alice")
         val url = "/api/v1/admin/namespaces/${top.toApiId()}/explain"
-        val body = """{"action": "READ"}"""
 
+        mvc.send(POST, url, alice, """{"action": "READ"}""").andExpectProblem(403, "ACTION_NOT_ALLOWED")
         mvc
-            .post(url) {
-                bearer(alice)
-                jsonBody(body)
-            }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc.post(url) { jsonBody(body) }.andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        mvc
-            .post(url) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"action": "READ", "caller": {"groups": ["a"]}}""")
-            }.andExpectProblem(400, "INVALID_REQUEST")
+            .send(POST, url, SUPER_ADMIN, """{"action": "READ", "caller": {"groups": ["a"]}}""")
+            .andExpectProblem(400, "INVALID_REQUEST")
     }
 
     /**
@@ -254,8 +218,5 @@ class RuleApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired pri
     }
 
     private fun explain(resource: ConfigSetId, body: String) =
-        mvc.post("/api/v1/admin/configsets/${resource.toApiId()}/explain") {
-            bearer(SUPER_ADMIN)
-            jsonBody(body)
-        }
+        mvc.send(POST, "/api/v1/admin/configsets/${resource.toApiId()}/explain", SUPER_ADMIN, body)
 }

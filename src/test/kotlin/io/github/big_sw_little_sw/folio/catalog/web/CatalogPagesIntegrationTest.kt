@@ -3,28 +3,13 @@ package io.github.big_sw_little_sw.folio.catalog.web
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.andExpectProblemPage
-import io.github.big_sw_little_sw.testing.postForm
-import io.github.big_sw_little_sw.testing.signedIn
-import org.hamcrest.Matchers.allOf
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.not
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.http.HttpHeaders
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
+import kotlin.test.*
 
-/** These tests check the catalog pages (design 12.3) through MockMvc with signed-in test sessions. */
 @FolioIntegrationTest
 class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -37,21 +22,14 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(search, "service-a")
         catalog.rule(top, Action.READ, "user:alice")
 
-        mvc.get("/namespaces/${search.toApiId()}") { with(signedIn(alice)) }.andExpect {
-            status { isOk() }
-            content {
-                string(
-                    allOf(
-                        containsString("""<a href="/namespaces/${top.toApiId()}">${catalog.pathOf(top)}</a>"""),
-                        containsString("<code>${search.toApiId()}</code>"),
-                        containsString("<code>${catalog.pathOf(top)}/search</code>"),
-                        containsString("The search team"),
-                        containsString("""<a href="/namespaces/${child.toApiId()}">child</a>"""),
-                        containsString("""<a href="/configsets/${serviceA.toApiId()}">service-a</a>"""),
-                    ),
-                )
-            }
-        }
+        val page = mvc.page("/namespaces/${search.toApiId()}", alice)
+
+        assertContains(page, """<a href="/namespaces/${top.toApiId()}">${catalog.pathOf(top)}</a>""")
+        assertContains(page, "<code>${search.toApiId()}</code>")
+        assertContains(page, "<code>${catalog.pathOf(top)}/search</code>")
+        assertContains(page, "The search team")
+        assertContains(page, """<a href="/namespaces/${child.toApiId()}">child</a>""")
+        assertContains(page, """<a href="/configsets/${serviceA.toApiId()}">service-a</a>""")
     }
 
     @Test
@@ -61,25 +39,17 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val page = "/namespaces/${search.toApiId()}"
         val operations = listOf("/namespaces/new?parentId=", "$page/edit", "$page/move", "$page/delete", "$page/rules")
 
-        val readOnly =
-            mvc
-                .get(page) { with(signedIn(alice)) }
-                .andReturn()
-                .response.contentAsString
+        val readOnly = mvc.page(page, alice)
         operations.forEach { assertFalse(it in readOnly, it) }
         catalog.rule(search, Action.MANAGE, "user:alice")
         catalog.rule(search, Action.GRANT, "user:alice")
-        val admin =
-            mvc
-                .get(page) { with(signedIn(alice)) }
-                .andReturn()
-                .response.contentAsString
+        val admin = mvc.page(page, alice)
         operations.forEach { assertContains(admin, it) }
     }
 
     /**
-     * This test checks only the redirect to sign-in. LocalSignInIntegrationTest checks that the sign-in returns the
-     * caller to the page.
+     * The pages call the same services as the API, so this test is the one test of an anonymous caller on a page.
+     * LocalSignInIntegrationTest checks that the sign-in returns the caller to the page.
      */
     @Test
     fun `an anonymous caller goes to sign-in for a page that needs a signed-in caller`() {
@@ -111,19 +81,12 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(top, "service-a", "Search service")
         catalog.rule(top, Action.READ, "public")
 
-        mvc.get("/configsets/${serviceA.toApiId()}").andExpect {
-            status { isOk() }
-            content {
-                string(
-                    allOf(
-                        containsString("<code>${serviceA.toApiId()}</code>"),
-                        containsString("<code>${catalog.pathOf(top)}/service-a</code>"),
-                        containsString("Search service"),
-                        containsString("GIT"),
-                    ),
-                )
-            }
-        }
+        val page = mvc.page("/configsets/${serviceA.toApiId()}", null)
+
+        assertContains(page, "<code>${serviceA.toApiId()}</code>")
+        assertContains(page, "<code>${catalog.pathOf(top)}/service-a</code>")
+        assertContains(page, "Search service")
+        assertContains(page, "GIT")
         mvc.get("/configsets?path=${catalog.pathOf(top)}/service-a").andExpect {
             redirectedUrl("/configsets/${serviceA.toApiId()}")
         }
@@ -135,10 +98,10 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(top, Action.MANAGE, "user:alice")
         catalog.rule(top, Action.READ, "user:alice")
 
-        mvc.get("/namespaces/new?parentId=${top.toApiId()}") { with(signedIn(alice)) }.andExpect {
-            status { isOk() }
-            content { string(containsString("""<input type="hidden" name="_csrf" value=""")) }
-        }
+        assertContains(
+            mvc.page("/namespaces/new?parentId=${top.toApiId()}", alice),
+            """<input type="hidden" name="_csrf" value=""",
+        )
         val created =
             mvc
                 .postForm("/namespaces", alice, "parentId" to top.toApiId(), "slug" to "search", "description" to "")
@@ -146,7 +109,7 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
                 .andReturn()
         val location = assertNotNull(created.response.redirectedUrl)
         assertEquals("Namespace ${catalog.pathOf(top)}/search created.", created.flashMap["notice"])
-        mvc.get(location) { with(signedIn(alice)) }.andExpect { status { isOk() } }
+        mvc.page(location, alice)
     }
 
     @Test
@@ -163,24 +126,22 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val top = catalog.namespace()
         catalog.namespace(top, "taken")
 
-        mvc
-            .postForm("/namespaces", SUPER_ADMIN, "parentId" to top.toApiId(), "slug" to "taken")
-            .andExpectProblemPage(409, "SLUG_TAKEN")
-            .andExpect {
-                content { string(allOf(containsString("is already in use"), containsString("""value="taken""""))) }
-            }
+        val page =
+            post("/namespaces", "parentId" to top.toApiId(), "slug" to "taken")
+                .andExpectProblemPage(409, "SLUG_TAKEN")
+                .andReturn()
+                .response.contentAsString
+
+        assertContains(page, "is already in use")
+        assertContains(page, """value="taken"""")
     }
 
-    /**
-     * Only a super admin can create a top-level Namespace (design 7.3). The create form has the same check as the
-     * create operation.
-     */
+    /** Only a super admin can create a top-level Namespace, so the create form has the same check as the create. */
     @Test
     fun `the top-level create form and its post need a super admin`() {
-        mvc.get("/namespaces/new").andExpect { redirectedUrl("/sign-in") }
         mvc.get("/namespaces/new") { with(signedIn(alice)) }.andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
         mvc.postForm("/namespaces", alice, "slug" to "top-level").andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
-        mvc.get("/namespaces/new") { with(signedIn(SUPER_ADMIN)) }.andExpect { status { isOk() } }
+        mvc.page("/namespaces/new", SUPER_ADMIN)
     }
 
     @Test
@@ -193,14 +154,14 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
 
         post("$page/edit", "slug" to "service-b", "description" to "Renamed").andExpect { redirectedUrl(page) }
         post("$page/move", "target" to to.toApiId()).andExpect { redirectedUrl(page) }
-        mvc.get(page) { with(signedIn(SUPER_ADMIN)) }.andExpect {
-            content { string(allOf(containsString("${catalog.pathOf(top)}/to/service-b"), containsString("Renamed"))) }
-        }
+        val moved = mvc.page(page, SUPER_ADMIN)
+        assertContains(moved, "${catalog.pathOf(top)}/to/service-b")
+        assertContains(moved, "Renamed")
         post("/namespaces/${from.toApiId()}/move", "target" to "").andExpect {
             redirectedUrl("/namespaces/${from.toApiId()}")
         }
         post("$page/delete").andExpect { redirectedUrl("/namespaces/${to.toApiId()}") }
-        mvc.get(page) { with(signedIn(SUPER_ADMIN)) }.andExpect { status { isNotFound() } }
+        mvc.page(page, SUPER_ADMIN, 404)
         post("/namespaces/${to.toApiId()}/delete").andExpect { redirectedUrl("/namespaces/${top.toApiId()}") }
     }
 
@@ -211,11 +172,8 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(top, Action.MANAGE, "user:alice")
         val page = "/namespaces/${empty.toApiId()}"
 
-        mvc.get("$page/edit") { with(signedIn(alice)) }.andExpect {
-            status { isOk() }
-            content { string(containsString("""value="empty""")) }
-        }
-        mvc.get("/namespaces/new?parentId=${top.toApiId()}") { with(signedIn(alice)) }.andExpect { status { isOk() } }
+        assertContains(mvc.page("$page/edit", alice), """value="empty""")
+        mvc.page("/namespaces/new?parentId=${top.toApiId()}", alice)
         // Alice has no READ on the parent, so the parent page would give 403. The delete therefore redirects to the
         // start page.
         mvc.postForm("$page/delete", alice).andExpect { redirectedUrl("/") }
@@ -230,16 +188,16 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(serviceA, Action.MANAGE, "user:${dana.subject}")
         val page = "/configsets/${serviceA.toApiId()}"
 
-        mvc.get(page) { with(signedIn(dana)) }.andExpect {
-            status { isOk() }
-            content { string(not(containsString(top.toApiId()))) }
-        }
+        assertFalse(top.toApiId() in mvc.page(page, dana))
         mvc.postForm("$page/delete", dana).andExpect { redirectedUrl("/") }
     }
 
-    /** [HtmlCheckConfiguration] examines the HTML of each page that this test gets. */
+    /**
+     * Some of these pages, such as the delete confirmation, have no other test. [HtmlCheckConfiguration] examines the
+     * HTML of each page.
+     */
     @Test
-    fun `pages have no inline scripts or styles`() {
+    fun `each catalog page renders`() {
         val top = catalog.namespace()
         val serviceA = catalog.configSet(top)
         listOf(
@@ -252,10 +210,7 @@ class CatalogPagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
             "/namespaces/${top.toApiId()}/rules?action=READ",
             "/configsets/${serviceA.toApiId()}",
             "/configsets/${serviceA.toApiId()}/rules",
-        ).forEach { url ->
-            val response = mvc.get(url) { with(signedIn(SUPER_ADMIN)) }.andReturn().response
-            assertEquals(200, response.status, url)
-        }
+        ).forEach { mvc.page(it, SUPER_ADMIN) }
     }
 
     private fun post(url: String, vararg params: Pair<String, String>) = mvc.postForm(url, SUPER_ADMIN, *params)

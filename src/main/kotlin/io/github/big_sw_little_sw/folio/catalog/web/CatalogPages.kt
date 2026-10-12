@@ -8,6 +8,7 @@ import io.github.big_sw_little_sw.folio.catalog.ResourceId
 import io.github.big_sw_little_sw.folio.catalog.Slug
 import io.github.big_sw_little_sw.folio.catalog.internal.ConfigSetService
 import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceService
+import io.github.big_sw_little_sw.folio.catalog.internal.ResourceService
 import io.github.big_sw_little_sw.folio.catalog.internal.StartService
 import io.github.big_sw_little_sw.folio.identity.Caller
 import io.github.big_sw_little_sw.folio.identity.CurrentCaller
@@ -23,15 +24,11 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes
 
 /**
  * The operations that the caller can do on a resource. The pages show only these operations. Hiding is for convenience,
- * not for security: the services authorize each operation (design 12.3).
+ * not for security: the services authorize each operation.
  */
 data class Operations(val manage: Boolean, val grant: Boolean)
 
-/**
- * The tree browser (design 12.3). It has the start page, the Namespace and ConfigSet pages and the form that creates a
- * Namespace. The start page shows the top-most resources that the caller can READ. The pages of each Source create the
- * ConfigSets of that Source.
- */
+/** The tree browser. The pages of each Source create the ConfigSets of that Source, so this class has no such form. */
 @Controller
 class CatalogPages(
     private val currentCaller: CurrentCaller,
@@ -39,7 +36,7 @@ class CatalogPages(
     private val configSets: ConfigSetService,
     private val access: Access,
     private val start: StartService,
-    private val views: ResourceViews,
+    private val resources: ResourceService,
 ) {
     @GetMapping("/")
     fun home(): ModelAndView {
@@ -54,7 +51,7 @@ class CatalogPages(
         val caller = currentCaller.get()
         val details = namespaces.get(caller, NAMESPACE_ID.parse(id))
         return ModelAndView("catalog/web/namespace")
-            .addObject("resource", ResourceView.of(details.ancestry, details.namespace.description, details.readable))
+            .addObject("resource", ResourceView.of(details.summary))
             .addObject("details", details)
             .addObject("operations", operations(caller, details.namespace.id))
     }
@@ -64,7 +61,7 @@ class CatalogPages(
         val caller = currentCaller.get()
         val details = configSets.get(caller, CONFIG_SET_ID.parse(id))
         return ModelAndView("catalog/web/configSet")
-            .addObject("resource", ResourceView.of(details.ancestry, details.configSet.description, details.readable))
+            .addObject("resource", ResourceView.of(details.summary))
             .addObject("configSet", details.configSet)
             .addObject("operations", operations(caller, details.configSet.id))
     }
@@ -90,13 +87,16 @@ class CatalogPages(
     }
 
     /**
-     * The form needs `MANAGE` on the parent, as the create does (design 7.3). At the top level, only a super admin has
-     * that permission. A failed post shows this form again, and this check then fails too. Thus a post without
-     * permission shows the error page, as on the other forms.
+     * The form needs `MANAGE` on the parent, as the create does. A failed post shows this form again, and this check
+     * then fails too. Thus a post without permission shows the error page, as on the other forms.
      */
     private fun createForm(parentId: String?, slug: String?, description: String?): ModelAndView {
-        val parent = parentId?.takeIf { it.isNotEmpty() }?.let { views.of(NAMESPACE_ID.parse(it), Action.MANAGE) }
-        if (parent == null) access.requireSuperAdmin(currentCaller.get())
+        val caller = currentCaller.get()
+        val parent =
+            parentId?.takeIf { it.isNotEmpty() }?.let {
+                ResourceView.of(resources.summary(caller, NAMESPACE_ID.parse(it), Action.MANAGE))
+            }
+        if (parent == null) access.requireSuperAdmin(caller)
         return ModelAndView("catalog/web/createNamespace")
             .addObject("parent", parent)
             .addObject("slug", slug)

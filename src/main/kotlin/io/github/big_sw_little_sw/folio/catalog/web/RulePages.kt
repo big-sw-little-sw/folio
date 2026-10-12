@@ -2,6 +2,7 @@ package io.github.big_sw_little_sw.folio.catalog.web
 
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.ResourceId
+import io.github.big_sw_little_sw.folio.catalog.internal.ResourceService
 import io.github.big_sw_little_sw.folio.catalog.internal.Rule
 import io.github.big_sw_little_sw.folio.catalog.internal.RuleService
 import io.github.big_sw_little_sw.folio.identity.Caller
@@ -41,11 +42,11 @@ data class ExplainForm(val action: Action?, val subject: String?, val groups: St
 class RulePages(
     private val currentCaller: CurrentCaller,
     private val rules: RuleService,
-    private val views: ResourceViews,
+    private val resources: ResourceService,
 ) {
     /**
      * With an [action], the page also explains the decision for the caller of the explain form. The explain form uses
-     * `GET`, because the form changes nothing. Thus the form needs no CSRF token (design 12.3).
+     * `GET`, because the form changes nothing. Thus the form needs no CSRF token.
      */
     @GetMapping("/rules")
     fun rules(
@@ -98,7 +99,8 @@ class RulePages(
      * again.
      */
     private fun page(resource: ResourceId, form: ExplainForm, submitted: Pair<Action, String>? = null): ModelAndView {
-        val own = rules.rules(currentCaller.get(), resource).associateBy { it.action }
+        val caller = currentCaller.get()
+        val own = rules.rules(caller, resource).associateBy { it.action }
         val rows =
             Action.entries.map { action ->
                 val stored = own[action]?.subjects?.joinToString("\n")
@@ -106,7 +108,7 @@ class RulePages(
                 RuleRow(action, inherits = stored == null, text = text)
             }
         return ModelAndView("catalog/web/rules")
-            .addObject("resource", views.of(resource, Action.GRANT))
+            .addObject("resource", ResourceView.of(resources.summary(caller, resource, Action.GRANT)))
             .addObject("rules", rows)
             .addObject("explain", form)
     }

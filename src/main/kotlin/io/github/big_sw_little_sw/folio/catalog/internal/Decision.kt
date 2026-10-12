@@ -8,7 +8,7 @@ import io.github.big_sw_little_sw.folio.identity.Subject
 sealed interface Decision {
     val allowed: Boolean
 
-    /** The caller is a super admin. Rules do not change this decision. */
+    /** The caller is a super admin. */
     data object SuperAdmin : Decision {
         override val allowed get() = true
     }
@@ -33,9 +33,12 @@ sealed interface Decision {
 }
 
 /**
- * Applies the nearest-rule algorithm (design 7.2). The function is pure, so unit tests run it without Spring. [chain]
- * runs from the top-level Namespace down to the resource. [chain] is empty for the root, where only super admins can
- * act. [rules] has the subjects of each resource in [chain] that has a rule for the action.
+ * Applies the nearest-rule algorithm. A super admin can do all actions, and no rule can change that. For other
+ * callers, the nearest rule for the action decides, and without a rule Folio denies the action. The function is pure,
+ * so unit tests run it without Spring.
+ *
+ * [chain] runs from the top-level Namespace down to the resource. [chain] is empty for the root, so only a super admin
+ * can act there. [rules] has the subjects of each resource in [chain] that has a rule for the action.
  */
 fun decide(caller: Caller, chain: List<ResourceId>, rules: Map<ResourceId, Set<Subject>>): Decision {
     if (caller.superAdmin) return Decision.SuperAdmin

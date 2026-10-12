@@ -63,8 +63,8 @@ class ConfigSetRepository(private val jdbc: JdbcClient) {
         .list()
 
     /**
-     * Writes the slug, the description and the Namespace. The Source type of a ConfigSet never changes, so the update
-     * does not write the Source type (design 10.2).
+     * Writes the slug, the description and the Namespace. The Source type never changes, so the published revisions of
+     * the ConfigSet stay the same.
      */
     fun update(row: ConfigSetRow) {
         uniqueSlug(row.slug, row.namespaceId) {
@@ -83,8 +83,8 @@ class ConfigSetRepository(private val jdbc: JdbcClient) {
     }
 
     /**
-     * Foreign keys that cascade delete the rules of the ConfigSet. The tables of other modules, for example the Source
-     * definition and the revisions, also have foreign keys that cascade from `config_set` (design 5.4).
+     * Deletes the ConfigSet. Foreign keys that cascade from `config_set` delete its rules and its rows in the tables of
+     * other modules, for example the Source definition and the revisions.
      */
     fun delete(id: ConfigSetId) {
         jdbc.sql("delete from config_set where id = :id").param("id", id.value).update()

@@ -20,9 +20,12 @@ fun signedIn(caller: Caller.Authenticated): RequestPostProcessor {
     return authentication(OAuth2AuthenticationToken(user, user.authorities, "folio"))
 }
 
-/** Gets the UI page at [url] in the browser session of [caller], expects [status] and returns the HTML. */
-fun MockMvc.page(url: String, caller: Caller.Authenticated, status: Int = 200): String {
-    val result = get(url) { with(signedIn(caller)) }.andExpect { status { isEqualTo(status) } }
+/**
+ * Gets the UI page at [url] in the browser session of [caller], expects [status] and returns the HTML. A null [caller]
+ * has no session.
+ */
+fun MockMvc.page(url: String, caller: Caller.Authenticated?, status: Int = 200): String {
+    val result = get(url) { if (caller != null) with(signedIn(caller)) }.andExpect { status { isEqualTo(status) } }
     return result.andReturn().response.contentAsString
 }
 

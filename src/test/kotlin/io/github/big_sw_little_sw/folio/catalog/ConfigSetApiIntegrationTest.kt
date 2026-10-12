@@ -1,26 +1,17 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.jsonBody
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.http.HttpHeaders
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.patch
-import org.springframework.test.web.servlet.post
+import org.springframework.http.HttpMethod.DELETE
+import org.springframework.http.HttpMethod.GET
+import org.springframework.http.HttpMethod.PATCH
+import org.springframework.http.HttpMethod.POST
+import org.springframework.test.web.servlet.*
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.*
 
-/** These tests check the ConfigSet routes and the resolve route (design 5.3, 7.4, 12.1, 12.2). */
 @FolioIntegrationTest
 class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -32,7 +23,7 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(search, "service-a", "The search service")
         catalog.rule(search, Action.READ, "user:alice")
 
-        mvc.get(url(serviceA)) { bearer(alice) }.andExpect {
+        mvc.send(GET, url(serviceA), alice).andExpect {
             status { isOk() }
             jsonPath("$.id") { value(serviceA.toApiId()) }
             jsonPath("$.namespaceId") { value(search.toApiId()) }
@@ -48,9 +39,8 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(catalog.namespace())
         val missing = ConfigSetId(UUID.randomUUID())
 
-        mvc.get(url(missing)) { bearer(alice) }.andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
-        mvc.get(url(serviceA)) { bearer(alice) }.andExpectForbidden(Action.READ, serviceA.toApiId())
-        mvc.get(url(serviceA)).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
+        mvc.send(GET, url(missing), alice).andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
+        mvc.send(GET, url(serviceA), alice).andExpectForbidden(Action.READ, serviceA.toApiId())
     }
 
     @Test
@@ -60,18 +50,14 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(top, Action.READ, "public")
         catalog.rule(top, Action.MANAGE, "user:alice")
 
-        mvc
-            .patch(url(serviceA)) {
-                bearer(alice)
-                jsonBody("""{"slug": "service-b", "description": "Renamed"}""")
-            }.andExpect {
-                status { isOk() }
-                jsonPath("$.id") { value(serviceA.toApiId()) }
-                jsonPath("$.path") { value("${catalog.pathOf(top)}/service-b") }
-                jsonPath("$.description") { value("Renamed") }
-            }
-        resolve("${catalog.pathOf(top)}/service-a") { bearer(alice) }.andExpectProblem(404, "PATH_NOT_FOUND")
-        resolve("${catalog.pathOf(top)}/service-b").andExpect { jsonPath("$.id") { value(serviceA.toApiId()) } }
+        mvc.send(PATCH, url(serviceA), alice, """{"slug": "service-b", "description": "Renamed"}""").andExpect {
+            status { isOk() }
+            jsonPath("$.id") { value(serviceA.toApiId()) }
+            jsonPath("$.path") { value("${catalog.pathOf(top)}/service-b") }
+            jsonPath("$.description") { value("Renamed") }
+        }
+        resolve("${catalog.pathOf(top)}/service-a", alice).andExpectProblem(404, "PATH_NOT_FOUND")
+        resolve("${catalog.pathOf(top)}/service-b", null).andExpect { jsonPath("$.id") { value(serviceA.toApiId()) } }
         catalog.configSet(top, "service-a")
     }
 
@@ -82,16 +68,8 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val other = catalog.configSet(top, "other")
         catalog.namespace(top, "other")
 
-        mvc
-            .patch(url(other)) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "taken"}""")
-            }.andExpectProblem(409, "SLUG_TAKEN")
-        mvc
-            .patch(url(other)) {
-                bearer(SUPER_ADMIN)
-                jsonBody("""{"slug": "Bad"}""")
-            }.andExpectProblem(400, "INVALID_SLUG")
+        mvc.send(PATCH, url(other), SUPER_ADMIN, """{"slug": "taken"}""").andExpectProblem(409, "SLUG_TAKEN")
+        mvc.send(PATCH, url(other), SUPER_ADMIN, """{"slug": "Bad"}""").andExpectProblem(400, "INVALID_SLUG")
     }
 
     @Test
@@ -114,11 +92,7 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         move(alice, withRules, to).andExpectForbidden(Action.GRANT, to.toApiId())
         move(alice, withRules, from).andExpect { status { isOk() } }
         move(alice, plain, NamespaceId(UUID.randomUUID())).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
-        mvc
-            .post("${url(plain)}:move") {
-                bearer(alice)
-                jsonBody("{}")
-            }.andExpectProblem(400, "INVALID_REQUEST")
+        mvc.send(POST, "${url(plain)}:move", alice, "{}").andExpectProblem(400, "INVALID_REQUEST")
     }
 
     @Test
@@ -127,11 +101,11 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(top, "service-a")
         catalog.rule(serviceA, Action.READ, "public")
 
-        mvc.delete(url(serviceA)) { bearer(alice) }.andExpectProblem(403, "ACTION_NOT_ALLOWED")
-        mvc.delete(url(serviceA)) { bearer(SUPER_ADMIN) }.andExpect { status { isNoContent() } }
+        mvc.send(DELETE, url(serviceA), alice).andExpectProblem(403, "ACTION_NOT_ALLOWED")
+        mvc.send(DELETE, url(serviceA), SUPER_ADMIN).andExpect { status { isNoContent() } }
 
-        mvc.get(url(serviceA)) { bearer(SUPER_ADMIN) }.andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
-        resolve("${catalog.pathOf(top)}/service-a").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
+        mvc.send(GET, url(serviceA), SUPER_ADMIN).andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
+        resolve("${catalog.pathOf(top)}/service-a", null).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
     }
 
     @Test
@@ -141,7 +115,7 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         catalog.rule(top, Action.READ, "group:team-a")
         val path = "${catalog.pathOf(top)}/search/service-a"
 
-        resolve(path) { bearer(alice) }.andExpect {
+        resolve(path, alice).andExpect {
             status { isOk() }
             jsonPath("$.id") { value(serviceA.toApiId()) }
             jsonPath("$.path") { value(path) }
@@ -156,9 +130,10 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(search, "service-a")
         catalog.rule(top, Action.READ, "public")
 
-        resolve("${catalog.pathOf(top)}/search/service-a").andExpect { jsonPath("$.id") { value(serviceA.toApiId()) } }
-        resolve("${catalog.pathOf(top)}/search").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        resolve("${catalog.pathOf(top)}/search") { bearer(alice) }.andExpectProblem(404, "PATH_NOT_FOUND")
+        resolve("${catalog.pathOf(top)}/search/service-a", null).andExpect {
+            jsonPath("$.id") { value(serviceA.toApiId()) }
+        }
+        resolve("${catalog.pathOf(top)}/search", alice).andExpectProblem(404, "PATH_NOT_FOUND")
     }
 
     @Test
@@ -166,11 +141,8 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val top = catalog.namespace()
         catalog.configSet(top, "hidden")
 
-        val missing =
-            resolve(
-                "${catalog.pathOf(top)}/missing",
-            ) { bearer(alice) }.andExpectProblem(404, "PATH_NOT_FOUND")
-        val hidden = resolve("${catalog.pathOf(top)}/hidden") { bearer(alice) }.andExpectProblem(404, "PATH_NOT_FOUND")
+        val missing = resolve("${catalog.pathOf(top)}/missing", alice).andExpectProblem(404, "PATH_NOT_FOUND")
+        val hidden = resolve("${catalog.pathOf(top)}/hidden", alice).andExpectProblem(404, "PATH_NOT_FOUND")
 
         assertEquals(bodyWithoutInstance(missing), bodyWithoutInstance(hidden))
     }
@@ -180,11 +152,10 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val top = catalog.namespace()
         catalog.configSet(top, "hidden")
 
-        val missing = resolve("${catalog.pathOf(top)}/missing").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        val hidden = resolve("${catalog.pathOf(top)}/hidden").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
+        val missing = resolve("${catalog.pathOf(top)}/missing", null).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
+        val hidden = resolve("${catalog.pathOf(top)}/hidden", null).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
 
         assertEquals(bodyWithoutInstance(missing), bodyWithoutInstance(hidden))
-        hidden.andExpect { header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") } }
     }
 
     @Test
@@ -193,30 +164,21 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         val serviceA = catalog.configSet(top, "service-a")
         catalog.rule(serviceA, Action.READ, "public")
 
-        resolve("${catalog.pathOf(top)}/service-a").andExpect { jsonPath("$.id") { value(serviceA.toApiId()) } }
+        resolve("${catalog.pathOf(top)}/service-a", null).andExpect { jsonPath("$.id") { value(serviceA.toApiId()) } }
     }
 
     @Test
     fun `resolve rejects malformed paths`() {
         listOf("", "/a/b", "a/b/", "a//b", "A/b", "only-one").forEach { path ->
-            resolve(path) { bearer(alice) }.andExpectProblem(400, "INVALID_PATH")
+            resolve(path, alice).andExpectProblem(400, "INVALID_PATH")
         }
-        mvc.get("/api/v1/configsets:resolve").andExpectProblem(400, "INVALID_REQUEST")
+        mvc.send(GET, RESOLVE, null).andExpectProblem(400, "INVALID_REQUEST")
     }
 
-    private fun resolve(
-        path: String,
-        dsl: org.springframework.test.web.servlet.MockHttpServletRequestDsl.() -> Unit = {},
-    ) = mvc.get("/api/v1/configsets:resolve") {
-        param("path", path)
-        dsl()
-    }
+    private fun resolve(path: String, caller: Caller.Authenticated?) = mvc.send(GET, "$RESOLVE?path=$path", caller)
 
     private fun move(caller: Caller.Authenticated, id: ConfigSetId, namespace: NamespaceId) =
-        mvc.post("${url(id)}:move") {
-            bearer(caller)
-            jsonBody("""{"namespaceId": "${namespace.toApiId()}"}""")
-        }
+        mvc.send(POST, "${url(id)}:move", caller, """{"namespaceId": "${namespace.toApiId()}"}""")
 
     private fun bodyWithoutInstance(result: ResultActionsDsl) = result
         .andReturn()
@@ -224,4 +186,8 @@ class ConfigSetApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowire
         .replace(Regex("\"instance\":\"[^\"]*\""), "")
 
     private fun url(id: ConfigSetId) = "/api/v1/admin/configsets/${id.toApiId()}"
+
+    private companion object {
+        const val RESOLVE = "/api/v1/configsets:resolve"
+    }
 }

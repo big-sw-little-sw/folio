@@ -12,12 +12,9 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Component
 
 /**
- * Writes the audit records of the catalog (design 14). The services call this class only for operations that changed
- * something. [edited] writes one record for each field that changed.
- *
- * The resource type is `NAMESPACE` or `CONFIG_SET`. Each operation name starts with the resource type, for example
- * `NAMESPACE_RENAMED`. The rule operations are `RULE_PUT` and `RULE_DELETED`. A rule record has the type, the ID and
- * the path of the resource of the rule.
+ * Writes the audit records of the catalog. The services call this class only for operations that changed something,
+ * so a request that changes nothing adds no record. A rule record has the type, the ID and the path of the resource of
+ * the rule.
  */
 @Component
 class CatalogAudit(private val auditLog: AuditLog) {

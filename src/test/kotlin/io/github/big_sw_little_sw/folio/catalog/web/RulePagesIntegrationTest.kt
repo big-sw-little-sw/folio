@@ -2,21 +2,13 @@ package io.github.big_sw_little_sw.folio.catalog.web
 
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.andExpectProblemPage
-import io.github.big_sw_little_sw.testing.postForm
-import io.github.big_sw_little_sw.testing.signedIn
-import org.hamcrest.Matchers.allOf
-import org.hamcrest.Matchers.containsString
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
-import kotlin.test.Test
+import org.springframework.test.web.servlet.*
+import kotlin.test.*
 
-/** These tests check the rules page and its explain form (design 12.3). The page needs `GRANT` and no other action. */
+/** The rules page needs `GRANT` and no other action. */
 @FolioIntegrationTest
 class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -27,17 +19,11 @@ class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired p
         val rules = "/namespaces/${top.toApiId()}/rules"
 
         post("$rules/READ", "subjects" to "group:team-a\n\n  user:bob  ").andExpect { redirectedUrl(rules) }
-        mvc.get(rules) { with(signedIn(SUPER_ADMIN)) }.andExpect {
-            status { isOk() }
-            content { string(containsString("group:team-a\nuser:bob</textarea>")) }
-        }
-        post("$rules/READ", "subjects" to "nobody").andExpectProblemPage(400, "INVALID_SUBJECT").andExpect {
-            content { string(containsString("nobody</textarea>")) }
-        }
+        assertContains(mvc.page(rules, SUPER_ADMIN), "group:team-a\nuser:bob</textarea>")
+        val failed = post("$rules/READ", "subjects" to "nobody").andExpectProblemPage(400, "INVALID_SUBJECT")
+        assertContains(failed.andReturn().response.contentAsString, "nobody</textarea>")
         post("$rules/READ/delete").andExpect { redirectedUrl(rules) }
-        mvc.get(rules) { with(signedIn(SUPER_ADMIN)) }.andExpect {
-            content { string(containsString("No rule. READ inherits.")) }
-        }
+        assertContains(mvc.page(rules, SUPER_ADMIN), "No rule. READ inherits.")
     }
 
     @Test
@@ -46,10 +32,11 @@ class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired p
         catalog.rule(top, Action.GRANT, "user:alice")
         val rules = "/namespaces/${top.toApiId()}/rules"
 
-        mvc.get(rules) { with(signedIn(alice)) }.andExpect { status { isOk() } }
-        mvc.get("$rules?action=READ&subject=bob") { with(signedIn(alice)) }.andExpect {
-            content { string(containsString("No rule for READ exists on this resource or above it.")) }
-        }
+        mvc.page(rules, alice)
+        assertContains(
+            mvc.page("$rules?action=READ&subject=bob", alice),
+            "No rule for READ exists on this resource or above it.",
+        )
         mvc.postForm("$rules/READ", alice, "subjects" to "user:bob").andExpect { redirectedUrl(rules) }
     }
 
@@ -59,27 +46,18 @@ class RulePagesIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired p
         catalog.rule(top, Action.READ, "group:team-a")
         val rules = "/namespaces/${top.toApiId()}/rules"
 
-        mvc
-            .get("$rules?action=READ&subject=alice&groups=team-a#explain") { with(signedIn(SUPER_ADMIN)) }
-            .andExpect {
-                content {
-                    string(
-                        allOf(
-                            containsString("<strong>Permitted</strong>"),
-                            containsString("Its subject <code>group:team-a</code> matched."),
-                        ),
-                    )
-                }
-            }
-        mvc.get("$rules?action=READ") { with(signedIn(SUPER_ADMIN)) }.andExpect {
-            content { string(containsString("None of its subjects matched.")) }
-        }
-        mvc.get("$rules?action=MANAGE&subject=alice") { with(signedIn(SUPER_ADMIN)) }.andExpect {
-            content { string(containsString("No rule for MANAGE exists on this resource or above it.")) }
-        }
-        mvc.get("$rules?action=GRANT&subject=x&groups=folio-admins") { with(signedIn(SUPER_ADMIN)) }.andExpect {
-            content { string(containsString("The super-admin entry <code>group:folio-admins</code> matched.")) }
-        }
+        val permitted = mvc.page("$rules?action=READ&subject=alice&groups=team-a#explain", SUPER_ADMIN)
+        assertContains(permitted, "<strong>Permitted</strong>")
+        assertContains(permitted, "Its subject <code>group:team-a</code> matched.")
+        assertContains(mvc.page("$rules?action=READ", SUPER_ADMIN), "None of its subjects matched.")
+        assertContains(
+            mvc.page("$rules?action=MANAGE&subject=alice", SUPER_ADMIN),
+            "No rule for MANAGE exists on this resource or above it.",
+        )
+        assertContains(
+            mvc.page("$rules?action=GRANT&subject=x&groups=folio-admins", SUPER_ADMIN),
+            "The super-admin entry <code>group:folio-admins</code> matched.",
+        )
     }
 
     private fun post(url: String, vararg params: Pair<String, String>) = mvc.postForm(url, SUPER_ADMIN, *params)

@@ -1,19 +1,14 @@
 package io.github.big_sw_little_sw.folio.catalog.web
 
-import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.catalog.ResourceId
 import io.github.big_sw_little_sw.folio.catalog.internal.Ancestry
-import io.github.big_sw_little_sw.folio.catalog.internal.ResourceService
 import io.github.big_sw_little_sw.folio.catalog.internal.ResourceSummary
-import io.github.big_sw_little_sw.folio.identity.CurrentCaller
-import org.springframework.stereotype.Component
 
 /**
- * One slug of a path on a page. [url] is null if the caller cannot READ the resource of the slug. A caller can see the
- * full path of each resource that the caller can READ. A link to a resource without `READ` would only give a 403 page
- * (design 7.4, 12.3).
+ * One slug of a path on a page. A caller sees the full path of each resource that it can READ. [url] is null if the
+ * caller cannot READ the resource of the slug, because a link to that resource would only give a 403 page.
  */
 data class Crumb(val label: String, val url: String?) {
     companion object {
@@ -23,7 +18,7 @@ data class Crumb(val label: String, val url: String?) {
     }
 }
 
-/** A resource on the start page (design 12.3), with its full path. */
+/** A resource on the start page, with its full path. */
 data class StartItem(val kind: String, val path: List<Crumb>, val description: String?) {
     companion object {
         fun of(summary: ResourceSummary): StartItem {
@@ -62,20 +57,17 @@ data class ResourceView(
     companion object {
         private const val NAMESPACE = "Namespace"
 
-        /**
-         * [readable] has the links of [ancestry] that the caller can READ. Only the crumbs of these resources are
-         * links.
-         */
-        fun of(ancestry: Ancestry, description: String?, readable: Set<ResourceId>): ResourceView {
-            val self = ancestry.links.last()
+        fun of(summary: ResourceSummary): ResourceView {
+            val links = summary.ancestry.links
+            val self = links.last()
             return ResourceView(
                 kind = kindOf(self.resource),
                 id = self.resource.toApiId(),
                 slug = self.slug.value,
-                path = ancestry.path.toString(),
-                description = description,
+                path = summary.ancestry.path.toString(),
+                description = summary.description,
                 url = pageOf(self.resource),
-                crumbs = Crumb.of(ancestry.links.dropLast(1), readable),
+                crumbs = Crumb.of(links.dropLast(1), summary.readable),
             )
         }
 
@@ -88,18 +80,6 @@ data class ResourceView(
             is NamespaceId -> "/$NAMESPACES/${resource.toApiId()}"
             is ConfigSetId -> "/$CONFIG_SETS/${resource.toApiId()}"
         }
-    }
-}
-
-/**
- * Loads a Namespace or a ConfigSet for a page. Each page authorizes with the action of its operation (design 7.3,
- * 12.3). The rules page needs `GRANT`. The edit, move and delete forms need `MANAGE`.
- */
-@Component
-class ResourceViews(private val currentCaller: CurrentCaller, private val resources: ResourceService) {
-    fun of(resource: ResourceId, action: Action): ResourceView {
-        val summary = resources.summary(currentCaller.get(), resource, action)
-        return ResourceView.of(summary.ancestry, summary.description, summary.readable)
     }
 }
 

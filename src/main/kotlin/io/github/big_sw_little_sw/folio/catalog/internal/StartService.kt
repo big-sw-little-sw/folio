@@ -7,13 +7,13 @@ import io.github.big_sw_little_sw.folio.identity.Subject
 import org.springframework.stereotype.Service
 
 /**
- * Finds the resources where a caller starts to browse the catalog (design 7.4, 12.3). A caller with `READ` only deep in
- * the tree sees that resource on the start page, with the path above it.
+ * Finds the resources where a caller starts to browse the catalog. A caller with `READ` only deep in the tree sees that
+ * resource on the start page, with the path above it.
  */
 @Service
 class StartService(
     private val tree: TreeRepository,
-    private val namespaces: NamespaceRepository,
+    private val namespaceRepository: NamespaceRepository,
     private val authorizer: Authorizer,
 ) {
     /**
@@ -28,7 +28,7 @@ class StartService(
     @SnapshotRead
     fun entries(caller: Caller): List<ResourceSummary> {
         if (caller.superAdmin) {
-            return namespaces.children(null).map {
+            return namespaceRepository.children(null).map {
                 ResourceSummary(Ancestry.ROOT.child(it.id, it.slug), it.description, setOf(it.id))
             }
         }

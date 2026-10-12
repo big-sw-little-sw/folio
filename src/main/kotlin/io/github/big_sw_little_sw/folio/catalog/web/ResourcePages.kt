@@ -10,6 +10,7 @@ import io.github.big_sw_little_sw.folio.catalog.internal.ConfigSetService
 import io.github.big_sw_little_sw.folio.catalog.internal.DescriptionChange
 import io.github.big_sw_little_sw.folio.catalog.internal.Edit
 import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceService
+import io.github.big_sw_little_sw.folio.catalog.internal.ResourceService
 import io.github.big_sw_little_sw.folio.identity.CurrentCaller
 import io.github.big_sw_little_sw.folio.web.Redirect
 import io.github.big_sw_little_sw.folio.web.submit
@@ -23,8 +24,8 @@ import org.springframework.web.servlet.ModelAndView
 import org.springframework.web.servlet.mvc.support.RedirectAttributes
 
 /**
- * The edit, move and delete pages of Namespaces and ConfigSets. The edit page renames and describes. Each form needs
- * `MANAGE`, as its operation does (design 7.3). The services authorize the operations.
+ * The edit, move and delete pages of Namespaces and ConfigSets. Each form needs `MANAGE`, as its operation does. The
+ * services authorize the operations.
  */
 @Controller
 @RequestMapping("/{collection:namespaces|configsets}/{id}")
@@ -32,15 +33,14 @@ class ResourcePages(
     private val currentCaller: CurrentCaller,
     private val namespaces: NamespaceService,
     private val configSets: ConfigSetService,
-    private val views: ResourceViews,
+    private val resources: ResourceService,
 ) {
     @GetMapping("/edit")
     fun editForm(@PathVariable collection: String, @PathVariable id: String): ModelAndView {
-        val resource = views.of(resourceOf(collection, id), Action.MANAGE)
+        val resource = view(resourceOf(collection, id))
         return editForm(resource, resource.slug, resource.description)
     }
 
-    /** An empty description field clears the description. */
     @PostMapping("/edit")
     fun edit(
         @PathVariable collection: String,
@@ -50,7 +50,7 @@ class ResourcePages(
         redirect: RedirectAttributes,
     ): ModelAndView {
         val resource = resourceOf(collection, id)
-        return submit(redirect, { editForm(views.of(resource, Action.MANAGE), slug, description) }) {
+        return submit(redirect, { editForm(view(resource), slug, description) }) {
             val edit = Edit(Slug(slug), DescriptionChange.Replace(description))
             val path =
                 when (resource) {
@@ -63,7 +63,7 @@ class ResourcePages(
 
     @GetMapping("/move")
     fun moveForm(@PathVariable collection: String, @PathVariable id: String): ModelAndView =
-        moveForm(views.of(resourceOf(collection, id), Action.MANAGE), null)
+        moveForm(view(resourceOf(collection, id)), null)
 
     /** [target] is the API ID of the new parent Namespace. An empty [target] moves a Namespace to the top level. */
     @PostMapping("/move")
@@ -74,7 +74,7 @@ class ResourcePages(
         redirect: RedirectAttributes,
     ): ModelAndView {
         val resource = resourceOf(collection, id)
-        return submit(redirect, { moveForm(views.of(resource, Action.MANAGE), target) }) {
+        return submit(redirect, { moveForm(view(resource), target) }) {
             val text = target.orEmpty().trim()
             val path =
                 when (resource) {
@@ -93,7 +93,7 @@ class ResourcePages(
 
     @GetMapping("/delete")
     fun deleteForm(@PathVariable collection: String, @PathVariable id: String): ModelAndView =
-        deleteForm(views.of(resourceOf(collection, id), Action.MANAGE))
+        deleteForm(view(resourceOf(collection, id)))
 
     @PostMapping("/delete")
     fun delete(
@@ -102,7 +102,7 @@ class ResourcePages(
         redirect: RedirectAttributes,
     ): ModelAndView {
         val resource = resourceOf(collection, id)
-        val view = views.of(resource, Action.MANAGE)
+        val view = view(resource)
         return submit(redirect, { deleteForm(view) }) {
             when (resource) {
                 is NamespaceId -> namespaces.delete(currentCaller.get(), resource)
@@ -111,6 +111,9 @@ class ResourcePages(
             Redirect(view.parentUrl, "${view.kind} ${view.path} deleted.")
         }
     }
+
+    private fun view(resource: ResourceId) =
+        ResourceView.of(resources.summary(currentCaller.get(), resource, Action.MANAGE))
 
     private fun editForm(resource: ResourceView, slug: String?, description: String?) = ModelAndView("catalog/web/edit")
         .addObject("resource", resource)
