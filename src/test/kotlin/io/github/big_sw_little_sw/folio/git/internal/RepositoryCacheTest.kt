@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
+import io.github.big_sw_little_sw.testing.*
 import org.eclipse.jgit.lib.Repository
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -8,19 +9,12 @@ import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
 import java.time.Duration
 import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeText
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/** These tests check the cache of one Folio instance (design 10.5) and its fetch lock (design 10.7). */
+/** These tests check the repository cache of one Folio instance and its fetch lock. */
 class RepositoryCacheTest {
     @TempDir
     lateinit var root: Path
@@ -95,7 +89,7 @@ class RepositoryCacheTest {
         assertEquals("missing", cache.reading(id, { "missing" }) { "found" })
     }
 
-    /** A repository is damaged when a ref names an object that the repository does not have (design 10.5). */
+    /** A repository is damaged when a ref names an object that the repository does not have. */
     @Test
     fun `a fetch makes a damaged repository again, empty`() {
         val id = newId()
@@ -113,7 +107,7 @@ class RepositoryCacheTest {
 
     /**
      * A read holds the repository, for example while a slow client downloads a file. A new start of the repository
-     * waits only for the time that its caller gives. After that time, new reads do not wait behind it (design 10.5).
+     * waits only for the time that its caller gives. After that time, new reads do not wait behind it.
      */
     @Test
     fun `a new start of a repository that a read holds fails with DEADLINE_EXCEEDED after the wait`() {
@@ -143,29 +137,6 @@ class RepositoryCacheTest {
     /** Runs [block] in a fetch of the ConfigSet. A new start of the repository waits a maximum of [wait] for reads. */
     private fun <T : Any> fetch(id: ConfigSetId, wait: Duration = WAIT, block: (Repository) -> T): T =
         checkNotNull(cache.withFetchLock(id, WAIT) { cache.fetching(id, branch, wait, block) })
-
-    /**
-     * Runs [test] while another thread runs [hold]. [hold] calls its argument while it holds the lock, and that call
-     * returns after [test]. The release is in `finally`, so a failed assertion does not leave the holder waiting.
-     */
-    private fun whileHolding(hold: (held: () -> Unit) -> Unit, test: () -> Unit) {
-        val holding = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-            executor.execute {
-                hold {
-                    holding.countDown()
-                    release.await()
-                }
-            }
-            holding.await()
-            try {
-                test()
-            } finally {
-                release.countDown()
-            }
-        }
-    }
 
     private fun newId() = ConfigSetId(UUID.randomUUID())
 

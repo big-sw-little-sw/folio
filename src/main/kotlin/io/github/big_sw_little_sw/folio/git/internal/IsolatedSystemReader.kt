@@ -6,7 +6,7 @@ import org.eclipse.jgit.util.FS
 import org.eclipse.jgit.util.SystemReader
 
 /**
- * Stops JGit from reading the system, user (`~/.gitconfig` and XDG) and JGit config files of the host (design 10.4).
+ * Stops JGit from reading the system, user (`~/.gitconfig` and XDG) and JGit config files of the host.
  * Thus only the config of each cache repository applies, and the environment of the server cannot change Git
  * behaviour. The system reader of JGit is global for the process. Folio is the only user of JGit in the process, so
  * the change affects no other code.

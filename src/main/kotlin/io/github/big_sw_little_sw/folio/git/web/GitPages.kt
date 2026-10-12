@@ -6,11 +6,12 @@ import io.github.big_sw_little_sw.folio.catalog.CONFIG_SET_ID
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.catalog.NAMESPACE_ID
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
+import io.github.big_sw_little_sw.folio.catalog.Namespaces
 import io.github.big_sw_little_sw.folio.catalog.Slug
 import io.github.big_sw_little_sw.folio.credential.KEY_ID
 import io.github.big_sw_little_sw.folio.git.internal.CheckResult
 import io.github.big_sw_little_sw.folio.git.internal.GitCheck
-import io.github.big_sw_little_sw.folio.git.internal.GitSources
+import io.github.big_sw_little_sw.folio.git.internal.GitSourceService
 import io.github.big_sw_little_sw.folio.identity.CurrentCaller
 import io.github.big_sw_little_sw.folio.web.Redirect
 import io.github.big_sw_little_sw.folio.web.submit
@@ -33,26 +34,22 @@ data class ConnectForm(
 )
 
 /**
- * The Git pages (design 12.3): the form that connects a Git repository to a new ConfigSet, and the Git source of a
- * ConfigSet with the check. The catalog does not depend on this module, so the Namespace page and the ConfigSet page
- * link to these pages by path only. Each page needs `MANAGE`, as its operations do (design 7.3). The path of a resource
- * is a link only for a caller that can read the resource.
+ * The Git pages: the form that connects a Git repository to a new ConfigSet, and the Git source of a ConfigSet with the
+ * check. Each page needs `MANAGE`, as its operations do. The path of a resource is a link only for a caller that can
+ * read the resource.
  */
 @Controller
 class GitPages(
     private val currentCaller: CurrentCaller,
-    private val sources: GitSources,
+    private val sources: GitSourceService,
     private val check: GitCheck,
+    private val namespaces: Namespaces,
     private val access: Access,
 ) {
     @GetMapping("/git/configsets/new")
     fun connectForm(@RequestParam namespaceId: String): ModelAndView =
         connectPage(NAMESPACE_ID.parse(namespaceId), ConnectForm())
 
-    /**
-     * Spring binds the fields to [form]. An empty description is no description, and an empty root path is the root of
-     * the repository.
-     */
     @PostMapping("/git/configsets")
     fun connect(@RequestParam namespaceId: String, form: ConnectForm, redirect: RedirectAttributes): ModelAndView {
         val namespace = NAMESPACE_ID.parse(namespaceId)
@@ -70,7 +67,7 @@ class GitPages(
     @GetMapping("/configsets/{id}/git")
     fun source(@PathVariable id: String): ModelAndView = sourcePage(CONFIG_SET_ID.parse(id), null)
 
-    /** The notice of the next page gives the result. A failed check is a result, not a form error (design 10.3). */
+    /** The notice of the next page gives the result. A failed check is a result, not a form error. */
     @PostMapping("/configsets/{id}/git/check")
     fun check(
         @PathVariable id: String,
@@ -92,7 +89,7 @@ class GitPages(
     private fun connectPage(namespace: NamespaceId, form: ConnectForm): ModelAndView {
         val caller = currentCaller.get()
         return ModelAndView("git/web/connect")
-            .addObject("namespace", sources.requireConnectable(caller, namespace))
+            .addObject("namespace", namespaces.require(caller, Action.MANAGE, namespace))
             .addObject("namespaceReadable", access.allows(caller, Action.READ, namespace))
             .addObject("form", form)
     }

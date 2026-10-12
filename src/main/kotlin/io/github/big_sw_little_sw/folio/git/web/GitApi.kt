@@ -5,7 +5,7 @@ import io.github.big_sw_little_sw.folio.catalog.NAMESPACE_ID
 import io.github.big_sw_little_sw.folio.catalog.Slug
 import io.github.big_sw_little_sw.folio.credential.KEY_ID
 import io.github.big_sw_little_sw.folio.git.internal.GitCheck
-import io.github.big_sw_little_sw.folio.git.internal.GitSources
+import io.github.big_sw_little_sw.folio.git.internal.GitSourceService
 import io.github.big_sw_little_sw.folio.identity.CurrentCaller
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -16,15 +16,16 @@ import org.springframework.web.bind.annotation.RestController
 import java.net.URI
 
 /**
- * The Git routes of the API (design 10.3, 12.2). Only the create route of a Source creates a ConfigSet of that Source,
- * so the git module validates its own Source definition. The services authorize each request.
+ * The Git routes of the API. The catalog has no route that creates a ConfigSet: each Source type creates its own
+ * ConfigSets. Thus the git module validates the Git Source definition, and the catalog does not depend on Source types.
+ * The services authorize each request.
  */
 @RestController
-class GitApi(private val currentCaller: CurrentCaller, private val sources: GitSources, private val check: GitCheck) {
-    /**
-     * Creates the ConfigSet and its Git source in one transaction, without a connection to the Git server. Register
-     * the public key of the credential with the Git service, then run the check.
-     */
+class GitApi(
+    private val currentCaller: CurrentCaller,
+    private val sources: GitSourceService,
+    private val check: GitCheck,
+) {
     @PostMapping("$ADMIN/git/configsets")
     fun create(@RequestBody request: CreateGitConfigSetRequest): ResponseEntity<GitSourceResponse> {
         val namespace = NAMESPACE_ID.parse(request.namespaceId)
@@ -41,10 +42,7 @@ class GitApi(private val currentCaller: CurrentCaller, private val sources: GitS
     fun get(@PathVariable id: String): GitSourceResponse =
         sources.get(currentCaller.get(), CONFIG_SET_ID.parse(id)).toResponse()
 
-    /**
-     * Connects to the Git server and gives the result with status 200, also for a failed check (design 10.3). The body
-     * is optional. The body `{"keyId": …}` makes the check use that pending key of the credential.
-     */
+    /** Answers 200 also for a failed check, because a failed check is a result. The body is optional. */
     @PostMapping("$ADMIN/configsets/{id}/git:check")
     fun check(@PathVariable id: String, @RequestBody(required = false) request: CheckRequest?): CheckResponse {
         val configSet = CONFIG_SET_ID.parse(id)

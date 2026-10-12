@@ -2,9 +2,7 @@ package io.github.big_sw_little_sw.folio.git.internal
 
 import org.eclipse.jgit.util.FS
 import org.eclipse.jgit.util.SystemReader
-import kotlin.test.Test
-import kotlin.test.assertNull
-import kotlin.test.assertSame
+import kotlin.test.*
 
 class IsolatedSystemReaderTest {
     @Test

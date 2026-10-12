@@ -8,9 +8,8 @@ import org.springframework.stereotype.Component
 import java.security.PublicKey
 
 /**
- * A Git server that Folio can connect to (design 10.1). Folio trusts only [hostKeys]. [user] is the SSH login name on
- * the server. The host keys let Folio authenticate the server, and the key of the credential lets the server
- * authenticate Folio.
+ * A Git server that Folio can connect to. [user] is the SSH login name on the server. The [hostKeys] let Folio
+ * authenticate the server, and the key of the credential lets the server authenticate Folio.
  */
 class GitInstance(val name: Slug, val host: String, val port: Int, val user: String, val hostKeys: List<PublicKey>) {
     /** The SSH URL of [repository], for example `ssh://git@github.com:22/org/repo.git`. It contains no secret. */
@@ -22,12 +21,13 @@ class GitInstance(val name: Slug, val host: String, val port: Int, val user: Str
 
 /**
  * The Git instances of `folio.git.instances`. This bean validates them and parses each host key at startup. Thus a
- * line that is not valid stops the start of Folio. Without this step, only the first fetch would find the problem. A
- * message names the property, for example `folio.git.instances.github.host-keys[0]`, and never shows a key.
+ * line that is not valid stops the start of Folio. Without the validation at startup, only the first fetch finds a
+ * line that is not valid. A message names the property, for example `folio.git.instances.github.host-keys[0]`, and
+ * never shows a key.
  *
- * The bean also makes sure that Apache sshd can sign with Ed25519 keys (design 10.4). sshd needs Bouncy Castle for
- * Ed25519, and Bouncy Castle is only a runtime dependency. Without this test, a build without Bouncy Castle would
- * start, and each fetch would fail.
+ * The bean also makes sure that Apache sshd can sign with Ed25519 keys. sshd needs Bouncy Castle for Ed25519, and
+ * Bouncy Castle is only a runtime dependency. Without this startup check, a build without Bouncy Castle starts, and
+ * each fetch fails.
  */
 @Component
 class GitInstances(properties: GitProperties) {
@@ -35,7 +35,7 @@ class GitInstances(properties: GitProperties) {
 
     init {
         check(SecurityUtils.isEDDSACurveSupported()) {
-            "Apache sshd has no Ed25519 support. Bouncy Castle must be on the runtime classpath (design 10.4)."
+            "Apache sshd has no Ed25519 support. Bouncy Castle must be on the runtime classpath."
         }
         instances = properties.instances.map { (name, instance) -> parse(name, instance) }.associateBy { it.name }
     }

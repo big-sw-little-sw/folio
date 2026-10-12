@@ -5,9 +5,8 @@ import io.github.big_sw_little_sw.folio.web.ErrorKind
 import io.github.big_sw_little_sw.folio.web.FolioException
 
 /**
- * The expected failures of the Git routes (design 8.6, 10.2). No other module calls the `git` module, so only its own
- * routes throw these errors. A failed Git check is not an error: the check gives a result with a failure code
- * (design 10.3).
+ * The expected failures of the Git routes. No other module calls the `git` module, so only its own routes throw these
+ * errors. A failed Git check is not an error: the check gives a result with a failure code.
  */
 sealed class GitException(kind: ErrorKind, code: String, detail: String) : FolioException(kind, code, detail) {
     class InvalidRepositoryPath :

@@ -622,13 +622,16 @@ class Access {
     fun requireSuperAdmin(caller: Caller)
 }
 
-/** ConfigSet creation for Source adapters, and the read check of content. The HTTP routes do the other operations. */
+/** ConfigSet creation for Source adapters, and the checks of other modules. The HTTP routes do the other operations. */
 class ConfigSets {
     /** Creates the ConfigSet. The adapter writes its Source definition in the same transaction. */
     fun create(caller: Caller, namespace: NamespaceId, slug: Slug, description: String?, sourceType: SourceType): ConfigSet
 
     /** Finds a ConfigSet without authorization. */
     fun find(id: ConfigSetId): ConfigSet?
+
+    /** Finds the ConfigSet (404), then requires the action on it (403 or 401), under one tree state. */
+    fun require(caller: Caller, action: Action, id: ConfigSetId): ConfigSet
 
     /** Finds the ConfigSet (404), then requires READ on it (403 or 401). Content uses `public` for Cache-Control. */
     fun requireReadable(caller: Caller, id: ConfigSetId): ReadableConfigSet
@@ -684,16 +687,15 @@ sealed interface ResourceId { val value: UUID }
   `credential` and `git`. *Reason:* one name for one policy. A read with the wrong isolation still compiles.
 - **Writes of other modules.** A write of another module, for example a credential change, authorizes in its own
   `READ COMMITTED` transaction. There each statement has its own snapshot, so a catalog commit could fall between the
-  ancestry read and the rules read. Thus `Access`, `Namespaces.require` and `ConfigSets.requireReadable` take the
-  shared form of the tree lock (`pg_advisory_xact_lock_shared`) before the ancestry read when the transaction is not
-  read-only. The shared form
-  waits for a catalog write to commit, and it blocks the next catalog write until the transaction ends. Thus the two
-  reads see one committed tree state.
+  ancestry read and the rules read. Thus `Access`, `Namespaces.require`, `ConfigSets.require` and
+  `ConfigSets.requireReadable` take the shared form of the tree lock (`pg_advisory_xact_lock_shared`) before the
+  ancestry read when the transaction is not read-only. The shared form waits for a catalog write to commit, and it
+  blocks the next catalog write until the transaction ends. Thus the two reads see one committed tree state.
   - A catalog write already holds the exclusive form. PostgreSQL never blocks a transaction on its own locks, so a
     catalog write that calls `Access` does not wait for itself.
   - A write that also takes the exclusive form, for example through `ConfigSets.create`, must take it before it calls
-    `Access`, `Namespaces.require` or `ConfigSets.requireReadable`. Otherwise two such writes can each hold the shared
-    form and wait for the exclusive form of the other.
+    `Access`, `Namespaces.require`, `ConfigSets.require` or `ConfigSets.requireReadable`. Otherwise two such writes
+    can each hold the shared form and wait for the exclusive form of the other.
   - A transaction takes the tree lock, shared or exclusive, before it locks a row. For example, a credential change
     authorizes through `Access` before it locks the credential row. Otherwise onboarding, which holds the exclusive
     form and waits for the credential row at the foreign key of `git_source`, and a credential change, which holds the

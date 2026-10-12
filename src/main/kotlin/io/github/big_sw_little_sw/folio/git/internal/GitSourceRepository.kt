@@ -1,5 +1,6 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
+import io.github.big_sw_little_sw.folio.catalog.Access
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.content.Revision
 import io.github.big_sw_little_sw.folio.content.RevisionId
@@ -11,20 +12,13 @@ import java.sql.ResultSet
 import java.time.OffsetDateTime
 import java.util.UUID
 
-/**
- * Reads and writes the `git_source` and `git_revision` rows (design 16). The database is the source of truth for
- * published revisions. The cache only holds their objects (design 10.5).
- */
 @Repository
 class GitSourceRepository(private val jdbc: JdbcClient) {
     /**
-     * Inserts the Source definition. No constraint of `git_source` can fail here:
-     *
-     * - The ConfigSet row is new in this transaction.
-     * - [RepositoryPath], [Branch] and [RootPath] are stricter than the check constraints of the table.
-     * - The caller holds the exclusive tree lock, and a credential delete takes the shared tree lock before it locks
-     *   the row (design 8.1). A delete that commits first gives `CredentialNotFound` before this insert. A later delete
-     *   sees this row and gives `CredentialInUse`.
+     * Inserts the Source definition. No constraint of `git_source` can fail here. The ConfigSet row is new in this
+     * transaction, and the value classes are stricter than the check constraints. Because of the lock order in
+     * [Access], a credential delete that commits first makes the create fail with `CredentialNotFound` before this
+     * insert. A later delete sees this row and fails with `CredentialInUse`.
      */
     fun insert(configSet: ConfigSetId, source: GitSourceDefinition) {
         jdbc
@@ -53,8 +47,8 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
         .orElse(null)
 
     /**
-     * Returns the Source definition if the ConfigSet published [revision], or null if it did not. Reads accept only
-     * published revisions (design 5.5), so a commit that a fetch got but that sync did not record gives null.
+     * Returns the Source definition if the ConfigSet published [revision], or null if it did not. A commit that a fetch
+     * got but that Folio did not publish gives null.
      */
     fun findPublished(configSet: ConfigSetId, revision: RevisionId): GitSourceDefinition? = jdbc
         .sql(
@@ -91,9 +85,9 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
     fun latest(configSet: ConfigSetId): Revision? = revisions(configSet, 1).firstOrNull()
 
     /**
-     * Publishes [commit] as the newest revision (design 10.6). Sync calls this method in the transaction that records
-     * its result. A commit that the branch returns to, for example after a force push, gets a new publish time. Thus
-     * the newest row is always the tip that sync fetched last, and `latest` is that tip.
+     * Publishes [commit] as the newest revision. A commit that the branch returns to, for example after a force push,
+     * gets a new publish time. Thus the newest row is always the tip that Folio published last, and `latest` is that
+     * tip.
      */
     fun publish(configSet: ConfigSetId, commit: ObjectId) {
         jdbc

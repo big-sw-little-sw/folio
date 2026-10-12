@@ -46,8 +46,8 @@ class CredentialRepository(private val jdbc: JdbcClient) {
 
     /**
      * Locks the credential row until the transaction ends, and returns the row. Each change of a credential or of its
-     * keys calls this method after the authorization and before it reads the state. Thus changes of one credential run
-     * one at a time. Without the lock, two regenerations could both see that no key is pending.
+     * keys calls this method after the authorization and before the change reads the state. Thus changes of one
+     * credential run one at a time. Without the lock, two regenerations could both see that no key is pending.
      */
     fun lock(id: CredentialId): CredentialRow? =
         findRow("select $COLUMNS from credential where id = :id for update", id)
@@ -63,9 +63,9 @@ class CredentialRepository(private val jdbc: JdbcClient) {
     }
 
     /**
-     * Deletes the credential. A foreign key that cascades deletes its keys. The foreign key from `git_source` does not
-     * cascade, so a credential that a Git source uses stays. The cascade to the keys cannot violate a constraint, so
-     * each violation comes from `git_source`.
+     * Deletes the credential, and a cascade deletes its keys. The foreign key from `git_source` does not cascade, so
+     * the delete fails with `CredentialInUse` while a Git source uses the credential. The cascade to the keys cannot
+     * violate a constraint, so each violation comes from `git_source`.
      */
     fun delete(id: CredentialId) {
         try {

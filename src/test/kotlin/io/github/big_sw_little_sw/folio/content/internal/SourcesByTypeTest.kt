@@ -1,12 +1,10 @@
 package io.github.big_sw_little_sw.folio.content.internal
 
 import io.github.big_sw_little_sw.folio.catalog.SourceType
-import io.github.big_sw_little_sw.testing.InMemorySource
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import io.github.big_sw_little_sw.testing.*
+import kotlin.test.*
 
-/** Each Source type needs exactly one adapter, or Folio does not start (design 9). */
+/** Each Source type needs exactly one adapter, or Folio does not start. */
 class SourcesByTypeTest {
     @Test
     fun `each Source type gets its adapter`() {

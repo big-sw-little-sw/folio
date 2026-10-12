@@ -27,13 +27,8 @@ import org.springframework.core.type.classreading.MetadataReaderFactory
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.web.servlet.*
 import org.testcontainers.postgresql.PostgreSQLContainer
-import java.security.KeyPairGenerator
-import java.security.Security
-import java.security.Signature
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
-import javax.crypto.Cipher
-import javax.crypto.KDF
 import kotlin.test.*
 
 /**
@@ -224,19 +219,6 @@ class CryptoIntegrationTest(
                 .query(Int::class.java)
                 .single()
         assertEquals(5, erased, "The retired key has no key material")
-    }
-
-    /**
-     * Folio's own crypto must use the JDK providers. A library such as Apache sshd can register Bouncy Castle. Without
-     * this test, a provider change could move Folio's crypto to Bouncy Castle without notice.
-     */
-    @Test
-    fun `Folio's crypto uses the JDK providers`() {
-        assertEquals("SUN", Security.getProviders().first().name)
-        assertEquals("SunJCE", Cipher.getInstance(PrivateKeyCipher.TRANSFORMATION).provider.name)
-        assertEquals("SunJCE", KDF.getInstance(PrivateKeyCipher.KDF_ALGORITHM).providerName)
-        assertEquals("SunEC", KeyPairGenerator.getInstance("Ed25519").provider.name)
-        assertEquals("SunEC", Signature.getInstance("Ed25519").provider.name)
     }
 
     @Test

@@ -47,7 +47,7 @@ sealed class CredentialException(kind: ErrorKind, code: String, detail: String) 
             "Key ${key.toApiId()} is not the pending key of credential ${credential.toApiId()}.",
         )
 
-    /** A Git source uses the credential, so Folio does not delete it. Thus a ConfigSet never loses its credential. */
+    /** A Git source uses the credential, so Folio does not delete it. */
     class CredentialInUse(id: CredentialId) :
         CredentialException(
             ErrorKind.CONFLICT,

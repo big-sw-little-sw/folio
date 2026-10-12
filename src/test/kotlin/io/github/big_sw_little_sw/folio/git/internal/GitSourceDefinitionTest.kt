@@ -2,11 +2,9 @@ package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.content.ItemPath
 import io.github.big_sw_little_sw.folio.git.GitException
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
-/** These tests check the validation of the values of a Source definition (design 10.2). */
+/** These tests check the validation of the values of a Source definition. */
 class GitSourceDefinitionTest {
     @Test
     fun `a repository path has segments of letters, digits, dots, underscores and hyphens`() {

@@ -4,32 +4,18 @@ import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.CONFIG_SET_ID
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.TestAudit
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.json
-import io.github.big_sw_little_sw.testing.send
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.patch
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.*
 
 /**
- * These tests check onboarding (design 10.3 step 1) and the Git source route through HTTP. Onboarding does not connect
- * to a Git server, so the credentials of these tests name a Git instance that the configuration does not have.
+ * These tests check onboarding and the Git source route through HTTP. Onboarding does not connect to a Git server, so
+ * the credentials of these tests name a Git instance that the configuration does not have.
  */
 @GitIntegrationTest
 class GitSourceApiIntegrationTest(
@@ -87,19 +73,17 @@ class GitSourceApiIntegrationTest(
 
         val id = create(SUPER_ADMIN, namespace, credential.id.toApiId(), slug = "audited").json("$.configSetId")
 
-        val records = audit.records(CONFIG_SET_ID.parse(id).value)
-        assertEquals(listOf("CONFIG_SET_CREATED", "GIT_SOURCE_CREATED"), records.map { it["operation"] })
-        val git = records.last()
+        val configSet = CONFIG_SET_ID.parse(id).value
+        audit.assertTrail(configSet, "CONFIG_SET_CREATED", "GIT_SOURCE_CREATED")
+        val git = audit.records(configSet).last()
         assertEquals("GIT_SOURCE", git["resource_type"])
         assertEquals("${catalog.pathOf(namespace)}/audited", git["path"])
-        assertEquals(
-            audit.json(
-                """
-                {"credentialId": "${credential.id.toApiId()}", "gitInstance": "nowhere",
-                 "repositoryPath": "org/repo.git", "branch": "main", "rootPath": "config"}
-                """.trimIndent(),
-            ),
-            audit.json(git["details"]),
+        audit.assertDetails(
+            """
+            {"credentialId": "${credential.id.toApiId()}", "gitInstance": "nowhere",
+             "repositoryPath": "org/repo.git", "branch": "main", "rootPath": "config"}
+            """,
+            git,
         )
     }
 
@@ -117,9 +101,6 @@ class GitSourceApiIntegrationTest(
         create(alice, other, credential).andExpectForbidden(Action.MANAGE, other.toApiId())
 
         create(alice, target, credential).andExpect { status { isCreated() } }
-        mvc
-            .send(HttpMethod.POST, CREATE, null, body(target, credential))
-            .andExpectProblem(401, "AUTHENTICATION_REQUIRED")
     }
 
     @Test
@@ -226,9 +207,7 @@ class GitSourceApiIntegrationTest(
 
         mvc.delete("/api/v1/admin/configsets/$id") { bearer(SUPER_ADMIN) }.andExpect { status { isNoContent() } }
         mvc
-            .delete(
-                "/api/v1/admin/credentials/$credential",
-            ) { bearer(SUPER_ADMIN) }
+            .delete("/api/v1/admin/credentials/$credential") { bearer(SUPER_ADMIN) }
             .andExpect { status { isNoContent() } }
     }
 

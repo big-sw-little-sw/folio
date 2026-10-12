@@ -3,13 +3,11 @@ package io.github.big_sw_little_sw.folio.git.internal
 import org.springframework.util.unit.DataSize
 import java.nio.file.Path
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 /**
- * These tests check the settings under `folio.git` (design 10.5, 10.7). A value that is not valid stops the start of
- * Folio, and the message names the property.
+ * These tests check the settings under `folio.git`. A value that is not valid stops the start of Folio, and the message
+ * names the property.
  */
 class GitPropertiesTest {
     private val cacheDirectory = Path.of("/var/cache/folio")

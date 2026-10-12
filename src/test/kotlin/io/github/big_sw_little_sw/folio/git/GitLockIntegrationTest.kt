@@ -7,28 +7,23 @@ import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialId
 import io.github.big_sw_little_sw.folio.git.internal.Branch
 import io.github.big_sw_little_sw.folio.git.internal.GitSourceDefinition
-import io.github.big_sw_little_sw.folio.git.internal.GitSources
+import io.github.big_sw_little_sw.folio.git.internal.GitSourceService
 import io.github.big_sw_little_sw.folio.git.internal.RepositoryPath
 import io.github.big_sw_little_sw.folio.git.internal.RootPath
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.TestLocks
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the lock order of onboarding (design 8.1, 10.3). Each test holds a lock in a transaction while the
- * writes start, so the writes wait and the result does not depend on timing.
+ * These tests check the lock order of onboarding. Each test holds a lock in a transaction while the writes start, so
+ * the writes wait and the result does not depend on timing.
  */
 @GitIntegrationTest
 class GitLockIntegrationTest(
-    @Autowired private val sources: GitSources,
+    @Autowired private val sources: GitSourceService,
     @Autowired private val tree: TreeRepository,
     @Autowired private val catalog: TestCatalog,
     @Autowired private val credentials: TestCredentials,

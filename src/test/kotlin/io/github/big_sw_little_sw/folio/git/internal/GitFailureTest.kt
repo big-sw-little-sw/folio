@@ -12,8 +12,7 @@ import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeoutException
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.*
 
 class GitFailureTest {
     private val uri = URIish("ssh://git@example.com:22/org/repo.git")

@@ -74,7 +74,8 @@ class CredentialLockIntegrationTest(
     /**
      * Onboarding holds the exclusive tree lock and then inserts a `git_source` row, which waits for the credential row
      * at the foreign key. The holder does the same, but inserts only after the delete waits. The delete takes the tree
-     * lock before the row lock (design 8.1), so the insert does not wait for it, and no deadlock occurs.
+     * lock before the row lock, so the delete holds no row lock when the insert runs. Thus the insert does not wait for
+     * the delete, and no deadlock occurs.
      */
     @Test
     fun `a credential delete waits for an onboarding that holds the tree lock, and the credential stays in use`() {

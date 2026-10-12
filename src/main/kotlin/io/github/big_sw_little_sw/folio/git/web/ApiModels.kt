@@ -10,7 +10,7 @@ import io.github.big_sw_little_sw.folio.git.internal.RepositoryPath
 import io.github.big_sw_little_sw.folio.git.internal.RootPath
 import java.time.Instant
 
-/** The body that creates a ConfigSet and its Git source (design 10.2, 10.3). The Source definition never changes. */
+/** The body that creates a ConfigSet and its Git source. The Source definition never changes. */
 data class CreateGitConfigSetRequest(
     val namespaceId: String,
     val slug: String,
@@ -28,10 +28,7 @@ data class CreateGitConfigSetRequest(
 /** A check with [keyId] uses that pending key of the credential, not the active key. */
 data class CheckRequest(val keyId: String? = null)
 
-/**
- * The Git source of a ConfigSet and its newest published revision. In slice 6, sync adds the other fields of its
- * state (design 10.6).
- */
+/** The Git source of a ConfigSet and its newest published revision. */
 data class GitSourceResponse(
     val configSetId: String,
     val path: String,
@@ -39,13 +36,13 @@ data class GitSourceResponse(
     val repositoryPath: String,
     val branch: String,
     val rootPath: String,
-    /** Null until sync publishes the first revision. */
+    /** Null before the first publish, as [lastPublishedAt] is. */
     val lastPublishedCommit: String?,
     val lastPublishedAt: Instant?,
 )
 
 /**
- * The result of a check (design 10.3): `{"ok": true, "commitId": …}` or `{"ok": false, "code": …, "summary": …}`. The
+ * The result of a check: `{"ok": true, "commitId": …}` or `{"ok": false, "code": …, "summary": …}`. The
  * summary is the fixed, safe text of the code.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)

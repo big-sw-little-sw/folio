@@ -1,6 +1,5 @@
 <%--
-    The form that connects a Git repository to a new ConfigSet (design 10.3, 12.3). The create does not connect to the
-    Git server. The catalog does not depend on the git module, so the Namespace page links to this page by its URL only.
+    The form that connects a Git repository to a new ConfigSet. The create does not connect to the Git server.
 --%>
 @import io.github.big_sw_little_sw.folio.catalog.Namespace
 @import io.github.big_sw_little_sw.folio.git.web.ConnectForm

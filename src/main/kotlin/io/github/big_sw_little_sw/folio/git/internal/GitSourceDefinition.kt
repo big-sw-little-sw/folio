@@ -6,8 +6,8 @@ import io.github.big_sw_little_sw.folio.git.GitException
 import org.eclipse.jgit.lib.Repository
 
 /**
- * The Source definition of a Git ConfigSet (design 10.2). It does not change after creation, so published revisions
- * stay immutable (design 5.5). The credential names the Git instance, so the definition does not name it again.
+ * The Source definition of a Git ConfigSet. The definition never changes after the create, so a published revision
+ * always gives the same content. The credential names the Git instance, so the definition does not name it again.
  */
 data class GitSourceDefinition(
     val credential: CredentialId,
@@ -40,8 +40,8 @@ value class RepositoryPath(val value: String) {
 }
 
 /**
- * A branch name without `refs/heads/`, for example `main`. JGit validates it as a Git ref name. v1 supports no tags
- * and no pinned commits (design 10.2). The constructor throws [GitException.InvalidBranch] for other text.
+ * A branch name without `refs/heads/`, for example `main`. JGit validates it as a Git ref name. The constructor throws
+ * [GitException.InvalidBranch] for other text.
  */
 @JvmInline
 value class Branch(val value: String) {
@@ -63,8 +63,8 @@ value class Branch(val value: String) {
 
 /**
  * The directory of the repository that contains the ConfigItems. The empty root path is the root of the repository.
- * Another root path has the normal form of an item path (design 9), so a ConfigItem path below it cannot go outside
- * it. The constructor throws [GitException.InvalidRootPath] for other text.
+ * Another root path has the normal form of an [ItemPath], so a ConfigItem path below it cannot go outside it. The
+ * constructor throws [GitException.InvalidRootPath] for other text.
  */
 @JvmInline
 value class RootPath(val value: String) {

@@ -2,7 +2,6 @@ package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.credential.CredentialException
-import io.github.big_sw_little_sw.folio.credential.CredentialId
 import io.github.big_sw_little_sw.folio.credential.CredentialKeys
 import io.github.big_sw_little_sw.folio.credential.DecryptedKey
 import io.github.big_sw_little_sw.folio.credential.KeyId
@@ -17,25 +16,15 @@ import org.springframework.stereotype.Component
 import java.security.KeyPair
 
 /**
- * The fetch step (design 10.6): it fetches the branch of a Git source into the cache (design 10.5, 10.7). The check
- * calls it. In slice 6, sync and the fetch on demand will call it too. The fetch does these steps, all inside the
- * [FetchDeadline]:
- *
- * 1. It opens the active key of the credential, or the pending key for a check, and finds the Git instance of the key.
- * 2. It waits for the fetch lock of the ConfigSet, so one fetch of each ConfigSet runs at a time in this process.
- * 3. It runs `ls-remote` for the branch. A missing branch fails before Folio changes the cache.
- * 4. It fetches only the branch, without tags.
- * 5. It adds the sizes of the repository files. Above `folio.git.max-repository-size`, it deletes the repository.
- *
- * Each failure of the source throws [GitFailure], and the fetch logs it. The log line has only the ConfigSet ID, the
- * code, the exception types and the duration (design 10.4).
+ * Fetches the branch of a Git source into the cache, within the [FetchDeadline]. Each failure of the source throws
+ * [GitFailure], and the fetcher logs the failure with [logFailure].
  */
 @Component
 class Fetcher(
     private val keys: CredentialKeys,
     private val instances: GitInstances,
     private val cache: RepositoryCache,
-    private val connections: SshConnections,
+    private val ssh: IsolatedSsh,
     private val properties: GitProperties,
 ) {
     /**
@@ -44,42 +33,45 @@ class Fetcher(
      * failures of the source, so they throw [GitFailure]. A wrong request throws the error of the credential module:
      * `CredentialNotFound` (404), or `KeyNotPending` (409) if [pendingKey] is not the pending key.
      *
-     * The caller must not be in a transaction, because the fetch can take minutes (design 8.3). Without this rule, a
-     * fetch holds a database connection for minutes.
+     * The caller must not be in a transaction. Without this rule, a fetch holds a database connection for minutes.
      */
     fun fetch(configSet: ConfigSetId, source: GitSourceDefinition, pendingKey: KeyId? = null): ObjectId {
         val started = System.nanoTime()
         // The deadline starts here, so it includes the wait for another fetch of the same ConfigSet.
         val deadline = FetchDeadline(properties.fetchDeadline)
         try {
-            return withKey(source.credential, pendingKey) { fetchWith(configSet, source, it, deadline) }
+            return withInstanceKey(source, pendingKey) { instance, key ->
+                cache.withFetchLock(configSet, deadline.remaining()) {
+                    fetchLocked(configSet, source, instance, key, deadline)
+                } ?: throw GitFailure(FailureCode.DEADLINE_EXCEEDED)
+            }
         } catch (failure: GitFailure) {
             logFailure(log, "fetch", configSet, failure, started)
             throw failure
         }
     }
 
-    private fun fetchWith(
-        configSet: ConfigSetId,
+    /** Opens the key of the credential and finds the Git instance of the key, then runs [block] with both. */
+    private fun <T> withInstanceKey(
         source: GitSourceDefinition,
-        key: DecryptedKey,
-        deadline: FetchDeadline,
-    ): ObjectId {
-        val instance = instances.find(key.gitInstance) ?: throw GitFailure(FailureCode.GIT_INSTANCE_NOT_CONFIGURED)
-        return cache.withFetchLock(configSet, deadline.remaining()) {
-            fetchLocked(configSet, source, instance, key.keyPair, deadline)
-        } ?: throw GitFailure(FailureCode.DEADLINE_EXCEEDED)
-    }
-
-    private fun <T> withKey(credential: CredentialId, pendingKey: KeyId?, block: (DecryptedKey) -> T): T = try {
-        if (pendingKey == null) {
-            keys.withActiveKey(credential, block)
-        } else {
-            keys.withPendingKey(credential, pendingKey, block)
+        pendingKey: KeyId?,
+        block: (GitInstance, KeyPair) -> T,
+    ): T {
+        val withKey = { key: DecryptedKey ->
+            val instance = instances.find(key.gitInstance) ?: throw GitFailure(FailureCode.GIT_INSTANCE_NOT_CONFIGURED)
+            block(instance, key.keyPair)
         }
-    } catch (_: CredentialException.CredentialDisabled) {
-        // The fetch runs outside a transaction, so it can catch this error of the credential module (design 8.6).
-        throw GitFailure(FailureCode.CREDENTIAL_DISABLED)
+        return try {
+            if (pendingKey == null) {
+                keys.withActiveKey(source.credential, withKey)
+            } else {
+                keys.withPendingKey(source.credential, pendingKey, withKey)
+            }
+        } catch (_: CredentialException.CredentialDisabled) {
+            // The fetch runs outside a transaction, so this error of the credential module marks no transaction for
+            // rollback.
+            throw GitFailure(FailureCode.CREDENTIAL_DISABLED)
+        }
     }
 
     private fun fetchLocked(
@@ -91,7 +83,7 @@ class Fetcher(
     ): ObjectId {
         val url = instance.url(source.repositoryPath)
         val tip =
-            connections.run(instance, key, deadline) { transport ->
+            ssh.run(instance, key, deadline) { transport ->
                 requireBranch(url, source.branch, transport)
                 cache.fetching(configSet, source.branch, deadline.remaining()) {
                     fetchBranch(it, url, source.branch, transport, deadline)
@@ -107,6 +99,7 @@ class Fetcher(
         return tip
     }
 
+    /** Runs before the fetch, so a missing branch fails before Folio changes the cache. */
     private fun requireBranch(url: String, branch: Branch, transport: TransportConfigCallback) {
         val heads =
             Git
@@ -119,7 +112,10 @@ class Fetcher(
         if (branch.ref !in heads) throw GitFailure(FailureCode.BRANCH_NOT_FOUND)
     }
 
-    /** Fetches only [branch] into the same ref, and returns the commit ID of its tip. */
+    /**
+     * Fetches only [branch], without tags, so the cache holds no content that the Source definition does not name.
+     * The forced ref spec makes the cache follow a force push too. Returns the commit ID of the tip.
+     */
     private fun fetchBranch(
         repository: Repository,
         url: String,
@@ -145,10 +141,7 @@ class Fetcher(
     private companion object {
         val log = LoggerFactory.getLogger(Fetcher::class.java)
 
-        /**
-         * The connect timeout of JGit and its timeout for each idle read. It is not a limit for a full fetch. The
-         * [FetchDeadline] is that limit.
-         */
+        /** The connect timeout of JGit and its timeout for each idle read. [FetchDeadline] limits the full fetch. */
         const val TIMEOUT_SECONDS = 30
     }
 }

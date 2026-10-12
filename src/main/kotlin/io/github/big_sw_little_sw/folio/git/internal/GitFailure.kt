@@ -13,7 +13,7 @@ import java.time.Duration
 import java.util.concurrent.TimeoutException
 
 /**
- * The failure codes of Git operations (design 10.3). Each code has a fixed summary that is safe to show and to store.
+ * The failure codes of Git operations. Each code has a fixed summary that is safe to show and to store.
  * A summary never contains transport output, keys or secrets.
  */
 enum class FailureCode(val summary: String) {
@@ -35,7 +35,7 @@ enum class FailureCode(val summary: String) {
 /**
  * A Git operation failed with [code]. The message is the fixed summary of the code. The exception has no cause,
  * because the message of a cause can contain transport output. [exceptionTypes] names the types of the cause chain
- * for the log (design 10.4), for example `TransportException < SshException < ConnectException`.
+ * for the log, for example `TransportException < SshException < ConnectException`.
  */
 class GitFailure(val code: FailureCode, val exceptionTypes: String = "") : RuntimeException(code.summary)
 
@@ -49,8 +49,8 @@ private fun causesOf(error: Throwable): List<Throwable> =
 fun exceptionTypes(error: Throwable): String = causesOf(error).joinToString(" < ") { it.javaClass.simpleName }
 
 /**
- * Logs a failed Git [step], for example `fetch` or `check`, with only the ConfigSet ID, the code, the duration since
- * [startedNanos] and the exception types (design 10.4). Each failure gets one log line in this format.
+ * Logs a failed Git [step], for example `fetch` or `check`, in one line. The line never contains an exception message,
+ * because a message can contain server output.
  */
 fun logFailure(log: Logger, step: String, configSet: ConfigSetId, failure: GitFailure, startedNanos: Long) {
     log.warn(
@@ -64,10 +64,10 @@ fun logFailure(log: Logger, step: String, configSet: ConfigSetId, failure: GitFa
 }
 
 /**
- * Selects the failure code of a failed Git operation from exception types and results only, never from messages
- * (design 10.3). JGit reports a rejected host key as a failed connection, so [hostKeyRejected] comes from the host-key
- * check of the connection. A command that the deadline cut fails as a broken connection, so [deadlineExceeded] comes
- * from the [FetchDeadline].
+ * Selects the failure code of a failed Git operation from exception types and results only. Messages differ between
+ * servers and can contain server output, so the code never depends on them. JGit reports a rejected host key as a
+ * failed connection, so [hostKeyRejected] comes from the host-key check of the connection. A command that the deadline
+ * cut fails as a broken connection, so [deadlineExceeded] comes from the [FetchDeadline].
  */
 fun classify(error: Throwable, hostKeyRejected: Boolean, deadlineExceeded: Boolean): FailureCode {
     val causes = causesOf(error)
@@ -85,7 +85,7 @@ private const val NO_MORE_AUTH_METHODS = SshConstants.SSH2_DISCONNECT_NO_MORE_AU
 
 // A timeout is an InterruptedIOException (SocketTimeoutException is one) or a TimeoutException. The type depends on
 // the place where the timeout occurs. A timeout of a connect and a timeout of an idle read during the transfer both
-// give UNREACHABLE, because the types do not show which one occurred (design 10.3).
+// give UNREACHABLE, because the types do not show which one occurred.
 private fun isUnreachable(cause: Throwable) = cause is ConnectException ||
     cause is NoRouteToHostException ||
     cause is UnknownHostException ||

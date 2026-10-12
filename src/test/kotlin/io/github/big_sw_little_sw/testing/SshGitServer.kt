@@ -8,10 +8,10 @@ import java.security.KeyPairGenerator
 import java.util.Base64
 
 /**
- * An OpenSSH server with `git` in Testcontainers (design 17). The test builds the image from a pinned Alpine image, so
- * the tests control the host key and the authorized keys, and need no third-party image. All test classes of the JVM
- * share the server. The server generates its host key when the container starts. The repositories are in `/repos`, so
- * the repository path of a Git source is `repos/<name>.git`.
+ * An OpenSSH server with `git` in Testcontainers. The test builds the image from a pinned Alpine image, so the tests
+ * control the host key and the authorized keys, and need no third-party image. All test classes of the JVM share the
+ * server. The server generates its host key when the container starts. The repositories are in `/repos`, so the
+ * repository path of a Git source is `repos/<name>.git`.
  */
 object SshGitServer {
     private const val SSH_PORT = 22

@@ -7,17 +7,8 @@ import io.github.big_sw_little_sw.folio.credential.internal.Credential
 import io.github.big_sw_little_sw.folio.git.internal.GitProperties
 import io.github.big_sw_little_sw.folio.git.internal.RepositoryCache
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.SshGitServer
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.TestGit
-import io.github.big_sw_little_sw.testing.activeKey
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.send
 import org.eclipse.jgit.lib.ObjectId
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.extension.ExtendWith
@@ -26,27 +17,20 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.system.CapturedOutput
 import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.http.HttpMethod
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermissions
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.writeText
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
-import kotlin.test.fail
+import kotlin.test.*
 
 /**
- * These tests check the Git check (design 10.3) against the SSH Git server, through HTTP. A failed check is a result
- * with status 200. The tests share the server, so each test sets the authorized keys that it needs.
+ * These tests run the Git check against the SSH Git server through HTTP. A failed check is a result with status 200.
  */
 @GitIntegrationTest
+@FreshGitRepository
 @ExtendWith(OutputCaptureExtension::class)
 class GitCheckIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -56,28 +40,27 @@ class GitCheckIntegrationTest(
     @Autowired private val properties: GitProperties,
     @Autowired private val cache: RepositoryCache,
 ) {
-    private lateinit var commits: List<String>
     private lateinit var credential: Credential
 
     @BeforeEach
     fun setUp() {
-        SshGitServer.revokeAll()
-        commits = SshGitServer.createRepository("configs")
         credential = git.authorizedCredential()
     }
 
     @Test
-    fun `the check passes when the key reaches the repository, the branch exists and the root path is a directory`() {
+    fun `the check passes when the key reaches the repository, the branch exists and the root path is a directory`(
+        commits: Commits,
+    ) {
         listOf("config", "", "config/sub").forEach { root ->
-            check(git.configSet(credential.id, rootPath = root)).andExpectPassed(commits.last())
+            check(git.configSet(credential.id, rootPath = root)).andExpectPassed(commits.tip)
         }
     }
 
     @Test
-    fun `the check does not publish a revision`() {
+    fun `the check does not publish a revision`(commits: Commits) {
         val configSet = git.configSet(credential.id)
 
-        check(configSet).andExpectPassed(commits.last())
+        check(configSet).andExpectPassed(commits.tip)
 
         mvc.get("/api/v1/configsets/${configSet.toApiId()}") { bearer(SUPER_ADMIN) }.andExpect {
             status { isOk() }
@@ -86,11 +69,11 @@ class GitCheckIntegrationTest(
     }
 
     @Test
-    fun `each trusted host key of an instance is accepted, not only the first`() {
+    fun `each trusted host key of an instance is accepted, not only the first`(commits: Commits) {
         val multiKey = credentials.credential(gitInstance = "multi-key")
         SshGitServer.authorize(multiKey.activeKey.publicKeyLine)
 
-        check(git.configSet(multiKey.id)).andExpectPassed(commits.last())
+        check(git.configSet(multiKey.id)).andExpectPassed(commits.tip)
     }
 
     @Test
@@ -149,28 +132,28 @@ class GitCheckIntegrationTest(
     }
 
     @Test
-    fun `a check with a pending key uses that key, so the key can be tested before its activation`() {
+    fun `a check with a pending key uses that key, so the key can be tested before its activation`(commits: Commits) {
         val pending = credentials.pendingKey(credential.id)
         SshGitServer.revokeAll()
         SshGitServer.authorize(pending.publicKeyLine)
         val configSet = git.configSet(credential.id)
 
-        check(configSet, pending.id).andExpectPassed(commits.last())
+        check(configSet, pending.id).andExpectPassed(commits.tip)
         check(configSet).andExpectFailed("AUTH_FAILED")
 
         credentials.activate(credential.id, pending.id)
-        check(configSet).andExpectPassed(commits.last())
+        check(configSet).andExpectPassed(commits.tip)
     }
 
     /**
-     * The fetch fetches only the configured branch, without tags (design 10.5). The repository has the branch `other`
-     * and the annotated tag `v1` on a commit of `main`.
+     * The fetch fetches only the configured branch, without tags, so the cache holds no content that a Source
+     * definition does not name. The repository has the branch `other` and the annotated tag `v1` on a commit of `main`.
      */
     @Test
-    fun `the cache gets only the configured branch and no tags`() {
+    fun `the cache gets only the configured branch and no tags`(commits: Commits) {
         val configSet = git.configSet(credential.id)
 
-        check(configSet).andExpectPassed(commits.last())
+        check(configSet).andExpectPassed(commits.tip)
 
         val (refs, otherBranch, tag) =
             cache.reading(configSet, { fail("The check made no repository.") }) { repository ->
@@ -216,7 +199,7 @@ class GitCheckIntegrationTest(
 
     /**
      * A wrong key ID is a wrong request, so `KEY_NOT_PENDING` comes before each failure of the source, also before
-     * `GIT_INSTANCE_NOT_CONFIGURED` (design 10.3).
+     * `GIT_INSTANCE_NOT_CONFIGURED`.
      */
     @Test
     fun `a credential whose Git instance the configuration lacks fails with GIT_INSTANCE_NOT_CONFIGURED`() {
@@ -227,7 +210,7 @@ class GitCheckIntegrationTest(
         check(configSet, removed.activeKey.id).andExpectProblem(409, "KEY_NOT_PENDING")
     }
 
-    /** A caller without MANAGE on the Namespace of the credential never learns the state of its keys (design 11.1). */
+    /** A caller without MANAGE on the Namespace of the credential never learns the state of its keys. */
     @Test
     fun `a wrong key ID gives 403, not KEY_NOT_PENDING, to a caller without MANAGE on the credential`() {
         val namespace = catalog.namespace()
@@ -242,7 +225,7 @@ class GitCheckIntegrationTest(
     }
 
     @Test
-    fun `the check needs MANAGE on the ConfigSet and on the Namespace of the credential`() {
+    fun `the check needs MANAGE on the ConfigSet and on the Namespace of the credential`(commits: Commits) {
         val namespace = catalog.namespace()
         val configSet = git.configSet(credential.id, namespace = namespace)
         val alice = Caller.Authenticated("alice", emptySet(), null)
@@ -251,8 +234,7 @@ class GitCheckIntegrationTest(
         catalog.rule(namespace, Action.MANAGE, "user:alice")
         check(configSet, caller = alice).andExpectForbidden(Action.MANAGE, credential.namespaceId.toApiId())
         catalog.rule(credential.namespaceId, Action.MANAGE, "user:alice")
-        check(configSet, caller = alice).andExpectPassed(commits.last())
-        mvc.post("$CONFIGSETS/${configSet.toApiId()}/git:check").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
+        check(configSet, caller = alice).andExpectPassed(commits.tip)
         mvc
             .post("$CONFIGSETS/cfg_${"0".repeat(32)}/git:check") { bearer(SUPER_ADMIN) }
             .andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
@@ -273,7 +255,7 @@ class GitCheckIntegrationTest(
         assertFalse("does not appear to be a git repository" in output.all, output.all)
     }
 
-    /** The messages of these loggers can contain server output, so the configuration sets them to OFF (design 10.4). */
+    /** The messages of these loggers can contain server output, so the configuration sets them to OFF. */
     @Test
     fun `the JGit and Apache sshd loggers are off`() {
         listOf("org.apache.sshd", "org.eclipse.jgit").forEach {

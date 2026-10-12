@@ -2,25 +2,12 @@ package io.github.big_sw_little_sw.folio.git.web
 
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.SshGitServer
-import io.github.big_sw_little_sw.testing.TestCatalog
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.TestGit
-import io.github.big_sw_little_sw.testing.andExpectProblemPage
-import io.github.big_sw_little_sw.testing.postForm
-import io.github.big_sw_little_sw.testing.signedIn
-import org.hamcrest.Matchers.allOf
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.not
-import org.hamcrest.Matchers.startsWith
+import io.github.big_sw_little_sw.testing.*
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
-import kotlin.test.Test
+import org.springframework.test.web.servlet.*
+import kotlin.test.*
 
-/** These tests check the Git pages (design 12.3) through MockMvc with signed-in test sessions. */
 @GitIntegrationTest
 class GitPagesIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -34,15 +21,12 @@ class GitPagesIntegrationTest(
     fun `the Namespace page links to the connect form for a caller with MANAGE`() {
         val namespace = catalog.namespace()
         catalog.rule(namespace, Action.READ, "user:alice")
+        val page = "/namespaces/${namespace.toApiId()}"
         val link = "/git/configsets/new?namespaceId=${namespace.toApiId()}"
 
-        mvc.get("/namespaces/${namespace.toApiId()}") { with(signedIn(alice)) }.andExpect {
-            content { string(not(containsString(link))) }
-        }
+        assertFalse(link in mvc.page(page, alice))
         catalog.rule(namespace, Action.MANAGE, "user:alice")
-        mvc.get("/namespaces/${namespace.toApiId()}") { with(signedIn(alice)) }.andExpect {
-            content { string(containsString("""<a href="$link">Connect a Git repository</a>""")) }
-        }
+        assertContains(mvc.page(page, alice), """<a href="$link">Connect a Git repository</a>""")
     }
 
     @Test
@@ -52,19 +36,9 @@ class GitPagesIntegrationTest(
 
         mvc.get(page) { with(signedIn(alice)) }.andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
         catalog.rule(namespace, Action.MANAGE, "user:alice")
-        mvc
-            .get(page) { with(signedIn(alice)) }
-            .andExpect {
-                status { isOk() }
-                content {
-                    string(
-                        allOf(
-                            containsString(catalog.pathOf(namespace)),
-                            containsString("""action="/git/configsets""""),
-                        ),
-                    )
-                }
-            }
+        val html = mvc.page(page, alice)
+        assertContains(html, catalog.pathOf(namespace))
+        assertContains(html, """action="/git/configsets"""")
     }
 
     @Test
@@ -98,21 +72,12 @@ class GitPagesIntegrationTest(
         val credential = credentials.credential(namespace)
         val page = "/configsets/${git.configSet(credential.id, namespace = namespace).toApiId()}/git"
 
-        mvc
-            .get(page) { with(signedIn(alice)) }
-            .andExpect {
-                status { isOk() }
-                content {
-                    string(
-                        allOf(
-                            containsString("<code>repos/configs.git</code>"),
-                            containsString("""href="/credentials/${credential.id.toApiId()}""""),
-                            containsString("Not published yet"),
-                            containsString("""action="$page/check""""),
-                        ),
-                    )
-                }
-            }
+        val html = mvc.page(page, alice)
+
+        assertContains(html, "<code>repos/configs.git</code>")
+        assertContains(html, """href="/credentials/${credential.id.toApiId()}"""")
+        assertContains(html, "Not published yet")
+        assertContains(html, """action="$page/check"""")
     }
 
     @Test
@@ -135,27 +100,23 @@ class GitPagesIntegrationTest(
     }
 
     @Test
-    fun `the ConfigSet page links to the Git source for a caller with MANAGE, and the check gives its result`() {
-        SshGitServer.revokeAll()
-        val commits = SshGitServer.createRepository("configs")
+    @FreshGitRepository
+    fun `the ConfigSet page links to the Git source for a caller with MANAGE, and the check gives its result`(
+        commits: Commits,
+    ) {
         val namespace = catalog.namespace()
-        val credential = git.authorizedCredential(namespace)
-        val configSet = git.configSet(credential.id, namespace = namespace)
+        val configSet = git.connected(namespace)
         catalog.rule(namespace, Action.READ, "user:alice")
         val page = "/configsets/${configSet.toApiId()}/git"
 
-        mvc.get("/configsets/${configSet.toApiId()}") { with(signedIn(alice)) }.andExpect {
-            content { string(not(containsString("""href="$page""""))) }
-        }
+        assertFalse("""href="$page"""" in mvc.page("/configsets/${configSet.toApiId()}", alice))
         mvc.get(page) { with(signedIn(alice)) }.andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
         catalog.rule(namespace, Action.MANAGE, "user:alice")
-        mvc.get("/configsets/${configSet.toApiId()}") { with(signedIn(alice)) }.andExpect {
-            content { string(containsString("""<a href="$page">Git source</a>""")) }
-        }
+        assertContains(mvc.page("/configsets/${configSet.toApiId()}", alice), """<a href="$page">Git source</a>""")
 
         mvc.postForm("$page/check", alice).andExpect {
             status { is3xxRedirection() }
-            flash { attribute("notice", "The check passed. The tip of the branch is ${commits.last()}.") }
+            flash { attribute("notice", "The check passed. The tip of the branch is ${commits.tip}.") }
         }
         SshGitServer.revokeAll()
         mvc.postForm("$page/check", alice).andExpect {
@@ -167,18 +128,17 @@ class GitPagesIntegrationTest(
     }
 
     @Test
+    @FreshGitRepository
     fun `the Git source page shows the last published revision`() {
-        SshGitServer.revokeAll()
-        SshGitServer.createRepository("configs")
         val namespace = catalog.namespace()
         catalog.rule(namespace, Action.MANAGE, "user:alice")
-        val configSet = git.configSet(git.authorizedCredential(namespace).id, namespace = namespace)
+        val configSet = git.connected(namespace)
 
         val tip = git.publishTip(configSet)
 
-        mvc.get("/configsets/${configSet.toApiId()}/git") { with(signedIn(alice)) }.andExpect {
-            content { string(allOf(containsString("<code>$tip</code>"), not(containsString("Not published yet")))) }
-        }
+        val html = mvc.page("/configsets/${configSet.toApiId()}/git", alice)
+        assertContains(html, "<code>$tip</code>")
+        assertFalse("Not published yet" in html)
     }
 
     @Test

@@ -1,10 +1,7 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 class FetchDeadlineTest {
     private var now = 0L

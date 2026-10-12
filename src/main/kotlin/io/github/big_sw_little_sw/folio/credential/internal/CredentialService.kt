@@ -22,8 +22,7 @@ data class NamespaceCredentials(val namespace: Namespace, val credentials: List<
 /**
  * The credential operations of the HTTP routes and the UI pages. Each operation needs `MANAGE` on the Namespace that
  * owns the credential. Each operation finds the credential or the Namespace first (404), then authorizes (403 or 401),
- * then examines the state (409). Each change locks the credential row, so the changes of one credential run one at a
- * time. A change writes an audit record only when it changes something.
+ * then examines the state (409). A change writes an audit record only when it changes something.
  */
 @Service
 class CredentialService(

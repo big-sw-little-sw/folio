@@ -1,5 +1,6 @@
 package io.github.big_sw_little_sw.folio.catalog
 
+import io.github.big_sw_little_sw.folio.catalog.internal.Ancestry
 import io.github.big_sw_little_sw.folio.catalog.internal.Authorizer
 import io.github.big_sw_little_sw.folio.catalog.internal.CatalogAudit
 import io.github.big_sw_little_sw.folio.catalog.internal.ConfigSetRepository
@@ -52,17 +53,29 @@ class ConfigSets(
     }
 
     /**
+     * Finds the ConfigSet (404) and then requires [action] on it (403 or 401). In a write, the method first takes
+     * [TreeRepository.lockShared].
+     */
+    @SnapshotRead
+    fun require(caller: Caller, action: Action, id: ConfigSetId): ConfigSet = authorized(caller, action, id).first
+
+    /**
      * Finds the ConfigSet (404) and then requires `READ` on it (403 or 401). [ReadableConfigSet.public] comes from the
      * same snapshot, so the ConfigSet, the decision and the public flag agree. The snapshot ends when this method
      * returns.
      */
     @SnapshotRead
     fun requireReadable(caller: Caller, id: ConfigSetId): ReadableConfigSet {
+        val (configSet, ancestry) = authorized(caller, Action.READ, id)
+        val public = authorizer.decide(Caller.Anonymous, Action.READ, ancestry).allowed
+        return ReadableConfigSet(configSet, public)
+    }
+
+    private fun authorized(caller: Caller, action: Action, id: ConfigSetId): Pair<ConfigSet, Ancestry> {
         tree.lockShared()
         val ancestry = tree.requireAncestry(id)
-        authorizer.require(caller, Action.READ, ancestry)
+        authorizer.require(caller, action, ancestry)
         val row = configSetRepository.find(id) ?: throw CatalogException.ConfigSetNotFound(id)
-        val public = authorizer.decide(Caller.Anonymous, Action.READ, ancestry).allowed
-        return ReadableConfigSet(row.toConfigSet(ancestry.path), public)
+        return row.toConfigSet(ancestry.path) to ancestry
     }
 }

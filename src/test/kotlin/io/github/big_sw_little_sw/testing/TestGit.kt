@@ -9,7 +9,7 @@ import io.github.big_sw_little_sw.folio.git.internal.Branch
 import io.github.big_sw_little_sw.folio.git.internal.Fetcher
 import io.github.big_sw_little_sw.folio.git.internal.GitSourceDefinition
 import io.github.big_sw_little_sw.folio.git.internal.GitSourceRepository
-import io.github.big_sw_little_sw.folio.git.internal.GitSources
+import io.github.big_sw_little_sw.folio.git.internal.GitSourceService
 import io.github.big_sw_little_sw.folio.git.internal.RepositoryPath
 import io.github.big_sw_little_sw.folio.git.internal.RootPath
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
@@ -21,12 +21,12 @@ import org.springframework.context.annotation.Bean
 import org.springframework.test.context.DynamicPropertyRegistrar
 
 /**
- * This component sets up Git sources for tests, as a super admin. Slice 6 adds sync (design 20). Until then,
- * [publishTip] publishes revisions through the internal fetch and publish steps that sync will call.
+ * Sets up Git sources for tests, as a super admin. Folio has no sync yet, so [publishTip] publishes a revision with the
+ * internal [Fetcher] and [GitSourceRepository.publish].
  */
 @TestComponent
 class TestGit(
-    private val sources: GitSources,
+    private val sources: GitSourceService,
     private val repository: GitSourceRepository,
     private val fetcher: Fetcher,
     private val catalog: TestCatalog,
@@ -55,11 +55,15 @@ class TestGit(
         return sources.create(SUPER_ADMIN, namespace, Slug(uniqueSlug("cfg")), null, source).configSet.id
     }
 
+    /** Creates a ConfigSet for the repository `configs`, with an authorized credential in the same [namespace]. */
+    fun connected(namespace: NamespaceId = catalog.namespace()): ConfigSetId =
+        configSet(authorizedCredential(namespace).id, namespace = namespace)
+
     /** Fetches the tip of the branch with the active key through [fetcher], and returns the commit ID of the tip. */
     fun fetchTip(configSet: ConfigSetId, fetcher: Fetcher = this.fetcher): ObjectId =
         fetcher.fetch(configSet, checkNotNull(repository.find(configSet)))
 
-    /** Fetches the tip of the branch with the active key and publishes it, as sync will do. Returns the commit ID. */
+    /** Fetches the tip of the branch with the active key and publishes it. Returns the commit ID. */
     fun publishTip(configSet: ConfigSetId): String {
         val tip = fetchTip(configSet)
         repository.publish(configSet, tip)
@@ -67,7 +71,7 @@ class TestGit(
     }
 }
 
-/** This configuration registers the Git instances of [SshGitServer] in the context (design 17). */
+/** Registers the Git instances of [SshGitServer] in the context. */
 @TestConfiguration(proxyBeanMethods = false)
 class SshGitServerConfiguration {
     @Bean

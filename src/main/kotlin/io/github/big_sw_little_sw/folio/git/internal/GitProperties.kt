@@ -6,15 +6,9 @@ import java.nio.file.Path
 import java.time.Duration
 
 /**
- * The settings under `folio.git` (design 10):
- *
- * - [cacheDirectory] contains one bare repository for each ConfigSet and the empty SSH home directory (design 10.4,
- *   10.5). The setting is mandatory and must be an absolute path. Each Folio instance needs its own directory.
- * - [fetchDeadline] limits each fetch by the wall clock, from before the `ls-remote` to the end of the transfer
- *   (design 10.7).
- * - [maxRepositorySize] is the largest size on disk of a cached repository after a fetch (design 10.7).
- * - [instances] gives the Git instances by name (design 10.1). The binder takes them as plain text. [GitInstances]
- *   validates them and parses the host keys at startup, so no error message shows a property value.
+ * `folio.git`: the cache directory, the fetch limits and the Git instances. `application.yaml` describes the settings.
+ * The binder takes the [instances] as plain text, and [GitInstances] validates them. Thus no binder error message
+ * shows a host key.
  */
 @ConfigurationProperties("folio.git")
 data class GitProperties(
@@ -29,7 +23,6 @@ data class GitProperties(
         require(maxRepositorySize.toBytes() > 0) { "folio.git.max-repository-size must be positive" }
     }
 
-    /** [hostKeys] are OpenSSH public key lines, for example `ssh-ed25519 AAAA…`. */
     data class Instance(
         val host: String = "",
         val port: Int = DEFAULT_PORT,

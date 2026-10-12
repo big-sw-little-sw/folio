@@ -31,22 +31,18 @@ import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
 
 /**
- * The cache of this Folio instance (design 10.5): one bare repository for each ConfigSet in
- * `folio.git.cache-directory`. The ID of the ConfigSet is the name of its repository. Only the owner can access the
- * directory (`0700`), because the repositories contain the configuration. The database is the source of truth for
- * published revisions, so Folio can delete the cache at any time. A missing or damaged repository costs one full fetch.
+ * The cache of this Folio instance: one bare repository for each ConfigSet in `folio.git.cache-directory`, named by the
+ * ID of the ConfigSet. Only the owner can access the directory (`0700`), because the repositories contain the
+ * configuration. The database is the source of truth for published revisions, so Folio can delete the cache at any
+ * time. A missing or damaged repository costs one full fetch.
  *
- * The directory also contains the empty SSH home directory [sshHome] of the connections (design 10.4).
+ * Reads run during a fetch, because a fetch only adds objects and moves a ref. A delete or a new start of a repository
+ * waits for the reads, but only for the time that its caller gives. Thus a slow download cannot hold a fetch past its
+ * deadline. Before a fetch, Folio examines only the commit and the tree of the tip. A missing object deeper in the
+ * history stays an error until an operator deletes the repository.
  *
- * Fetches of one ConfigSet run one at a time in this process (design 10.7). Reads run during a fetch, because a fetch
- * only adds objects and moves a ref. A delete or a new start of a repository waits for the reads, but only for the
- * time that its caller gives. Thus a slow download cannot hold a fetch past its deadline. Before a fetch, Folio
- * examines only the commit and the tree of the tip ([openReadable]). A missing object deeper in the history stays an
- * error until an operator deletes the repository.
- *
- * The bean sets the global JGit settings before any repository opens: the [IsolatedSystemReader] and the stream
- * threshold of [streamLargeBlobs]. [SshConnections] depends on this bean, so the settings also apply to each
- * `ls-remote`.
+ * The bean sets the global JGit settings before any repository opens. [IsolatedSsh] depends on this bean, so the
+ * settings also apply to each `ls-remote`.
  */
 @Component
 class RepositoryCache(properties: GitProperties) {
@@ -54,8 +50,9 @@ class RepositoryCache(properties: GitProperties) {
     private val locks = ConcurrentHashMap<ConfigSetId, Locks>()
 
     /**
-     * The empty SSH home directory of the connections (design 10.4). JGit resolves `~` and `~/.ssh` against it, not
-     * against the home of the process user. Folio never writes to it. Its name is not a UUID, so no repository uses it.
+     * The empty SSH home directory of the connections, in the cache directory. JGit resolves `~` and `~/.ssh` against
+     * it, not against the home of the process user. Folio never writes to it. Its name is not a UUID, so no repository
+     * uses it.
      */
     val sshHome: Path = Files.createDirectories(root.resolve(SSH_HOME))
 
@@ -68,8 +65,7 @@ class RepositoryCache(properties: GitProperties) {
 
     /**
      * Runs [block] with the fetch lock of the ConfigSet, so fetches of one ConfigSet run one at a time in this process.
-     * Each fetch uses this lock (design 10.7). Returns null, and does not run [block], if another fetch holds the lock
-     * for longer than [wait].
+     * Returns null, and does not run [block], if another fetch holds the lock for longer than [wait].
      */
     fun <T : Any> withFetchLock(id: ConfigSetId, wait: Duration, block: () -> T): T? =
         withLock(locksOf(id).fetch, wait, block)
@@ -90,8 +86,8 @@ class RepositoryCache(properties: GitProperties) {
     }
 
     /**
-     * Returns the total size in bytes of the repository files on disk (design 10.7). The walk does not follow symbolic
-     * links. It skips files that disappear during the walk, for example the lock files of JGit.
+     * Returns the total size in bytes of the repository files on disk. The walk does not follow symbolic links. It
+     * skips files that disappear during the walk, for example the lock files of JGit.
      */
     fun size(id: ConfigSetId): Long {
         if (!directory(id).exists()) return 0
@@ -207,14 +203,15 @@ class RepositoryCache(properties: GitProperties) {
 
         /**
          * JGit streams a blob from the pack only above this size. A smaller blob is a byte array in memory. The value
-         * is the size limit for files in memory of design 9, so a larger file never fills the heap.
+         * is the size limit of validation in the `content` module, which keeps only such files in memory. Thus a
+         * larger file never fills the heap.
          */
         const val STREAM_THRESHOLD_BYTES = 3 * 1024 * 1024
 
         /**
-         * Sets the stream threshold of JGit for the process. The default of JGit is 50 MiB, so each read of a file
-         * below that size would hold the full file in memory (design 9). The setting is global for the process. Folio
-         * is the only user of JGit in the process, so the setting affects no other code.
+         * Sets the stream threshold of JGit for the process. The default of JGit is 50 MiB. Without this setting, each
+         * read of a file below that size holds the full file in memory. Folio is the only user of JGit in the process,
+         * so the setting affects no other code.
          */
         fun streamLargeBlobs() {
             WindowCacheConfig().apply { streamFileThreshold = STREAM_THRESHOLD_BYTES }.install()
@@ -236,9 +233,8 @@ private fun createOwnerOnly(directory: Path): Path {
 
 /**
  * JGit runs an automatic gc after a fetch, by default on a background thread. In the cache, the gc would race with
- * reads, with the size check and with a delete (design 10.5). The setting goes into the config of the repository,
- * which the isolated system reader does not change. Each fetch examines the setting, and writes the setting only if
- * it is missing.
+ * reads, with the size check and with a delete. The setting goes into the config of the repository, because the
+ * [IsolatedSystemReader] ignores the config files of the host. Each fetch writes the setting only if it is missing.
  */
 private fun disableAutoGc(repository: Repository) {
     val config = repository.config

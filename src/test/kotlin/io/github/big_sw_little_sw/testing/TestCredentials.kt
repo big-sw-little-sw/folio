@@ -42,5 +42,5 @@ class TestCredentials(private val credentials: CredentialService, private val ca
     }
 }
 
-/** The active key of the credential. Each credential always has exactly one active key (design 11.1). */
+/** The active key of the credential. Each credential always has exactly one active key. */
 val Credential.activeKey: Key get() = keys.single { it.status == KeyStatus.ACTIVE }

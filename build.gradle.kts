@@ -45,8 +45,8 @@ dependencies {
     // The git module reads repositories with JGit over its Apache sshd transport. Folio never runs a git binary.
     implementation(libs.jgit)
     implementation(libs.jgit.ssh.apache)
-    // Apache sshd needs Bouncy Castle to sign with Ed25519 keys. Folio's own crypto uses only the JDK providers
-    // (design 10.4), so no Folio code compiles against Bouncy Castle.
+    // Apache sshd needs Bouncy Castle to sign with Ed25519 keys. Folio's own crypto uses only the JDK providers, so no
+    // Folio code compiles against Bouncy Castle.
     runtimeOnly(libs.bouncycastle.bcprov)
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     runtimeOnly("org.postgresql:postgresql")

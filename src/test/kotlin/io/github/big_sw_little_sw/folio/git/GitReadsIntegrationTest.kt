@@ -6,39 +6,27 @@ import io.github.big_sw_little_sw.folio.content.ContentException
 import io.github.big_sw_little_sw.folio.content.ItemPath
 import io.github.big_sw_little_sw.folio.content.RevisionId
 import io.github.big_sw_little_sw.folio.git.internal.GitProperties
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.InMemorySource.TestItem
-import io.github.big_sw_little_sw.testing.SshGitServer
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestGit
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import org.hamcrest.Matchers.contains
-import org.junit.jupiter.api.BeforeEach
+import org.hamcrest.Matchers.*
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.system.CapturedOutput
 import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.http.HttpHeaders
 import org.springframework.jdbc.core.simple.JdbcClient
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.*
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
-import kotlin.test.fail
+import kotlin.test.*
 
 /**
- * These tests read published revisions of Git ConfigSets through the consumption API (design 5.5, 9, 12.1) and through
- * the Git adapter. Slice 6 adds sync, so [TestGit.publishTip] publishes the revisions. The context limits files to
- * 1 KB (`folio.content.max-file-size`).
+ * These tests read published revisions of Git ConfigSets through the consumption API and through the Git adapter.
+ * [TestGit.publishTip] publishes the revisions. The context limits files to 1 KB (`folio.content.max-file-size`).
  */
 @GitIntegrationTest
+@FreshGitRepository
 @ExtendWith(OutputCaptureExtension::class)
 class GitReadsIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -47,17 +35,9 @@ class GitReadsIntegrationTest(
     @Autowired private val properties: GitProperties,
     @Autowired private val jdbc: JdbcClient,
 ) {
-    private lateinit var commits: List<String>
-
-    @BeforeEach
-    fun setUp() {
-        SshGitServer.revokeAll()
-        commits = SshGitServer.createRepository("configs")
-    }
-
     @Test
     fun `before the first publish, latest is not published yet`() {
-        val configSet = connected()
+        val configSet = git.connected()
         get(configSet, "").andExpect {
             status { isOk() }
             jsonPath("$.latestRevision") { value(null) }
@@ -69,7 +49,7 @@ class GitReadsIntegrationTest(
     fun `the files of the latest revision are the regular files below the root path, with item paths only`(
         output: CapturedOutput,
     ) {
-        val configSet = connected()
+        val configSet = git.connected()
         val tip = git.publishTip(configSet)
 
         get(configSet, "").andExpect { jsonPath("$.latestRevision") { value(tip) } }
@@ -88,7 +68,7 @@ class GitReadsIntegrationTest(
 
     @Test
     fun `a file read gives the content, and its ETag is the Git blob ID`() {
-        val configSet = connected()
+        val configSet = git.connected()
         val tip = git.publishTip(configSet)
 
         get(configSet, "/files/app.yaml?revision=$tip").andExpect {
@@ -104,7 +84,7 @@ class GitReadsIntegrationTest(
 
     @Test
     fun `the Git adapter refuses a file above the size limit before it calls the consumer`() {
-        val configSet = connected()
+        val configSet = git.connected()
         val revision = RevisionId(git.publishTip(configSet))
         val path = ItemPath("app.yaml")
 
@@ -117,7 +97,7 @@ class GitReadsIntegrationTest(
 
     @Test
     fun `a file above folio-content-max-file-size is refused, and the file list still shows it`() {
-        val configSet = connected()
+        val configSet = git.connected()
         SshGitServer.addCommit("configs", "x".repeat(LARGE_FILE_BYTES))
         git.publishTip(configSet)
 
@@ -128,7 +108,7 @@ class GitReadsIntegrationTest(
         }
     }
 
-    /** JGit streams a blob above 3 MB from the pack (design 9). The response must still have the exact blob bytes. */
+    /** JGit streams a blob above 3 MB from the pack. The response must still have the exact blob bytes. */
     @Test
     fun `a file above 3 MB streams with the bytes of its blob`() {
         val commit = SshGitServer.createLargeRepository("large", STREAMED_FILE_BYTES)
@@ -144,7 +124,10 @@ class GitReadsIntegrationTest(
         assertEquals(etag, TestItem.blobId(bytes))
     }
 
-    /** Trees that share subtrees name 100,000 files in a small pack. The list stops at its limit (design 9). */
+    /**
+     * Trees that share subtrees name 100,000 files in a small pack. The list stops at its limit, so a small repository
+     * cannot make Folio build a large list in memory.
+     */
     @Test
     fun `a revision with too many files below the root path fails the file list with TOO_MANY_FILES`() {
         val commit = SshGitServer.createSharedTreeRepository("shared")
@@ -159,7 +142,7 @@ class GitReadsIntegrationTest(
 
     @Test
     fun `an earlier published revision stays readable after a new publish`() {
-        val configSet = connected()
+        val configSet = git.connected()
         val first = git.publishTip(configSet)
         val second = SshGitServer.addCommit("configs", "v3")
         git.publishTip(configSet)
@@ -171,7 +154,7 @@ class GitReadsIntegrationTest(
 
     @Test
     fun `the Git source route gives the last published commit`() {
-        val configSet = connected()
+        val configSet = git.connected()
         val tip = git.publishTip(configSet)
 
         mvc.get("$ADMIN/${configSet.toApiId()}/git") { bearer(SUPER_ADMIN) }.andExpect {
@@ -182,17 +165,17 @@ class GitReadsIntegrationTest(
     }
 
     @Test
-    fun `a commit that sync did not publish is not readable, also when the cache has it`() {
-        val configSet = connected()
+    fun `a commit that sync did not publish is not readable, also when the cache has it`(commits: Commits) {
+        val configSet = git.connected()
         git.publishTip(configSet)
 
-        get(configSet, "/files?revision=${commits.first()}").andExpectProblem(404, "REVISION_NOT_FOUND")
-        get(configSet, "/files/app.yaml?revision=${commits.first()}").andExpectProblem(404, "REVISION_NOT_FOUND")
+        get(configSet, "/files?revision=${commits.first}").andExpectProblem(404, "REVISION_NOT_FOUND")
+        get(configSet, "/files/app.yaml?revision=${commits.first}").andExpectProblem(404, "REVISION_NOT_FOUND")
     }
 
     @Test
     fun `paths that are not regular files below the root path are not found`() {
-        val configSet = connected()
+        val configSet = git.connected()
         git.publishTip(configSet)
 
         listOf("README.md", "link", "sub", "missing.yaml").forEach {
@@ -203,7 +186,7 @@ class GitReadsIntegrationTest(
     @OptIn(ExperimentalPathApi::class)
     @Test
     fun `a published revision that the cache of this instance does not have is unavailable`() {
-        val configSet = connected()
+        val configSet = git.connected()
         val tip = git.publishTip(configSet)
 
         properties.cacheDirectory.resolve(configSet.value.toString()).deleteRecursively()
@@ -215,7 +198,7 @@ class GitReadsIntegrationTest(
     /** The fetch forces the ref of the branch, so the cache also follows a force push back to an earlier commit. */
     @Test
     fun `a commit that the branch returns to becomes latest again`() {
-        val configSet = connected()
+        val configSet = git.connected()
         val second = git.publishTip(configSet)
         val third = SshGitServer.addCommit("configs", "v3")
         git.publishTip(configSet)
@@ -227,10 +210,10 @@ class GitReadsIntegrationTest(
         get(configSet, "/revisions").andExpect { jsonPath("$.revisions[*].id") { value(contains(second, third)) } }
     }
 
-    /** A delete of a ConfigSet also deletes its Source definition and its revision history (design 5.4). */
+    /** A delete of a ConfigSet also deletes its Source definition and its revision history. */
     @Test
     fun `a delete of a ConfigSet with published revisions deletes its revisions, and consumers get 404`() {
-        val configSet = connected()
+        val configSet = git.connected()
         val tip = git.publishTip(configSet)
 
         mvc.delete("$ADMIN/${configSet.toApiId()}") { bearer(SUPER_ADMIN) }.andExpect { status { isNoContent() } }
@@ -244,8 +227,6 @@ class GitReadsIntegrationTest(
                 .single()
         assertEquals(0, revisions)
     }
-
-    private fun connected(): ConfigSetId = git.configSet(git.authorizedCredential().id)
 
     private fun get(configSet: ConfigSetId, route: String) =
         mvc.get("/api/v1/configsets/${configSet.toApiId()}$route") { bearer(SUPER_ADMIN) }

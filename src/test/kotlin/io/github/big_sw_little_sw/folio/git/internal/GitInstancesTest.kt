@@ -4,21 +4,16 @@ import io.github.big_sw_little_sw.folio.catalog.Slug
 import org.apache.sshd.common.config.keys.PublicKeyEntry
 import java.nio.file.Path
 import java.security.KeyPairGenerator
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the Git instances of the configuration (design 10.1). An entry that is not valid stops the start of
- * Folio, and no message shows a key.
+ * These tests check the Git instances of the configuration. An entry that is not valid stops the start of Folio, and no
+ * message shows a key.
  */
 class GitInstancesTest {
     private val hostKey =
         PublicKeyEntry.toString(
-            SshConnections.forSshd(KeyPairGenerator.getInstance("Ed25519").generateKeyPair()).public,
+            IsolatedSsh.forSshd(KeyPairGenerator.getInstance("Ed25519").generateKeyPair()).public,
         )
 
     @Test
