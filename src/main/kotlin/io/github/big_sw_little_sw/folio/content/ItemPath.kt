@@ -19,7 +19,7 @@ value class ItemPath(val value: String) {
 
     override fun toString(): String = value
 
-    private companion object {
+    companion object {
         fun isValid(text: String): Boolean = text.none { it == '\\' || it == '\u0000' } &&
             text.split('/').none { it.isEmpty() || it == "." || it == ".." }
     }

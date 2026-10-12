@@ -22,8 +22,8 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * An in-memory [ConfigSource] that lets tests publish revisions with [publish], so the tests of the `content` module
  * need no Git. The adapter registers for [SourceType.GIT], because the catalog has no other Source type and
- * [TestCatalog] creates Git ConfigSets. Folio does not start with two adapters for one type, so this adapter cannot run
- * next to a Git adapter.
+ * [TestCatalog] creates Git ConfigSets. In the context of [FolioIntegrationTest], this adapter replaces the Git adapter
+ * ([InMemorySourceOnly]).
  */
 @TestComponent
 class InMemorySource : ConfigSource {

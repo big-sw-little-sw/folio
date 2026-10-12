@@ -15,13 +15,17 @@ class TestLocks(private val transactions: TransactionTemplate, private val jdbc:
      * Runs [hold] in a transaction, then runs [tasks] in parallel while that transaction is open. Each task must wait
      * for a lock, or the method fails. Each task gets its own virtual thread. With a pool of platform threads, a task
      * could wait for a free thread and not for the lock.
+     *
+     * After the tasks wait, the holder runs [beforeCommit] and commits. [beforeCommit] lets the holder take a lock
+     * after the tasks hold theirs, so a test can find a lock-order cycle.
      */
-    fun whileHeld(hold: () -> Unit, vararg tasks: () -> Any?): List<Result<Any?>> =
+    fun whileHeld(hold: () -> Unit, vararg tasks: () -> Any?, beforeCommit: () -> Unit = {}): List<Result<Any?>> =
         Executors.newVirtualThreadPerTaskExecutor().use { executor ->
             val holder: (() -> Unit) -> Unit = { held ->
                 transactions.executeWithoutResult {
                     hold()
                     held()
+                    beforeCommit()
                 }
             }
             val running =

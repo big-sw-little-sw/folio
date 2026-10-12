@@ -31,6 +31,14 @@ gg:
 springdoc:
   # The OpenAPI document describes the API only, not the UI routes.
   paths-to-match: /api/**
+logging:
+  level:
+    # JGit and Apache sshd log messages that can contain server output, for example repository names, account names
+    # and text that the server controls. Folio logs only the ConfigSet ID, the failure code, the exception types and
+    # the duration. To diagnose a connection, set these levels to DEBUG on one instance whose logs are not
+    # public. Then set them back to OFF.
+    org.apache.sshd: off
+    org.eclipse.jgit: off
 management:
   server:
     # The actuator has its own port, and the application port never serves it. Keep the management port off public
@@ -60,3 +68,12 @@ management:
 #   folio.content.latest-max-age (30s) is how long caches keep responses for latest, metadata and revision lists. It
 #     is also how long shared caches keep a public exact revision before they revalidate it. Zero makes caches
 #     revalidate each time.
+#   folio.git.cache-directory (none) is an absolute directory for the cache of Git repositories. Folio does not start
+#     without it. Each Folio instance needs its own directory. Folio can delete and rebuild the cache at any time.
+#   folio.git.fetch-deadline (5m) limits each fetch by the wall clock.
+#   folio.git.max-repository-size (1GB) is the largest cached repository after a fetch. Folio deletes a larger
+#     repository, and the fetch fails with REPOSITORY_TOO_LARGE.
+#   folio.git.instances (none) gives the Git servers by name. A name follows the slug rules. Each entry has host,
+#     port (22), user (git) and host-keys. host-keys lists one or more trusted host keys as OpenSSH public key lines,
+#     for example "ssh-ed25519 AAAA…". Take the keys from the published fingerprints of the provider, not from a first
+#     connection. Folio trusts only these keys, and it does not start if a line is not valid.

@@ -4,8 +4,8 @@ import org.springframework.boot.fromApplication
 import org.springframework.boot.with
 
 /**
- * Runs Folio for local development with `./gradlew bootTestRun`. Testcontainers starts PostgreSQL and a mock OIDC
- * provider, so no real identity provider is necessary.
+ * Runs Folio for local development with `./gradlew bootTestRun`. Testcontainers starts PostgreSQL, a mock OIDC
+ * provider and an SSH Git server, so no real identity provider and no real Git service are necessary.
  *
  * - UI: open http://localhost:8080, select "Sign in", and enter any user name. To give groups, enter claims as JSON,
  *   for example `{"groups": ["team-a"]}`. The group `folio-admins` makes the caller a super admin. Only a super admin
@@ -14,9 +14,14 @@ import org.springframework.boot.with
  *   provider uses the scope as the audience:
  *   `curl -d grant_type=client_credentials -d client_id=my-app -d client_secret=x -d scope=folio <issuer>/token`.
  *   The subject of the token is the client ID.
+ * - Git: create a credential with the Git instance `test-server`. The log shows the command that authorizes its public
+ *   key on the SSH Git server. Then connect the repository `repos/sample.git` with the root path `config`.
  */
 fun main(args: Array<String>) {
     fromApplication<FolioApplication>()
-        .with(TestcontainersConfiguration::class, MockOidcProviderConfiguration::class)
-        .run(*args)
+        .with(
+            TestcontainersConfiguration::class,
+            MockOidcProviderConfiguration::class,
+            LocalGitServerConfiguration::class,
+        ).run(*args)
 }

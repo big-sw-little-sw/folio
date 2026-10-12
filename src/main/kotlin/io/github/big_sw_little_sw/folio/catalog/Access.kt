@@ -17,8 +17,8 @@ import org.springframework.stereotype.Service
  * [TreeRepository.lockShared] before it reads the ancestry.
  *
  * A write that also takes the exclusive tree lock, for example through [ConfigSets.create], must take that lock before
- * it calls Access, [Namespaces.require] or [ConfigSets.requireReadable]. These take the shared form. Otherwise two
- * such writes can each hold the shared form and wait for the exclusive form, and they deadlock.
+ * it calls Access, [Namespaces.require], [ConfigSets.require] or [ConfigSets.requireReadable]. These take the shared
+ * form. Otherwise two such writes can each hold the shared form and wait for the exclusive form, and they deadlock.
  */
 @Service
 class Access(private val tree: TreeRepository, private val authorizer: Authorizer) {

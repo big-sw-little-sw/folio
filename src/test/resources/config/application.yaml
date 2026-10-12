@@ -39,3 +39,7 @@ folio:
       1: aEE8d/su1C3ryoZBdJLUEGKc8sg2AIOstylPG7OATGk=
       2: g7zHpt20WtH0i95NL37YzLI8ZebUaZd4pg//g4BqdEg=
     active-key-version: 2
+  # Each application context of the tests, and each bootTestRun, gets its own empty cache directory. Thus the contexts
+  # never share a cached repository.
+  git:
+    cache-directory: ${java.io.tmpdir}/folio-git-cache-${random.uuid}

@@ -72,6 +72,37 @@ class CredentialLockIntegrationTest(
     }
 
     /**
+     * Onboarding holds the exclusive tree lock and then inserts a `git_source` row, which waits for the credential row
+     * at the foreign key. The holder does the same, but inserts only after the delete waits. The delete takes the tree
+     * lock before the row lock, so the delete holds no row lock when the insert runs. Thus the insert does not wait for
+     * the delete, and no deadlock occurs.
+     */
+    @Test
+    fun `a credential delete waits for an onboarding that holds the tree lock, and the credential stays in use`() {
+        val credential = fixture.credential().id
+        val configSet = catalog.configSet(catalog.namespace())
+
+        val results =
+            locks.whileHeld(
+                { tree.lock() },
+                { credentials.delete(SUPER_ADMIN, credential) },
+                beforeCommit = {
+                    jdbc
+                        .sql(
+                            """
+                            insert into git_source (config_set_id, credential_id, repository_path, branch, root_path)
+                            values (:configSetId, :credentialId, 'org/repo.git', 'main', '')
+                            """.trimIndent(),
+                        ).param("configSetId", configSet.value)
+                        .param("credentialId", credential.value)
+                        .update()
+                },
+            )
+
+        assertTrue(results.single().exceptionOrNull() is CredentialException.CredentialInUse, results.toString())
+    }
+
+    /**
      * The holder inserts a credential and does not commit. The emptiness query of the delete does not see that row, so
      * the delete waits for the holder at the foreign key. After the commit, the foreign key stops the delete.
      */

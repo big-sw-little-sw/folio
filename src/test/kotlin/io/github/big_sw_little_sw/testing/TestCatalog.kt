@@ -17,8 +17,9 @@ import java.util.UUID
 
 /**
  * This component builds catalog trees for tests, as a super admin. It creates ConfigSets as a Source adapter does,
- * through [ConfigSets.create] with [SourceType.GIT]. Test classes share the database, so each tree starts with a
- * top-level Namespace that has a unique slug.
+ * through [ConfigSets.create] with [SourceType.GIT], but without a Git source. Such a ConfigSet has no published
+ * revision in the Git adapter. [TestGit] creates ConfigSets with a Git source. Test classes share the database, so each
+ * tree starts with a top-level Namespace that has a unique slug.
  */
 @TestComponent
 class TestCatalog(

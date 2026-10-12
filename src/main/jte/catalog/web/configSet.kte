@@ -1,8 +1,10 @@
 <%--
-    The catalog does not depend on the content module, so this page links to the files page and the revisions page of
-    the content module by path only. Only the content module knows the latest revision, so this page does not show it.
+    The catalog depends on neither the content module nor the git module, so this page links to their pages by path
+    only: the files page, the revisions page and the Git source page. Only the content module knows the latest
+    revision, so this page does not show it.
 --%>
 @import io.github.big_sw_little_sw.folio.catalog.ConfigSet
+@import io.github.big_sw_little_sw.folio.catalog.SourceType
 @import io.github.big_sw_little_sw.folio.catalog.web.Operations
 @import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
 @import io.github.big_sw_little_sw.folio.web.PageContext
@@ -21,6 +23,9 @@
     <nav class="operations" aria-label="Content">
         <a href="${resource.url}/files">Files at the latest revision</a>
         <a href="${resource.url}/revisions">Revisions</a>
+        @if(operations.manage && configSet.sourceType == SourceType.GIT)
+            <a href="${resource.url}/git">Git source</a>
+        @endif
     </nav>
     @template.catalog.web.operations(resource = resource, operations = operations)
 `)

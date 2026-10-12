@@ -127,10 +127,17 @@ class CredentialService(
         return after
     }
 
+    /**
+     * Finds the credential (404), requires `MANAGE` on its Namespace, then locks the credential row. [Access] takes the
+     * shared tree lock, so the tree lock comes before the row lock. In the other order, a change could hold the row and
+     * wait for the tree lock, while onboarding holds the tree lock and waits for the row at the foreign key of
+     * `git_source`. The two then deadlock. A credential never changes its Namespace, so the authorization stays valid
+     * after the lock.
+     */
     private fun lock(caller: Caller, id: CredentialId): CredentialRow {
-        val row = credentialRepository.lock(id) ?: throw CredentialException.CredentialNotFound(id)
-        access.requireAllowed(caller, Action.MANAGE, row.namespaceId)
-        return row
+        val found = credentialRepository.find(id) ?: throw CredentialException.CredentialNotFound(id)
+        access.requireAllowed(caller, Action.MANAGE, found.namespaceId)
+        return credentialRepository.lock(id) ?: throw CredentialException.CredentialNotFound(id)
     }
 
     /** The credential after a change in this transaction. The transaction holds the row lock, so the row exists. */
