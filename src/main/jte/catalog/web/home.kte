@@ -37,6 +37,7 @@
     @if(superAdmin)
         <nav class="operations" aria-label="Operations">
             <a href="/namespaces/new">Create a top-level Namespace</a>
+            <a href="/crypto">Master keys</a>
         </nav>
     @endif
 `)

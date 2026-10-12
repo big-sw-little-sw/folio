@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
-import java.util.concurrent.Executors
 import kotlin.test.*
 
 /**
@@ -25,6 +24,7 @@ class TreeLockIntegrationTest(
     @Autowired private val rules: RuleService,
     @Autowired private val tree: TreeRepository,
     @Autowired private val catalog: TestCatalog,
+    @Autowired private val locks: TestLocks,
     @Autowired private val transactions: TransactionTemplate,
     @Autowired private val jdbc: JdbcClient,
 ) {
@@ -104,32 +104,13 @@ class TreeLockIntegrationTest(
         assertEquals(top, read.namespace.id)
     }
 
-    /**
-     * Runs [writes] in parallel while another transaction holds the tree lock, and then releases the lock. Each task
-     * blocks, so each task gets its own virtual thread. With a pool of platform threads, a write could wait for a free
-     * thread and not for the lock, and the test would fail.
-     */
-    private fun whileLocked(vararg writes: () -> Any): List<Result<Any>> =
-        Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-            val running =
-                whileHolding(::holdTreeLock) {
-                    val started = writes.map { write -> executor.submit<Result<Any>> { runCatching(write) } }
-                    // Without this wait, the holder could release the lock before a write asks for it.
-                    awaitUntil("The writes wait for the tree lock") { lockWaiters() >= writes.size }
-                    started
-                }
-            running.map { it.await() }
-        }
+    /** Runs [writes] in parallel while another transaction holds the tree lock, and then releases the lock. */
+    private fun whileLocked(vararg writes: () -> Any): List<Result<Any?>> = locks.whileHeld({ tree.lock() }, *writes)
 
     private fun holdTreeLock(held: () -> Unit) = transactions.executeWithoutResult {
         tree.lock()
         held()
     }
-
-    private fun lockWaiters(): Int = jdbc
-        .sql("select count(*) from pg_locks where locktype = 'advisory' and not granted")
-        .query(Int::class.java)
-        .single()
 
     /** `union` removes repeated rows, so the recursive query ends even if the tree has a cycle. */
     private fun topOf(id: NamespaceId): NamespaceId? = jdbc

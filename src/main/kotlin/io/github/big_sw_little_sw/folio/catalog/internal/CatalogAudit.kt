@@ -4,6 +4,7 @@ import io.github.big_sw_little_sw.folio.audit.AuditEntry
 import io.github.big_sw_little_sw.folio.audit.AuditLog
 import io.github.big_sw_little_sw.folio.catalog.ConfigSet
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
+import io.github.big_sw_little_sw.folio.catalog.Namespace
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.catalog.Path
 import io.github.big_sw_little_sw.folio.catalog.ResourceId

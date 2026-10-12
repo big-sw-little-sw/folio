@@ -13,7 +13,12 @@ import org.springframework.stereotype.Service
  * Background work acts without authorization and does not call Access. If background work calls Access,
  * [Caller.System] gets status 403.
  *
- * A service that finds a resource and then calls Access must use [SnapshotRead].
+ * A service that finds a resource and then calls Access must use [SnapshotRead]. In a write, Access takes
+ * [TreeRepository.lockShared] before it reads the ancestry.
+ *
+ * A write that also takes the exclusive tree lock, for example through [ConfigSets.create], must take that lock before
+ * it calls Access or [Namespaces.require]. Both take the shared form. Otherwise two such writes can each hold the
+ * shared form and wait for the exclusive form, and they deadlock.
  */
 @Service
 class Access(private val tree: TreeRepository, private val authorizer: Authorizer) {
@@ -45,5 +50,8 @@ class Access(private val tree: TreeRepository, private val authorizer: Authorize
      * A resource that was deleted after the calling module found it has no ancestry. The root ancestry then applies, so
      * only a super admin passes, and the next step of the calling module finds nothing.
      */
-    private fun ancestry(resource: ResourceId): Ancestry = tree.ancestry(resource) ?: Ancestry.ROOT
+    private fun ancestry(resource: ResourceId): Ancestry {
+        tree.lockShared()
+        return tree.ancestry(resource) ?: Ancestry.ROOT
+    }
 }

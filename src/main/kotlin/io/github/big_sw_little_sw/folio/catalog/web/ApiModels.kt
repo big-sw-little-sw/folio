@@ -4,11 +4,11 @@ import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.CONFIG_SET_ID
 import io.github.big_sw_little_sw.folio.catalog.ConfigSet
 import io.github.big_sw_little_sw.folio.catalog.NAMESPACE_ID
+import io.github.big_sw_little_sw.folio.catalog.Namespace
 import io.github.big_sw_little_sw.folio.catalog.ResourceId
 import io.github.big_sw_little_sw.folio.catalog.SourceType
 import io.github.big_sw_little_sw.folio.catalog.internal.Decision
 import io.github.big_sw_little_sw.folio.catalog.internal.Explanation
-import io.github.big_sw_little_sw.folio.catalog.internal.Namespace
 import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceDetails
 import io.github.big_sw_little_sw.folio.catalog.internal.Rule
 import io.github.big_sw_little_sw.folio.identity.Caller
