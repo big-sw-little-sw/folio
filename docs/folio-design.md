@@ -1121,6 +1121,8 @@ which key it sends.
   output can contain repository names, account names and text that the server controls.
 - Folio logs a maximum of a ConfigSet ID, a failure code, the exception types and a duration. Exception messages and
   transport output never go to responses or to Folio's own logs.
+- The exception types are the types of the first 20 exceptions of the cause chain. Thus the walk of a chain that loops
+  ends.
 
 **Diagnosis of connection problems.**
 
@@ -1243,8 +1245,8 @@ Sync uses polling. The state is in the database, so several instances can share 
   - The progress monitor also cancels local work.
   - Folio cannot stop SSH key exchange and authentication (sshd limit: 2 minutes) or the open of a channel (JGit
     limit: 30 seconds). Thus a fetch can end a maximum of 2.5 minutes after the deadline.
-  - *Reason for the deadline:* the JGit timeout applies only to idle reads. A slow server that sends data continuously
-    never triggers it.
+  - *Reason for the deadline:* the JGit timeout (30 seconds) applies only to a connect and to idle reads. A slow server
+    that sends data continuously never triggers it.
 - **Size.** After each fetch, Folio adds the sizes of the repository files on disk. It holds the fetch lock during this
   calculation. If the total is more than `folio.git.max-repository-size` (default 1 GB), Folio deletes the repository.
   The fetch then fails with `REPOSITORY_TOO_LARGE`. If reads hold the repository until the deadline, the repository
@@ -1683,15 +1685,21 @@ Folio records meters with Micrometer. Micrometer sends the same meters to each c
 
 - **Prometheus.** The actuator endpoint `prometheus` serves the meters for a scrape. This is on by default.
 - **OpenTelemetry.** The OTLP registry pushes the meters to an OpenTelemetry collector. This is off by default.
-  Turn it on with `management.otlp.metrics.export.enabled` and the collector URL.
+  Turn it on with `management.otlp.metrics.export.enabled: true` and the collector URL in
+  `management.otlp.metrics.export.url`.
 - **Traces.** Micrometer Tracing with the OpenTelemetry bridge records spans for HTTP requests, database calls and
-  fetches. It exports them with OTLP. This is off by default (sampling probability 0).
+  fetches. It exports them with OTLP. This is off by default (sampling probability 0). Turn it on with
+  `management.tracing.sampling.probability` above 0 and the collector URL in
+  `management.opentelemetry.tracing.export.otlp.endpoint`. Without the URL, Folio exports no spans. The sampler also
+  follows the sampled flag of an incoming `traceparent` header. Thus, with the URL and probability 0, Folio still
+  exports the spans of each request whose `traceparent` is sampled.
 
 Folio code uses only the Micrometer API. Thus a change of backend is a change of configuration and dependencies, not
-of code.
+of code. The starter `spring-boot-starter-opentelemetry` gives the OTLP registry, the bridge and the OTLP exporter.
 
 Folio's meters have no IDs, paths, subjects or commits as tags. Thus the number of series stays small. Spans can
-contain a ConfigSet ID, but never a path, a subject, a token or file content.
+contain a ConfigSet ID, but never a path, a subject, a token or file content. A span with an error has the exception
+type, but never the exception message.
 
 | Meter | Type | Tags |
 |---|---|---|
@@ -1702,7 +1710,48 @@ contain a ConfigSet ID, but never a path, a subject, a token or file content.
 | `folio.git.cache.size` | gauge, bytes | none. The cache sweep measures it. |
 | `folio.git.cache.repositories` | gauge | none |
 
-Spring's `http.server.requests` gives the latency and status of content reads.
+Each meter is in the module that owns its event: the `git` module for sync, the cache and the fetches on demand, and
+the catalog for decisions.
+
+- **Sync attempts.** Sync counts an attempt when it records the result (section 10.6). An attempt that lost its lease
+  records nothing, so it has no outcome. `code` is the failure code, or `none` for a success. The timer measures each
+  fetch of sync, also a failed fetch. The check and the fetches on demand do not count.
+- **Fetches on demand.** Each read that needs a fetch (section 10.8) counts one time. `fetched`: the cache now has the
+  commit, from this read or from another fetch that the read waited for. `missing`: the branch no longer has the
+  commit, or Folio still remembers it as missing. `busy`: the read got `SourceBusy`. `too_large`: the read got
+  `REPOSITORY_TOO_LARGE`, with or without a fetch. `failed`: the fetch failed with another code.
+- **Decisions.** `action` is `READ`, `MANAGE` or `GRANT`, and `result` is `allowed` or `denied`. Each decision about
+  the caller of a request counts, also the decision for each item of a list. An explanation and the public check for
+  cache headers decide for another caller, so they do not count.
+- **Cache gauges.** A walk of the cache at each scrape could be slow. Thus each cache sweep (section 10.5) measures the
+  repositories that stay after its deletes, and the gauges give the last measurement. They are 0 until the first
+  sweep.
+
+Spring's `http.server.requests` gives the latency and status of content reads. Its `uri` tag is the route pattern, so
+it contains no ID and no item path. Spring, Spring Security and the libraries add other meters of their own.
+
+**Spans.**
+
+- Each Git fetch has the span `git fetch` with one attribute: `folio.config_set.id`, the API ID of the ConfigSet. The
+  span covers the `ls-remote`, the transfer and the size check (section 10.7). An observation gives the span.
+  Micrometer also makes timers for each observation. These timers would repeat `folio.sync.fetch.duration`, so a
+  meter filter of the `git` module denies them.
+- The span of an HTTP request has the method, the route pattern, the status, the outcome and the exception type. Folio
+  removes the request path (`http.url`) from the span, because the path can contain a ConfigSet path or an item path.
+- The library `datasource-micrometer` gives the spans of database calls: one span for the use of each connection and
+  one span for each statement. Spring Boot has no spans for JDBC. A statement span has the SQL text with placeholders.
+  It never has parameter values (`jdbc.datasource-proxy.include-parameter-values: false`), because they can contain
+  paths and subjects. A failed statement records the PostgreSQL error message. The driver leaves the server detail
+  out of each message (`logServerErrorDetail: false`), because the detail of a unique violation has the key values, for
+  example a slug. The message of an unexpected error also goes to the log, so the setting keeps the log free of them
+  too.
+- An observation that ends with an error records the exception message and the stack trace in an `exception` event,
+  and the message as the status description. Each span exporter of Folio gets the `exception` event with the
+  exception type only, and the error status without a description. The `web` module wraps the exporters. Thus no
+  exception message leaves the process in a span, also not the message of an unexpected error in a Git fetch.
+- The client of the Cloud Identity API (section 6.5) has no spans and no `http.client.requests` meter. Its request URL
+  contains the email address of the person, and a span would record the URL.
+- A test turns traces on, and examines that no span contains a path, a subject or a token (section 17).
 
 ### 15.2 Actuator
 
@@ -1716,6 +1765,28 @@ Spring's `http.server.requests` gives the latency and status of content reads.
 
 - Configuration uses immutable `@ConfigurationProperties` data classes. Folio validates them at startup.
 - Each limit has a default. Change a limit only for a measured reason.
+- `application.yaml` describes each setting of Folio with its default. These settings are limits:
+
+| Setting | Default | Validation | Section |
+|---|---|---|---|
+| `folio.content.max-file-size` | 100 MB | positive | 12.1 |
+| `folio.content.latest-max-age` | 30 seconds | zero or more | 12.1 |
+| `folio.content.max-concurrent-fetches` | 2 | 1 or more | 10.8 |
+| `folio.git.fetch-deadline` | 5 minutes | positive | 10.7 |
+| `folio.git.max-repository-size` | 1 GB | positive | 10.7 |
+| `folio.sync.interval` | 1 minute | positive | 10.6 |
+| `folio.sync.max-backoff` | 30 minutes | not shorter than the interval | 10.6 |
+| `folio.sync.poll-interval` | 10 seconds | positive | 10.6 |
+| `folio.sync.max-concurrent-fetches` | 4 | 1 or more | 10.6 |
+| `folio.audit.retention` | 90 days | positive | 14 |
+| `folio.ui.session-timeout` | 1 hour | positive | 6.2 |
+| `folio.security.google.group-cache-ttl` | 5 minutes | positive | 6.5 |
+
+- The other limits are fixed in the code, because no deployment needs to change them. The sections that name them
+  give their values: the lengths of slugs, subjects, descriptions and Git source values, 100 revisions in a list, 3 MB
+  in memory, 10,000 tree entries, the timeouts and the 100 pages of the Cloud Identity API, the 10,000 people of the
+  group cache, the waits of the fetch on demand and of a shutdown, the lease margin, the JGit timeout, the YAML
+  limits, the batches of 1,000 of the audit retention and the 20 causes of the exception types.
 - The JVM runs with compact object headers: `-XX:+UseCompactObjectHeaders`. *Reason:* smaller objects use less memory
   and cache, and Java 25 supports the flag for production.
 
@@ -1772,11 +1843,15 @@ so no other table changes. Section 5.3 gives the rules.
   mock provider is `ghcr.io/navikt/mock-oauth2-server` at a pinned version. The local sign-in tests and the Google
   sign-in tests sign in through it. The SSH Git
   server has the Git instance `test-server` and the repository `repos/sample.git`. The log gives the command that
-  authorizes the public key of a credential on the server.
+  authorizes the public key of a credential on the server. `README.md` gives these steps for developers.
 - **Tokens in tests.** The other integration tests use an issuer in the test process. Thus a test can sign a token
   with any claims, key, issuer or expiry time, and Folio validates it with its production decoder.
 - **Google directory** tests use a fake Cloud Identity API in the test process, with fixed credentials. A test
   post-processor removes the real client, so tests need no Application Default Credentials and make no Google calls.
+- **Metrics** tests read the meters of the `MeterRegistry` after sync, reads, sweeps and authorization, and compare
+  counts before and after, because test classes share a context. A test scrapes the Prometheus endpoint on the
+  management port. A tracing test turns traces on, collects the spans in memory, and examines that no span contains
+  a path, a subject or a token.
 - Tests that need Docker have `@Tag("integration")`.
 - A modularity test verifies the module boundaries. It also verifies that no class in a `web` package and no
   controller depends on `CredentialKeys`.
@@ -1854,6 +1929,7 @@ The database Source also needs these items:
 | Crypto | JDK only for Folio's crypto. Bouncy Castle only as the Ed25519 provider of sshd. |
 | Leases | `SELECT … FOR UPDATE SKIP LOCKED`. No ShedLock. |
 | API documentation | springdoc OpenAPI |
+| Metrics and traces | Micrometer with the Prometheus and OTLP registries. Micrometer Tracing with the OpenTelemetry bridge (`spring-boot-starter-opentelemetry`). `datasource-micrometer` for the spans of database calls. |
 | Checks | ktlint and detekt stop the build on a finding. |
 
 ---
@@ -2002,3 +2078,15 @@ decision here with its reason.
 | A sign-in during an outage of the directory gives `DIRECTORY_UNAVAILABLE` (503), not `SIGN_IN_FAILED`. | The person did nothing wrong, and the API gives the same code. | 6.5, 8.6, 12.3 |
 | With the google directory, the web UI client must have the scope `email`, or Folio does not start. | Google puts the `email` claim in an ID token only for the `email` scope. Without the claim, each sign-in of a person fails. | 6.5 |
 | A Google workload token must have `email_verified: true`. | A Google account can have an unverified address that looks like a service account. Service account tokens always have the claim. | 6.5 |
+| Each meter is in the module that owns its event. A sync success has the code `none`. | The meter code stays near the event, and no shared metrics module exists. Each series of a meter has the same tags. | 15.1 |
+| The decision meter counts each decision about the caller of a request, also each item of a list. An explanation and the public check do not count. | The meter shows the decisions that Folio acts on. An explanation and the public check decide for another caller. | 15.1 |
+| A Git fetch has a span from an observation, with the ConfigSet ID only. A meter filter denies the timers of the observation. | An observation is the Micrometer API for spans. Its timers would repeat `folio.sync.fetch.duration`. | 15.1 |
+| HTTP spans have no request path. | A path can contain a ConfigSet path or an item path. The route pattern is enough. | 15.1 |
+| `datasource-micrometer` gives the spans of database calls, for connections and statements, without parameter values. | Spring Boot has no JDBC spans. Parameter values can contain paths and subjects. Result-set spans add only noise. | 15.1, 19 |
+| The Cloud Identity client stays without observations. | Its request URL contains the email address of the person, and a span records the URL. | 6.5, 15.1 |
+| OTLP metrics are off and the trace sampling probability is 0 by default. | Prometheus needs no collector. A deployment turns OTLP and traces on with configuration only. | 15.1 |
+| The sampler follows the sampled flag of an incoming `traceparent`, also at probability 0. | A caller can trace its own requests across services. The spans contain no paths, subjects, tokens or exception messages, so a forced sample shows nothing secret. | 15.1 |
+| Spans keep exception types, not exception messages. The `web` module wraps each span exporter. | A message can contain values such as a slug, and the stack trace repeats it. The logs of Git errors follow the same rule (section 10.4). One wrapper covers HTTP, database and fetch spans. | 10.4, 15.1 |
+| The PostgreSQL driver leaves the server detail out of error messages (`logServerErrorDetail: false`). | The detail of a constraint violation has the row values, for example a slug. A statement span and the log of an unexpected error record the message. | 15.1 |
+| Limits that a deployment can change are settings with defaults. The other limits are fixed in the code. | A setting that nobody needs to change is interface without a use. | 15.3 |
+| `README.md` gives the build and the local run. The design stays the source of truth. | A new developer finds the first steps without the full design. | 17 |

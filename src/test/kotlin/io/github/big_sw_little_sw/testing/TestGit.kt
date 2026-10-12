@@ -24,6 +24,8 @@ import io.github.big_sw_little_sw.folio.git.internal.SyncState
 import io.github.big_sw_little_sw.folio.git.internal.Synchronizer
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.uniqueSlug
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.observation.ObservationRegistry
 import org.eclipse.jgit.lib.ObjectId
 import org.springframework.boot.test.context.TestComponent
 import org.springframework.boot.test.context.TestConfiguration
@@ -170,11 +172,14 @@ class TestSyncInstances(
     private val syncRepository: SyncRepository,
     private val recorder: SyncRecorder,
     private val properties: GitProperties,
+    private val meters: MeterRegistry,
+    private val observations: ObservationRegistry,
 ) {
-    fun fetcher(limits: GitProperties = properties): Fetcher = Fetcher(keys, instances, cache, ssh, limits)
+    fun fetcher(limits: GitProperties = properties): Fetcher =
+        Fetcher(keys, instances, cache, ssh, limits, observations)
 
     fun synchronizer(limits: GitProperties = properties): Synchronizer =
-        Synchronizer(syncRepository, fetcher(limits), cache, recorder, limits)
+        Synchronizer(syncRepository, fetcher(limits), cache, recorder, limits, meters)
 }
 
 /** Registers the Git instances of [SshGitServer] in the context. */

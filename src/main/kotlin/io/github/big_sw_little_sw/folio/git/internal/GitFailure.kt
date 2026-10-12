@@ -58,6 +58,7 @@ fun FailureCode.toContentException(): ContentException = if (this == FailureCode
     ContentException.SourceFailed(name, summary)
 }
 
+/** A catch block passes the caught failure here. Without this overload, detekt reports the failure as swallowed. */
 fun GitFailure.toContentException(): ContentException = code.toContentException()
 
 /** Real exception chains are short. The limit stops a chain that loops, so the walk of the chain always ends. */

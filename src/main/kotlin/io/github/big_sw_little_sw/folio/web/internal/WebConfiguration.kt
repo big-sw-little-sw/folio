@@ -3,10 +3,17 @@ package io.github.big_sw_little_sw.folio.web.internal
 import gg.jte.ContentType
 import gg.jte.TemplateEngine
 import io.github.big_sw_little_sw.folio.web.PageContext
+import io.micrometer.common.KeyValues
+import io.opentelemetry.sdk.trace.export.SpanExporter
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.boot.micrometer.tracing.opentelemetry.autoconfigure.SpanExporters
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.server.observation.DefaultServerRequestObservationConvention
+import org.springframework.http.server.observation.ServerRequestObservationContext
+import org.springframework.http.server.observation.ServerRequestObservationConvention
 import org.springframework.security.authentication.AuthenticationTrustResolverImpl
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.csrf.CsrfToken
@@ -25,6 +32,26 @@ class WebConfiguration : WebMvcConfigurer {
     @Bean
     fun jteTemplateEngine(): TemplateEngine =
         TemplateEngine.createPrecompiled(null, ContentType.Html, null, TEMPLATE_PACKAGE)
+
+    /**
+     * The span of each HTTP request gets only the low-cardinality values of `http.server.requests`, which name the
+     * route pattern, not the path. The default convention also adds the request path as `http.url`. Without this
+     * override, spans contain ConfigSet paths and item paths.
+     */
+    @Bean
+    fun serverRequestObservationConvention(): ServerRequestObservationConvention =
+        object : DefaultServerRequestObservationConvention() {
+            override fun getHighCardinalityKeyValues(context: ServerRequestObservationContext): KeyValues =
+                KeyValues.empty()
+        }
+
+    /**
+     * Spring Boot uses this bean in place of its own list of span exporters. The bean wraps each exporter in
+     * [TypeOnlyExceptionExporter], so no exporter gets an exception message.
+     */
+    @Bean
+    fun spanExporters(exporters: ObjectProvider<SpanExporter>): SpanExporters =
+        SpanExporters.of(exporters.orderedStream().map(::TypeOnlyExceptionExporter).toList())
 
     override fun addInterceptors(registry: InterceptorRegistry) {
         registry.addInterceptor(PageContextInterceptor)

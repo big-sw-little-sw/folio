@@ -5,6 +5,7 @@ import io.github.big_sw_little_sw.folio.credential.CredentialException
 import io.github.big_sw_little_sw.folio.credential.CredentialKeys
 import io.github.big_sw_little_sw.folio.credential.DecryptedKey
 import io.github.big_sw_little_sw.folio.credential.KeyId
+import io.micrometer.observation.ObservationRegistry
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.lib.ObjectId
@@ -26,6 +27,7 @@ class Fetcher(
     private val cache: RepositoryCache,
     private val ssh: IsolatedSsh,
     private val properties: GitProperties,
+    private val observations: ObservationRegistry,
 ) {
     /**
      * Fetches [source] with the active key of its credential, or with [pendingKey] if it is not null. Returns the
@@ -85,21 +87,23 @@ class Fetcher(
         deadline: FetchDeadline,
     ): ObjectId {
         val url = instance.url(source.repositoryPath)
-        val tip =
-            ssh.run(instance, key, deadline) { transport ->
-                requireBranch(url, source.branch, transport)
-                cache.fetching(configSet, source.branch, deadline.remaining()) {
-                    fetchBranch(it, url, source.branch, transport, deadline)
+        return observations.fetchSpan(configSet) {
+            val tip =
+                ssh.run(instance, key, deadline) { transport ->
+                    requireBranch(url, source.branch, transport)
+                    cache.fetching(configSet, source.branch, deadline.remaining()) {
+                        fetchBranch(it, url, source.branch, transport, deadline)
+                    }
                 }
+            // JGit cannot limit a pack during the transfer, so Folio examines the size after the fetch, under the lock.
+            // If reads hold the repository until the deadline, the delete fails and the repository stays. The next
+            // fetch then examines the size again.
+            if (cache.size(configSet) > properties.maxRepositorySize.toBytes()) {
+                cache.delete(configSet, deadline.remaining())
+                throw GitFailure(FailureCode.REPOSITORY_TOO_LARGE)
             }
-        // JGit cannot limit a pack during the transfer, so Folio examines the size after the fetch, under the lock. If
-        // reads hold the repository until the deadline, the delete fails and the repository stays. The next fetch then
-        // examines the size again.
-        if (cache.size(configSet) > properties.maxRepositorySize.toBytes()) {
-            cache.delete(configSet, deadline.remaining())
-            throw GitFailure(FailureCode.REPOSITORY_TOO_LARGE)
+            tip
         }
-        return tip
     }
 
     /** Runs before the fetch, so a missing branch fails before Folio changes the cache. */

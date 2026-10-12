@@ -3,6 +3,7 @@ package io.github.big_sw_little_sw.folio.git.internal
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.content.ContentException
 import io.github.big_sw_little_sw.folio.content.RevisionId
+import io.micrometer.core.instrument.MeterRegistry
 import org.eclipse.jgit.lib.ObjectId
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.stereotype.Component
@@ -36,6 +37,9 @@ data class OnDemandProperties(val maxConcurrentFetches: Int = DEFAULT_MAX_CONCUR
  *   During that time, reads of the commit fail with `RevisionUnavailable` and do not fetch.
  * - If the last sync failed with `REPOSITORY_TOO_LARGE`, a read that needs a fetch fails immediately with that code,
  *   because the fetch would fail in the same way.
+ *
+ * Each read that needs a fetch counts once in `folio.content.fetches`, by its result. A read that waited for another
+ * fetch counts as `fetched` if that fetch got the commit, or as `busy` if the wait was too long.
  */
 @Component
 class OnDemandFetcher(
@@ -45,6 +49,7 @@ class OnDemandFetcher(
     private val gitProperties: GitProperties,
     properties: OnDemandProperties,
     syncProperties: SyncProperties,
+    private val meters: MeterRegistry,
 ) {
     private val permits = Semaphore(properties.maxConcurrentFetches)
     private val memory = syncProperties.interval
@@ -68,9 +73,11 @@ class OnDemandFetcher(
                 fetchLocked(configSet, source, commit, deadline)
             } ?: throw busy()
         if (!found) {
+            count(MISSING)
             remember(key)
             throw ContentException.RevisionUnavailable(revision)
         }
+        count(FETCHED)
         missing.remove(key)
     }
 
@@ -90,6 +97,7 @@ class OnDemandFetcher(
         try {
             fetcher.fetch(configSet, source, deadline = deadline)
         } catch (failure: GitFailure) {
+            count(if (failure.code == FailureCode.REPOSITORY_TOO_LARGE) TOO_LARGE else FAILED)
             throw failure.toContentException()
         } finally {
             permits.release()
@@ -104,10 +112,14 @@ class OnDemandFetcher(
     private fun requireFetchable(key: MissingCommit) {
         val missingUntil = missing[key]
         if (missingUntil != null && System.nanoTime() - missingUntil < 0) {
+            count(MISSING)
             throw ContentException.RevisionUnavailable(key.revision)
         }
         val tooLarge = FailureCode.REPOSITORY_TOO_LARGE
-        if (syncRepository.state(key.configSet)?.failure == tooLarge) throw tooLarge.toContentException()
+        if (syncRepository.state(key.configSet)?.failure == tooLarge) {
+            count(TOO_LARGE)
+            throw tooLarge.toContentException()
+        }
     }
 
     /** Remembers a missing commit. The map keeps only entries whose time has not ended, so it stays small. */
@@ -115,6 +127,15 @@ class OnDemandFetcher(
         val now = System.nanoTime()
         missing.values.removeIf { now - it >= 0 }
         missing[key] = now + memory.toNanos()
+    }
+
+    private fun busy(): ContentException {
+        count(BUSY)
+        return ContentException.SourceBusy(RETRY_AFTER)
+    }
+
+    private fun count(result: String) {
+        meters.counter(FETCHES, "result", result).increment()
     }
 
     private data class MissingCommit(val configSet: ConfigSetId, val revision: RevisionId)
@@ -126,6 +147,11 @@ class OnDemandFetcher(
         /** The `Retry-After` time of `SourceBusy`. A fetch usually ends in seconds. */
         val RETRY_AFTER: Duration = Duration.ofSeconds(5)
 
-        fun busy() = ContentException.SourceBusy(RETRY_AFTER)
+        const val FETCHES = "folio.content.fetches"
+        const val FETCHED = "fetched"
+        const val MISSING = "missing"
+        const val BUSY = "busy"
+        const val TOO_LARGE = "too_large"
+        const val FAILED = "failed"
     }
 }

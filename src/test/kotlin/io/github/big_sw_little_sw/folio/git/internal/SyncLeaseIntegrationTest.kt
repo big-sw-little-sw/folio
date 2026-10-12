@@ -3,6 +3,7 @@ package io.github.big_sw_little_sw.folio.git.internal
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
+import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -26,6 +27,7 @@ class SyncLeaseIntegrationTest(
     @Autowired private val jdbc: JdbcClient,
     @Autowired private val transactions: TransactionTemplate,
     @Autowired private val mvc: MockMvc,
+    @Autowired private val meters: MeterRegistry,
     @Autowired instances: TestSyncInstances,
 ) {
     private val other = instances.synchronizer()
@@ -108,17 +110,20 @@ class SyncLeaseIntegrationTest(
         assertTrue(synchronizer.sync(lease))
     }
 
+    /** The sync that lost its lease counts no attempt, but [Synchronizer] still times its fetch. */
     @Test
     fun `an instance takes over an ended lease, and the earlier owner records nothing`(commits: Commits) {
         val configSet = git.connected()
         val lost = synchronizer.claim(1).single()
         git.expireLease(configSet)
         val taken = other.claim(1).single()
+        val sync = meters.syncCounts()
 
         assertFalse(synchronizer.sync(lost))
         assertNull(git.state(configSet).lastAttemptAt)
         assertEquals(other.owner, git.leaseOwner(configSet))
         assertEquals(emptyList(), syncRecords(configSet))
+        assertEquals(sync.copy(fetches = sync.fetches + 1), meters.syncCounts())
 
         assertTrue(other.sync(taken))
         assertEquals(commits.tip, git.state(configSet).lastSeenCommit)

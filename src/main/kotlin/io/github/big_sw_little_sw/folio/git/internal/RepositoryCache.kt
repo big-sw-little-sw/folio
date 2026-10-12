@@ -1,6 +1,9 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
+import io.micrometer.core.instrument.Gauge
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.binder.BaseUnits
 import org.eclipse.jgit.lib.ConfigConstants.CONFIG_FETCH_SECTION
 import org.eclipse.jgit.lib.ConfigConstants.CONFIG_GC_SECTION
 import org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_AUTO
@@ -25,6 +28,7 @@ import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.Lock
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.locks.ReentrantReadWriteLock
@@ -46,11 +50,16 @@ import kotlin.io.path.exists
  *
  * The bean sets the global JGit settings before any repository opens. [IsolatedSsh] depends on this bean, so the
  * settings also apply to each `ls-remote`.
+ *
+ * The cache gauges show the measurement of the last [sweep], because a walk of the cache at each scrape could be slow.
+ * Both gauges are 0 until the first sweep.
  */
 @Component
-class RepositoryCache(properties: GitProperties) {
+class RepositoryCache(properties: GitProperties, meters: MeterRegistry) {
     private val root: Path = createOwnerOnly(properties.cacheDirectory)
     private val locks = ConcurrentHashMap<ConfigSetId, Locks>()
+    private val measuredSize = AtomicLong()
+    private val measuredRepositories = AtomicLong()
 
     /**
      * The empty SSH home directory of the connections, in the cache directory. JGit resolves `~` and `~/.ssh` against
@@ -62,6 +71,11 @@ class RepositoryCache(properties: GitProperties) {
     init {
         IsolatedSystemReader.install()
         streamLargeBlobs()
+        Gauge
+            .builder("folio.git.cache.size", measuredSize) { it.get().toDouble() }
+            .baseUnit(BaseUnits.BYTES)
+            .register(meters)
+        Gauge.builder("folio.git.cache.repositories", measuredRepositories) { it.get().toDouble() }.register(meters)
     }
 
     private fun directory(id: ConfigSetId): Path = root.resolve(id.value.toString())
@@ -129,6 +143,8 @@ class RepositoryCache(properties: GitProperties) {
      * deleted ConfigSet gets no new reads or syncs, so the repository becomes free. The sweep runs on the scheduler
      * thread of the polls ([SyncSchedule]). Without the skip, a slow read of a deleted ConfigSet would stop the polls
      * for up to the fetch deadline.
+     *
+     * After the deletes, the sweep measures the repositories that stay, also a repository that it could not delete.
      */
     fun sweep(existing: (Set<ConfigSetId>) -> Set<ConfigSetId>) {
         val cached =
@@ -139,12 +155,17 @@ class RepositoryCache(properties: GitProperties) {
                     .mapNotNull { configSetOf(it.fileName.toString()) }
                     .toSet()
             }
-        if (cached.isEmpty()) return
-        (cached - existing(cached)).forEach { id ->
-            // The fetch lock comes first, as in a fetch, so a delete never removes the files of a running fetch.
-            val deleted = withFetchLock(id, Duration.ZERO) { delete(id, Duration.ZERO) } == true
-            if (deleted) log.info("Deleted the cached repository of the deleted ConfigSet {}", id.toApiId())
-        }
+        val gone = if (cached.isEmpty()) emptySet() else cached - existing(cached)
+        val deleted =
+            gone.filterTo(mutableSetOf()) { id ->
+                // The fetch lock comes first, as in a fetch, so a delete never removes the files of a running fetch.
+                val removed = withFetchLock(id, Duration.ZERO) { delete(id, Duration.ZERO) } == true
+                if (removed) log.info("Deleted the cached repository of the deleted ConfigSet {}", id.toApiId())
+                removed
+            }
+        val remaining = cached - deleted
+        measuredSize.set(remaining.sumOf(::size))
+        measuredRepositories.set(remaining.size.toLong())
     }
 
     /**
