@@ -11,7 +11,9 @@ import java.time.Duration
  * cancels local work that reads nothing from the connection, for example delta resolution.
  */
 class FetchDeadline(duration: Duration, private val nanoTime: () -> Long = System::nanoTime) : EmptyProgressMonitor() {
-    private val end = nanoTime() + duration.toNanos()
+    /** The [System.nanoTime] at the start. The failure log of a fetch measures its duration from this time. */
+    val started = nanoTime()
+    private val end = started + duration.toNanos()
 
     /** True after Folio enforced the deadline. Then a failure is a deadline failure, whatever exception JGit gives. */
     @Volatile

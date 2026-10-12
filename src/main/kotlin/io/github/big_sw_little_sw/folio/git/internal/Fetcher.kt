@@ -33,22 +33,25 @@ class Fetcher(
      * failures of the source, so they throw [GitFailure]. A wrong request throws the error of the credential module:
      * `CredentialNotFound` (404), or `KeyNotPending` (409) if [pendingKey] is not the pending key.
      *
+     * The [deadline] starts before the fetch lock, so it includes the wait for another fetch of the same ConfigSet.
+     * A caller can already hold the fetch lock ([RepositoryCache.withFetchLock]).
+     *
      * The caller must not be in a transaction. Without this rule, a fetch holds a database connection for minutes.
      */
-    fun fetch(configSet: ConfigSetId, source: GitSourceDefinition, pendingKey: KeyId? = null): ObjectId {
-        val started = System.nanoTime()
-        // The deadline starts here, so it includes the wait for another fetch of the same ConfigSet.
-        val deadline = FetchDeadline(properties.fetchDeadline)
-        try {
-            return withInstanceKey(source, pendingKey) { instance, key ->
-                cache.withFetchLock(configSet, deadline.remaining()) {
-                    fetchLocked(configSet, source, instance, key, deadline)
-                } ?: throw GitFailure(FailureCode.DEADLINE_EXCEEDED)
-            }
-        } catch (failure: GitFailure) {
-            logFailure(log, "fetch", configSet, failure, started)
-            throw failure
+    fun fetch(
+        configSet: ConfigSetId,
+        source: GitSourceDefinition,
+        pendingKey: KeyId? = null,
+        deadline: FetchDeadline = FetchDeadline(properties.fetchDeadline),
+    ): ObjectId = try {
+        withInstanceKey(source, pendingKey) { instance, key ->
+            cache.withFetchLock(configSet, deadline.remaining()) {
+                fetchLocked(configSet, source, instance, key, deadline)
+            } ?: throw GitFailure(FailureCode.DEADLINE_EXCEEDED)
         }
+    } catch (failure: GitFailure) {
+        logFailure(log, "fetch", configSet, failure, deadline.started)
+        throw failure
     }
 
     /** Opens the key of the credential and finds the Git instance of the key, then runs [block] with both. */

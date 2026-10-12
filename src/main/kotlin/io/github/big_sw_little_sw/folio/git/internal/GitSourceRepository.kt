@@ -1,6 +1,5 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
-import io.github.big_sw_little_sw.folio.catalog.Access
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.content.Revision
 import io.github.big_sw_little_sw.folio.content.RevisionId
@@ -16,9 +15,10 @@ import java.util.UUID
 class GitSourceRepository(private val jdbc: JdbcClient) {
     /**
      * Inserts the Source definition. No constraint of `git_source` can fail here. The ConfigSet row is new in this
-     * transaction, and the value classes are stricter than the check constraints. Because of the lock order in
-     * [Access], a credential delete that commits first makes the create fail with `CredentialNotFound` before this
-     * insert. A later delete sees this row and fails with `CredentialInUse`.
+     * transaction, and [RepositoryPath], [Branch] and [RootPath] are stricter than the check constraints. The caller
+     * holds the exclusive tree lock, and a credential delete takes the shared tree lock before it locks the credential
+     * row. Thus a delete that commits first makes the create fail with `CredentialNotFound` before this insert. A later
+     * delete sees this row and fails with `CredentialInUse`.
      */
     fun insert(configSet: ConfigSetId, source: GitSourceDefinition) {
         jdbc
@@ -38,11 +38,11 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
     fun find(configSet: ConfigSetId): GitSourceDefinition? = jdbc
         .sql(
             """
-                select credential_id, repository_path, branch, root_path
+                select $SOURCE_COLUMNS
                 from git_source where config_set_id = :configSetId
             """.trimIndent(),
         ).param("configSetId", configSet.value)
-        .query { rs, _ -> rs.toDefinition() }
+        .query { rs, _ -> rs.toSourceDefinition() }
         .optional()
         .orElse(null)
 
@@ -53,13 +53,13 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
     fun findPublished(configSet: ConfigSetId, revision: RevisionId): GitSourceDefinition? = jdbc
         .sql(
             """
-                select s.credential_id, s.repository_path, s.branch, s.root_path
+                select $SOURCE_COLUMNS
                 from git_source s join git_revision r on r.config_set_id = s.config_set_id
                 where s.config_set_id = :configSetId and r.commit_id = :commitId
             """.trimIndent(),
         ).param("configSetId", configSet.value)
         .param("commitId", revision.value)
-        .query { rs, _ -> rs.toDefinition() }
+        .query { rs, _ -> rs.toSourceDefinition() }
         .optional()
         .orElse(null)
 
@@ -69,7 +69,7 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
             """
                 select commit_id, published_at from git_revision
                 where config_set_id = :configSetId
-                order by published_at desc
+                $NEWEST_FIRST
                 limit :limit
             """.trimIndent(),
         ).param("configSetId", configSet.value)
@@ -85,9 +85,9 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
     fun latest(configSet: ConfigSetId): Revision? = revisions(configSet, 1).firstOrNull()
 
     /**
-     * Publishes [commit] as the newest revision. A commit that the branch returns to, for example after a force push,
-     * gets a new publish time. Thus the newest row is always the tip that Folio published last, and `latest` is that
-     * tip.
+     * Publishes [commit] as the newest revision. Sync calls this method in the transaction that records its result. A
+     * commit that the branch returns to, for example after a force push, gets a new publish time. Thus the newest row
+     * is always the last published commit, and `latest` reads that row.
      */
     fun publish(configSet: ConfigSetId, commit: ObjectId) {
         jdbc
@@ -100,11 +100,25 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
             .param("commitId", commit.name)
             .update()
     }
-
-    private fun ResultSet.toDefinition() = GitSourceDefinition(
-        credential = CredentialId(getObject("credential_id", UUID::class.java)),
-        repositoryPath = RepositoryPath(getString("repository_path")),
-        branch = Branch(getString("branch")),
-        rootPath = RootPath(getString("root_path")),
-    )
 }
+
+/** The columns of `git_source` that hold the Source definition. [toSourceDefinition] reads them. */
+const val SOURCE_COLUMNS = "credential_id, repository_path, branch, root_path"
+
+/**
+ * The order of published revisions, newest first. Sync and reads use this one order, so the change detection of sync
+ * and `latest` always agree.
+ */
+private const val NEWEST_FIRST = "order by published_at desc"
+
+/** A subquery that gives the last published commit of the ConfigSet in the column [configSetColumn], or null. */
+fun latestCommitOf(configSetColumn: String) =
+    "(select r.commit_id from git_revision r where r.config_set_id = $configSetColumn $NEWEST_FIRST limit 1)"
+
+/** Reads the Source definition from the [SOURCE_COLUMNS] of `git_source`. */
+fun ResultSet.toSourceDefinition() = GitSourceDefinition(
+    credential = CredentialId(getObject("credential_id", UUID::class.java)),
+    repositoryPath = RepositoryPath(getString("repository_path")),
+    branch = Branch(getString("branch")),
+    rootPath = RootPath(getString("root_path")),
+)

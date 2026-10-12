@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
+import io.github.big_sw_little_sw.folio.content.ContentException
 import org.apache.sshd.common.SshConstants
 import org.apache.sshd.common.SshException
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
@@ -10,6 +11,7 @@ import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.UnknownHostException
 import java.time.Duration
+import java.util.Locale
 import java.util.concurrent.TimeoutException
 
 /**
@@ -24,6 +26,12 @@ enum class FailureCode(val summary: String) {
     REPOSITORY_NOT_FOUND("The repository does not exist, or the key of the credential has no access to it."),
     BRANCH_NOT_FOUND("The repository has no branch with this name."),
     ROOT_PATH_NOT_FOUND("The root path is not a directory at the tip of the branch."),
+
+    /** [Locale.ROOT] keeps the number format of the summary the same on each JVM. */
+    TOO_MANY_FILES(
+        "The revision has more than ${"%,d".format(Locale.ROOT, MAX_LIST_ENTRIES)} files and directories below the " +
+            "root path.",
+    ),
     UNREACHABLE("Folio could not connect to the Git server, or the server stopped answering."),
     TRANSPORT_FAILURE("The Git transfer failed."),
     DEADLINE_EXCEEDED("The fetch did not end before the fetch deadline."),
@@ -38,6 +46,19 @@ enum class FailureCode(val summary: String) {
  * for the log, for example `TransportException < SshException < ConnectException`.
  */
 class GitFailure(val code: FailureCode, val exceptionTypes: String = "") : RuntimeException(code.summary)
+
+/**
+ * Returns the read error for a failed Git operation. A deadline failure is a timeout of the Source (504). Each other
+ * code is a failure of the Source (502). The detail is the fixed summary of the code, so a read never shows transport
+ * output.
+ */
+fun FailureCode.toContentException(): ContentException = if (this == FailureCode.DEADLINE_EXCEEDED) {
+    ContentException.SourceTimedOut(name, summary)
+} else {
+    ContentException.SourceFailed(name, summary)
+}
+
+fun GitFailure.toContentException(): ContentException = code.toContentException()
 
 /** Real exception chains are short. The limit stops a chain that loops, so the walk of the chain always ends. */
 private const val MAX_CAUSES = 20

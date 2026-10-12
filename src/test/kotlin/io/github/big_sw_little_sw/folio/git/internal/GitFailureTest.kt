@@ -1,5 +1,6 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
+import io.github.big_sw_little_sw.folio.content.ContentException
 import org.apache.sshd.common.SshConstants
 import org.apache.sshd.common.SshException
 import org.eclipse.jgit.api.errors.TransportException
@@ -94,6 +95,28 @@ class GitFailureTest {
         val types = exceptionTypes(wrapped(ConnectException("secret host name")))
 
         assertEquals("TransportException < TransportException < ConnectException", types)
+    }
+
+    /** A read maps a failed fetch or file list to 504 for the deadline and to 502 for each other code. */
+    @Test
+    fun `a read error keeps the code and its summary, and only the deadline is a timeout`() {
+        FailureCode.entries.forEach { code ->
+            val error = GitFailure(code).toContentException()
+
+            val timeout = code == FailureCode.DEADLINE_EXCEEDED
+            assertEquals(timeout, error is ContentException.SourceTimedOut, "$code")
+            assertEquals(!timeout, error is ContentException.SourceFailed, "$code")
+            assertEquals(code.name, error.code)
+            assertEquals(code.summary, error.detail)
+        }
+    }
+
+    @Test
+    fun `the summary of TOO_MANY_FILES names the limit of the file list`() {
+        assertEquals(
+            "The revision has more than 10,000 files and directories below the root path.",
+            FailureCode.TOO_MANY_FILES.summary,
+        )
     }
 
     /** Classifies [error] without a host-key rejection and before the deadline. */

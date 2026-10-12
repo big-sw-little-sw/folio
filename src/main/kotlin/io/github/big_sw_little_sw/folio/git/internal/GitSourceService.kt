@@ -1,7 +1,5 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
-import io.github.big_sw_little_sw.folio.audit.AuditEntry
-import io.github.big_sw_little_sw.folio.audit.AuditLog
 import io.github.big_sw_little_sw.folio.catalog.Access
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.ConfigSet
@@ -18,19 +16,26 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
-/** A Git ConfigSet with its Source definition. [lastPublished] is null before the first publish. */
-data class GitSourceView(val configSet: ConfigSet, val source: GitSourceDefinition, val lastPublished: Revision?)
+/** A Git ConfigSet with its Source definition and its sync state. [lastPublished] is null before the first publish. */
+data class GitSourceView(
+    val configSet: ConfigSet,
+    val source: GitSourceDefinition,
+    val lastPublished: Revision?,
+    val sync: SyncState,
+)
 
 /**
- * Onboarding and the Git source reads of the admin routes. Each operation needs `MANAGE` on the ConfigSet or, for a
- * create, on its Namespace. A use of a credential also needs `MANAGE` on the Namespace of the credential.
+ * Onboarding, the Git source reads and the manual sync of the admin routes. Each operation needs `MANAGE` on the
+ * ConfigSet or, for a create, on its Namespace. A use of a credential also needs `MANAGE` on the Namespace of the
+ * credential.
  */
 @Service
 class GitSourceService(
     private val configSets: ConfigSets,
     private val credentials: Credentials,
     private val gitSourceRepository: GitSourceRepository,
-    private val auditLog: AuditLog,
+    private val syncRepository: SyncRepository,
+    private val audit: GitAudit,
 ) {
     /**
      * Creates the ConfigSet and its Git source in one transaction. The create does not connect to the Git server. The
@@ -51,24 +56,19 @@ class GitSourceService(
         val configSet = configSets.create(caller, namespace, slug, description, SourceType.GIT)
         val credential = credentials.requireUsable(caller, source.credential)
         gitSourceRepository.insert(configSet.id, source)
-        auditLog.record(
-            AuditEntry(
-                caller = caller,
-                operation = "GIT_SOURCE_CREATED",
-                resourceType = "GIT_SOURCE",
-                resourceId = configSet.id.value,
-                path = configSet.path.toString(),
-                details =
-                mapOf(
-                    "credentialId" to source.credential.toApiId(),
-                    "gitInstance" to credential.gitInstance.value,
-                    "repositoryPath" to source.repositoryPath.value,
-                    "branch" to source.branch.value,
-                    "rootPath" to source.rootPath.value,
-                ),
+        audit.record(
+            caller,
+            configSet,
+            "GIT_SOURCE_CREATED",
+            mapOf(
+                "credentialId" to source.credential.toApiId(),
+                "gitInstance" to credential.gitInstance.value,
+                "repositoryPath" to source.repositoryPath.value,
+                "branch" to source.branch.value,
+                "rootPath" to source.rootPath.value,
             ),
         )
-        return GitSourceView(configSet, source, null)
+        return view(configSet, source)
     }
 
     /**
@@ -78,7 +78,20 @@ class GitSourceService(
     @SnapshotRead
     fun get(caller: Caller, id: ConfigSetId): GitSourceView {
         val (configSet, source) = find(caller, id)
-        return GitSourceView(configSet, source, gitSourceRepository.latest(id))
+        return view(configSet, source)
+    }
+
+    /**
+     * Makes the ConfigSet due immediately, so the next poll of an instance syncs it. The request writes the audit
+     * record `SYNC_REQUESTED` each time, also when the ConfigSet is already due, because the request itself is the
+     * operation. Throws the errors of [get].
+     */
+    @Transactional
+    fun requestSync(caller: Caller, id: ConfigSetId): GitSourceView {
+        val (configSet, source) = find(caller, id)
+        syncRepository.requestSync(id)
+        audit.record(caller, configSet, "SYNC_REQUESTED")
+        return view(configSet, source)
     }
 
     /**
@@ -90,6 +103,12 @@ class GitSourceService(
         val (_, source) = find(caller, id)
         credentials.requireUsable(caller, source.credential)
         return source
+    }
+
+    /** Each Git source has a sync state, because its columns are in the row of the Git source. */
+    private fun view(configSet: ConfigSet, source: GitSourceDefinition): GitSourceView {
+        val state = checkNotNull(syncRepository.state(configSet.id)) { "A Git source has a sync state." }
+        return GitSourceView(configSet, source, gitSourceRepository.latest(configSet.id), state)
     }
 
     private fun find(caller: Caller, id: ConfigSetId): Pair<ConfigSet, GitSourceDefinition> {

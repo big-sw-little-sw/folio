@@ -65,6 +65,8 @@ management:
 #     version is not in folio.crypto.master-keys, or if a stored key uses a version that is not there.
 #   folio.content.max-file-size (100MB) is the largest ConfigItem that Folio serves. Folio refuses a larger item with
 #     status 422. Folio streams files, so this limit protects bandwidth, not memory.
+#   folio.content.max-concurrent-fetches (2) is the maximum number of fetches on demand that run at the same time on
+#     each instance. Above the limit, a read that needs a fetch fails with status 503 and Retry-After.
 #   folio.content.latest-max-age (30s) is how long caches keep responses for latest, metadata and revision lists. It
 #     is also how long shared caches keep a public exact revision before they revalidate it. Zero makes caches
 #     revalidate each time.
@@ -77,3 +79,8 @@ management:
 #     port (22), user (git) and host-keys. host-keys lists one or more trusted host keys as OpenSSH public key lines,
 #     for example "ssh-ed25519 AAAA…". Take the keys from the published fingerprints of the provider, not from a first
 #     connection. Folio trusts only these keys, and it does not start if a line is not valid.
+#   folio.sync.interval (1m) is the time from a sync attempt to the next due time. Each consecutive failure doubles
+#     the time, to a maximum of folio.sync.max-backoff (30m). Each instance also deletes the cached repositories of
+#     deleted ConfigSets at this interval.
+#   folio.sync.poll-interval (10s) is the time between two polls. A poll claims due ConfigSets.
+#   folio.sync.max-concurrent-fetches (4) is the maximum number of syncs that run at the same time on each instance.

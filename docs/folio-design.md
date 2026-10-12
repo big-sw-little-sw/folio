@@ -934,15 +934,16 @@ the segments below the root of the ConfigSet, so a path cannot go outside the ro
 
 Git permits file names that are not item paths, for example a name with a backslash. A consumer cannot read such a
 file, so the Git adapter leaves it out of the file list. The log gives the ConfigSet ID and the number of these files
-at `INFO`, and never their names. Any reader of a `public` ConfigSet can repeat a list, so the line must not alert. In
-slice 6, the publish step of sync writes this line one time for each published revision, and the list stops. The file
-list of the Git adapter has the regular files below the root path, in path order. Symbolic links and submodules are not
-ConfigItems.
+at `INFO`, and never their names. Any reader of a `public` ConfigSet can repeat a list, so the line must not alert.
+The publish step of sync writes this line one time for each published revision. The file list does not write it. The
+file list of the Git adapter has the regular files below the root path, in path order. Symbolic links and submodules
+are not ConfigItems.
 
 Git trees can share subtrees, so a commit of a few KB can name billions of files. The pack is small, so the size limit
 of section 10.7 does not stop it. Thus the file list visits a maximum of 10,000 tree entries, files and directories
 together. Above this limit, the list fails with `SourceFailed` and the code `TOO_MANY_FILES`. The summary contains no
-path. In slice 6, the publish step also examines this limit, so sync can report it as a failure.
+path. The publish step of sync also examines this limit. Above it, the sync fails with the code `TOO_MANY_FILES`, and
+nothing publishes (section 10.6).
 
 The interface does not contain these items, and the reason for each:
 
@@ -1045,8 +1046,9 @@ also decide what happens to the revisions that Folio already served.
   takes the exclusive tree lock. Then `Credentials.requireUsable` finds and authorizes the credential, and requires an
   enabled credential. This order obeys the lock-order rule of section 8.1. A failure rolls back the ConfigSet too.
 - `GET /configsets/{id}/git` gives `{configSetId, path, credentialId, repositoryPath, branch, rootPath,
-  lastPublishedCommit, lastPublishedAt}`. It needs `MANAGE` on the ConfigSet, because the Source definition is
-  administration data. Sync adds the other fields of its state (section 10.6).
+  lastPublishedCommit, lastPublishedAt}` and the sync state (section 10.6): `lastSeenCommit`, `lastAttemptAt`,
+  `lastSuccessAt`, `failureCode`, `failureSummary`, `consecutiveFailures`, `nextDueAt` and `syncing`. It needs `MANAGE`
+  on the ConfigSet, because the Source definition and the sync state are administration data.
 - The check needs `MANAGE` on the ConfigSet and on the Namespace of the credential. A caller without them gets 403 or
   401, also for a disabled credential. Only then does a disabled credential give the result `CREDENTIAL_DISABLED`. A
   `keyId` that is not the pending key gives `KEY_NOT_PENDING` (409), because the request is wrong, not the source. The
@@ -1067,6 +1069,8 @@ The `git` module declares these errors for its routes:
 - `HOST_KEY_REJECTED`, `AUTH_FAILED`, `REPOSITORY_NOT_FOUND`, `BRANCH_NOT_FOUND`, `ROOT_PATH_NOT_FOUND`
 - `UNREACHABLE`, `TRANSPORT_FAILURE`, `DEADLINE_EXCEEDED`, `REPOSITORY_TOO_LARGE`
 - `CREDENTIAL_DISABLED`, `GIT_INSTANCE_NOT_CONFIGURED`
+- `TOO_MANY_FILES`: the check does not give it, because the check does not list the files. Sync gives it at the
+  publish step, and a file list gives it as `SourceFailed` (section 9).
 
 Folio selects a code from exception types and results. It never parses messages. Some servers report "not found" when
 a key has no access. The summary of `REPOSITORY_NOT_FOUND` says that both causes are possible. A timeout of a connect
@@ -1125,24 +1129,35 @@ its type.
   Each instance has its own cache. If a repository is missing or damaged, the cost is one full fetch.
 - Folio fetches only the configured branch. It does not fetch tags.
 - JGit's automatic gc is off in each cache repository, because it races with reads and with the size check.
-- A read holds the repository while it streams a file, so a slow client can hold it for minutes. A delete or a new
-  start of a repository waits for the reads only until the fetch deadline. While a delete waits, new reads of the
-  ConfigSet wait too, so the limit also protects the reads. A new start that does not get the repository in time
-  fails with `DEADLINE_EXCEEDED`.
+- A read holds the repository while it streams a file, so a slow client can hold it for minutes. The delete of the
+  size check (section 10.7) and a new start of a repository wait for the reads only until the fetch deadline. While a
+  delete waits, new reads of the ConfigSet wait too, so the limit also protects the reads. A new start that does not
+  get the repository in time fails with `DEADLINE_EXCEEDED`.
 - At each sync interval, each instance deletes the repositories of ConfigSets that no longer exist. It lists the
   directory before it queries the database. Thus it never deletes the repository of a ConfigSet that exists. It never
-  follows symbolic links.
+  follows symbolic links. It examines only directories whose name is the UUID of a ConfigSet. Thus it never deletes
+  `ssh-home`, a symbolic link or another entry. The query reads `git_source`, because each Git ConfigSet has one row,
+  and a delete of the ConfigSet deletes the row.
+- The sweep does not wait for reads or fetches. It takes the fetch lock and then the repository, as a fetch does, and
+  skips a repository that a fetch or a read holds. A deleted ConfigSet gets no new reads or syncs, so a later sweep
+  deletes the repository. *Reason:* the sweep shares the single thread of the fixed-delay tasks with the poll (section
+  10.6). A wait for a slow read would stop the polls of the instance for up to the fetch deadline.
 
 ### 10.6 Sync
 
 Sync uses polling. The state is in the database, so several instances can share the work.
 
 - **State.** `git_source` has one row for each ConfigSet. The row contains:
-  - The last seen commit and the last published commit.
+  - The last seen commit: the tip that the last successful fetch got.
   - The time of the last attempt and the time of the last success.
-  - The failure code, the summary and the number of consecutive failures.
+  - The failure code of the last attempt and the number of consecutive failures. The code gives the fixed summary, so
+    the row does not store the summary.
   - The next due time.
   - The lease owner and the lease end.
+
+  The last published commit is not a column. It is the newest row of `git_revision`. *Reason:* one fact has one
+  location, so the state and the revision history cannot disagree. The last seen commit differs from the last
+  published commit when the publish step refused the tip.
 - **Due time.** A ConfigSet is due `folio.sync.interval` (default 1 minute) after the last attempt. Each consecutive
   failure doubles the interval, to a maximum of `folio.sync.max-backoff` (default 30 minutes).
 - **Claims.**
@@ -1156,22 +1171,39 @@ Sync uses polling. The state is in the database, so several instances can share 
   which Folio cannot stop (section 10.7). During a lease, the next due time is the lease end. Thus, if an instance
   stops, its ConfigSets become due again when the leases end.
 - **No duplicate in one instance.** The poller never claims a ConfigSet that it syncs now.
-- **Change detection.** Sync compares fetched commits. The fetched branch tip becomes the last published commit. If the
-  tip changed, sync adds it to `git_revision`. After a failure, the last published commit does not change. This is
-  also true when the branch was deleted.
+- **Change detection.** Sync compares the fetched tip with the last published commit. If the tip changed, the publish
+  step examines it, and sync adds it to `git_revision`. Then the tip is the last published commit. After a failure,
+  the last published commit does not change. This is also true when the branch was deleted.
+- **Publish step.** Before sync publishes a new tip, it makes sure that the root path is a directory at the tip, and
+  that the file list stays within its limit (section 9). Otherwise the sync fails with `ROOT_PATH_NOT_FOUND` or
+  `TOO_MANY_FILES`, and nothing publishes. The fetch got the tip, so the tip becomes the last seen commit. *Reason:*
+  each published revision must be readable, and the check of section 10.3 uses the same rule for the root path.
 - **Fetch.** `Fetcher.fetch` is the fetch step. It opens the active key of the credential, or the pending key for a
   check, finds the Git instance of the key, and fetches under the deadline and the fetch lock. Each failure of the
   source, also `CREDENTIAL_DISABLED` and `GIT_INSTANCE_NOT_CONFIGURED`, is a `GitFailure` with its code, and the fetch
-  step logs it one time. Sync, the check and the fetch on demand call it.
+  step logs it one time. Sync, the check and the fetch on demand call `Fetcher.fetch`. `OnDemandFetcher` (section
+  10.8) waits a maximum of 5 seconds for the fetch lock, and then looks at the cache again. Only if the commit is
+  still missing does it take a permit of the fetch on demand and call `Fetcher.fetch`, which opens the key. Thus a
+  read that finds the commit, or that gets no permit, never decrypts a key.
 - **Publish.** `GitSourceRepository.publish` writes the `git_revision` row. Sync calls it in the transaction that
   records its result. A commit that the branch returns to, for example after a force push, is already in
   `git_revision`. Its row then gets a new `published_at`. Thus the newest row is always the last published commit,
   and `latest` reads the newest row. A revision appears only one time in the revision list, at its last publish.
-- **Manual sync.** A request makes the ConfigSet due immediately. The response is status 202 with the sync state. The
-  next poll of an instance syncs the ConfigSet.
+- **Manual sync.** `POST /configsets/{id}/git:sync` makes the ConfigSet due immediately. It needs `MANAGE` on the
+  ConfigSet. The response is status 202 with the body of `GET /configsets/{id}/git`, which has the sync state. The
+  next poll of an instance syncs the ConfigSet. A request during a sync moves the due time before the lease end. The
+  release of the lease keeps that time, so the ConfigSet syncs again at the next poll. Each request writes the audit
+  record `SYNC_REQUESTED`, also when the ConfigSet is already due, because the request itself is the operation.
 - **Unexpected errors.** Folio releases the lease and records no failure. It logs the ConfigSet ID and the exception
-  type.
-- **Shutdown.** The poller waits ten seconds. Then it releases its leases and interrupts the remaining syncs.
+  types. The ConfigSet is due after one interval. *Reason:* without the interval, a defect causes a sync on each
+  poll.
+- **Shutdown.** The poller waits ten seconds. Then it releases its leases, so the ConfigSets are due immediately on
+  another instance, and interrupts the remaining syncs. A sync that lost its lease records nothing. A sync that ends
+  with an exception after the stop logs one `INFO` line, not an error, because a shutdown is normal.
+- **Schedule.** The poll and the cache sweep (section 10.5) are fixed-delay tasks of the Spring scheduler. Each first
+  runs after one delay. Spring runs all fixed-delay tasks on one thread, so no task waits long. The integration tests
+  remove the schedule and run polls, syncs and sweeps themselves. Thus a scheduled poll never claims the ConfigSets of
+  a test.
 
 ### 10.7 Fetch limits
 
@@ -1198,17 +1230,20 @@ The published commit of a ConfigSet is possibly not in the cache of this instanc
 prevent anonymous readers from causing too many fetches:
 
 - An instance runs a maximum of `folio.content.max-concurrent-fetches` (default 2) fetches on demand. Above this
-  limit, the read fails immediately with `SourceBusy` (503).
+  limit, the read fails immediately with `SourceBusy` (503). It does not wait in a queue. Only fetches that run count
+  against the limit. A read that waits for another fetch of the same ConfigSet holds no permit.
 - A read waits a maximum of 5 seconds for another fetch of the same ConfigSet. After that, it fails with `SourceBusy`.
   When the read gets the lock, it examines the cache again. Thus a read that waited usually does not fetch.
+- `SourceBusy` has `Retry-After: 5`. A fetch usually ends in seconds.
 - A published commit can be missing after a fetch, for example after a force push. Folio remembers this for one sync
-  interval. During that time, reads of the commit fail with `RevisionUnavailable`.
-- If the last sync failed with `REPOSITORY_TOO_LARGE`, a read that needs a fetch fails immediately with that code.
+  interval. During that time, reads of the commit fail with `RevisionUnavailable` and do not fetch.
+- If the last sync failed with `REPOSITORY_TOO_LARGE`, a read that needs a fetch fails immediately with that code, as
+  `SourceFailed` (502). The fetch would fail in the same way.
+- Another failed fetch gives `SourceFailed` (502) with its code, or `SourceTimedOut` (504) for `DEADLINE_EXCEEDED`.
+  Folio does not remember it, so the next read fetches again, within the limits.
 
-Slice 5 (section 20) has no fetch on demand. Until slice 6, a read of a published commit that the cache of this
-instance does not have fails with `RevisionUnavailable`. *Reason:* a fetch on demand without these limits lets
-anonymous readers start fetches without a limit. `RevisionUnavailable` already has the correct meaning: the ConfigSet
-published the revision, but this instance cannot read it now.
+The setting is in `folio.content`, because the limit protects reads. The Git adapter enforces it, so the `git` module
+binds it. The `content` module does not read it.
 
 ---
 
@@ -1509,9 +1544,10 @@ slice by hand during development.
   Namespace page and the start page link to these pages by path only.
 - The `git` module serves the Git pages: `/git/configsets/new?namespaceId=…` (the form that connects a repository to a
   new ConfigSet, with `MANAGE` on the Namespace) and `/configsets/{id}/git` (the Source definition, the last published
-  revision and the check form, with `MANAGE` on the ConfigSet). The check form has an optional pending key ID. The
-  check redirects to the Git source page, and the notice of that page gives the result: the commit ID, or the code and
-  its summary. The catalog does not depend on `git`, so the Namespace page and the ConfigSet page link to these pages
+  revision, the sync state, the "Sync now" form and the check form, with `MANAGE` on the ConfigSet). The check form has
+  an optional pending key ID. The check redirects to the Git source page, and the notice of that page gives the
+  result: the commit ID, or the code and its summary. The sync form redirects to the same page, and the notice tells
+  that the next poll syncs the ConfigSet. The catalog does not depend on `git`, so the Namespace page and the ConfigSet page link to these pages
   by path only.
 
 ---
@@ -1562,12 +1598,16 @@ slice by hand during development.
     and `rootPath`.
   - Credential: create, regenerate, activate, discard, replace, disable, delete.
   - Master-key re-encryption: one record for each run, with the number of keys for each version.
-  - Manual sync requests.
-  - Sync results.
+  - Manual sync requests: `SYNC_REQUESTED`, with the caller as the actor.
+  - Sync results, with the actor `SYSTEM`.
 - Folio records sync results only when they change. Otherwise each interval would write a row.
   - `SYNC_REVISION_PUBLISHED`: a sync published a new revision.
   - `SYNC_FAILED`: the failure code is different from the code of the previous attempt.
-  - `SYNC_RECOVERED`: the first success after a failure.
+  - `SYNC_RECOVERED`: the first success after a failure. A recovery that also publishes a new revision writes
+    `SYNC_RECOVERED` and `SYNC_REVISION_PUBLISHED`, one record for each operation.
+  - The sync records and `SYNC_REQUESTED` have the resource type `GIT_SOURCE`, with the UUID and the path of the
+    ConfigSet. `SYNC_REVISION_PUBLISHED` has `commitId` and `previousCommitId`. `SYNC_FAILED` has `code` and
+    `previousCode`. `SYNC_RECOVERED` has `previousCode`.
 - Folio does not record these:
   - Reads, explanations and checks.
   - Denied requests and requests with a conflict.
@@ -1662,8 +1702,8 @@ Folio uses PostgreSQL 18, Spring `JdbcClient` with plain SQL, and Flyway migrati
 | `rule` | `id`, `namespace_id` or `config_set_id`, `action`, `subjects text[]` | One target only. One rule for each target and action. One or more subjects. The rule is deleted with its target. A GIN index on `subjects` serves the start page (section 7.4). |
 | `credential` | `id`, `namespace_id`, `git_instance`, `name`, `status` | `unique (namespace_id, name)`. The foreign key to `namespace` does not cascade. Keys are deleted with their credential. |
 | `credential_key` | `id`, `credential_id`, `status`, `public_key`, `fingerprint`, encryption columns | Partial unique indexes for one `ACTIVE` key and one `PENDING` key. `id` has no default, because Folio gets it first (section 5.2). `public_key` has no comment. Folio adds the API ID when it shows the line. |
-| `git_source` | `config_set_id`, `credential_id`, `repository_path`, `branch`, `root_path`, sync state, lease | Deleted with its `config_set`. The foreign key to `credential` does not cascade. Slice 6 adds the columns of the sync state and the lease, with the code that writes them. |
-| `git_revision` | `config_set_id`, `commit_id`, `published_at` | Primary key `(config_set_id, commit_id)`. Deleted with its `git_source`. The statement that records a sync writes it. A publish of a commit that is already there sets a new `published_at` (section 10.6). |
+| `git_source` | `config_set_id`, `credential_id`, `repository_path`, `branch`, `root_path`, sync state, lease | Deleted with its `config_set`. The foreign key to `credential` does not cascade. The sync state is `last_seen_commit`, `last_attempt_at`, `last_success_at`, `failure_code`, `consecutive_failures` and `next_due_at` (default `now()`, so a new Git source is due). The lease is `lease_owner` and `lease_end`. An index on `next_due_at` serves the polls. |
+| `git_revision` | `config_set_id`, `commit_id`, `published_at` | Primary key `(config_set_id, commit_id)`. Deleted with its `git_source`. The transaction that records a sync writes it (section 10.6). A publish of a commit that is already there sets a new `published_at` (section 10.6). |
 | `audit_event` | `id`, `occurred_at`, actor, resource, path, `details jsonb` | No foreign keys |
 | `spring_session`, `spring_session_attributes` | The schema of Spring Session JDBC | UI sessions (section 6.2). Flyway creates them, not Spring Session. |
 
@@ -1685,14 +1725,15 @@ so no other table changes. Section 5.3 gives the rules.
     tests, a test post-processor removes the bean definition of the Git adapter before Spring creates beans. Thus
     the in-memory adapter is the only adapter for `SourceType.GIT` there, and the start check of section 9 passes.
   - The Git tests use a second application context with the Git adapter and the SSH Git server. A test fixture
-    publishes revisions through the fetch and the publish step of the `git` module, which sync calls in slice 6.
+    publishes revisions through sync: it claims and syncs one ConfigSet, as a poll does.
 - **Git** tests use an SSH Git server in Testcontainers. The test builds the image from a pinned `alpine` image with
   `openssh` and `git`. Thus the test controls the host key and the authorized keys, and needs no third-party image.
   The tests include these cases:
   - A rejected host key and a wrong key.
   - A missing branch and a missing root path.
   - The deadline and the size limit.
-  - Leases with two pollers.
+  - Leases with two instances, the fetch semaphore, unexpected errors and the shutdown of the poller.
+  - The limits of the fetch on demand and the cache sweep.
   - Folio ignores an SSH config, a key and a `known_hosts` file in the SSH home directory.
 - **UI** tests use MockMvc with a signed-in test session. They examine the status, the important elements and the
   CSRF protection. v1 has no browser tests.
@@ -1891,7 +1932,7 @@ decision here with its reason.
 | A disabled credential is a check result after the authorization, and a wrong pending key is a 409 error. | The caller learns the state only after the authorization (section 11.1). A wrong key ID is a wrong request, not a state of the source. | 10.3 |
 | `git_revision` has one row for each commit. A commit that the branch returns to gets a new `published_at`. | The newest row is always the last published commit, so `latest` needs no sync state. A force push back to an earlier commit makes that commit latest again. | 10.6, 16 |
 | Slice 6 adds the sync-state and lease columns of `git_source`. | Each column comes with the code that writes it. Slice 5 reads the published state from `git_revision`. | 16, 20 |
-| Until slice 6, a read of a published commit that the cache lacks fails with `RevisionUnavailable`. | A fetch on demand without the limits of section 10.8 lets anonymous readers start fetches without a limit. | 10.8, 20 |
+| A read of a published commit that the cache lacks fetches it only with the limits of section 10.8. | A fetch on demand without the limits lets anonymous readers start fetches without a limit. | 10.8 |
 | The Git adapter leaves files whose names are not item paths out of the file list, and logs only their number. | A consumer cannot read such a file. A name can contain text that the repository controls. | 9 |
 | The branch has a maximum of 250 characters, and the root path a maximum of 1,000. The root path has the normal form of an item path. | Each value from a request has a limit. A root path in normal form cannot lead outside the repository. | 10.2 |
 | `GitException` is in the top-level package of `git`, but no other module uses it. | Section 8.6 puts the errors of a module in its public API. Only the Git routes throw them. | 8, 8.6 |
@@ -1900,7 +1941,20 @@ decision here with its reason.
 | A transaction takes the tree lock before a row lock. A credential change authorizes before it locks the credential row. | Onboarding holds the exclusive tree lock and then waits for the credential row at the foreign key of `git_source`. The other order deadlocks. | 8.1, 11.1 |
 | JGit streams blobs above 3 MB. The git module sets the stream threshold of JGit when the cache starts. | The default threshold of JGit is 50 MiB, so each read below it would hold the full file in memory (section 9). | 9, 10.5 |
 | The Git file list visits a maximum of 10,000 tree entries, and fails with `TOO_MANY_FILES` above it. | Shared subtrees let a small commit name billions of files. Each value from outside has a limit. | 9 |
-| The Git adapter logs skipped file names at `INFO`. | Any reader of a public ConfigSet can repeat a list, so the line must not alert. | 9 |
-| `Fetcher.fetch` is the one fetch step. It opens the key, finds the Git instance and fetches. | Sync, the check and the fetch on demand need the same order and the same failure codes. Each failure gets one log line. | 10.6 |
+| The publish step of sync logs the number of skipped file names at `INFO`, one time for each published revision. The file list does not log it. | Any reader of a public ConfigSet can repeat a list, so the line must not alert. One line for each revision is enough. | 9 |
+| `Fetcher` is the one fetch step. It opens the key, finds the Git instance and fetches. `OnDemandFetcher` adds the short lock wait, the second look at the cache and the permit of the fetch on demand. | Sync, the check and the fetch on demand need the same order and the same failure codes. Each failure gets one log line. | 10.6, 10.8 |
 | A delete or a new start of a cache repository waits for reads only until the fetch deadline. | A slow download would otherwise hold a fetch past its deadline, and new reads would wait behind the delete. | 10.5, 10.7 |
+| The cache sweep does not wait. It skips a repository that a fetch or a read holds, and a later sweep deletes it. | The sweep and the poll share the single thread of the fixed-delay tasks. A wait for a slow read would stop the polls for up to the fetch deadline. | 10.5, 10.6 |
 | A timeout of a connect or of an idle read gives `UNREACHABLE`. | Exception types do not show which timeout occurred, so the summary names both causes. | 10.3 |
+| The last published commit is the newest row of `git_revision`, not a column of `git_source`. The last seen commit is a column. | One fact has one location, so the sync state and the revision history cannot disagree. The last seen commit differs when the publish step refuses a tip. | 10.6, 16 |
+| `git_source` stores the failure code, not its summary. | The code gives the fixed summary. A stored copy could disagree after a change of the text. | 10.6 |
+| The publish step fails a sync with `ROOT_PATH_NOT_FOUND` or `TOO_MANY_FILES`, and publishes nothing. | Each published revision must be readable. The check uses the same rule for the root path. | 9, 10.6 |
+| A recovery that publishes writes `SYNC_RECOVERED` and `SYNC_REVISION_PUBLISHED`. | Each audited operation has one name, so a query for one operation finds all of its records. | 14 |
+| Each manual sync request writes `SYNC_REQUESTED`, also when the ConfigSet is already due. | The request is the operation of the caller. A record for each request shows who asked for a sync. | 10.6, 14 |
+| `POST /configsets/{id}/git:sync` gives 202 with the body of `GET /configsets/{id}/git`. | One shape for the Git source and its sync state. The client needs no second request. | 10.6, 12.2 |
+| After an unexpected error, the ConfigSet is due after one interval. After a shutdown, it is due immediately. | A defect must not cause a sync on each poll. A stopped instance did nothing wrong, so another instance continues at once. | 10.6 |
+| The `git` module binds `folio.content.max-concurrent-fetches`. `SourceBusy` has `Retry-After: 5`. | The limit protects reads, so its name is in `folio.content`. Only the Git adapter fetches on demand. | 10.8 |
+| A fetch on demand takes its permit after the lock wait and the second look at the cache. Then it opens the key. | Reads that wait for the lock would otherwise take all permits, and the fetches on demand of all other ConfigSets would fail with `SourceBusy`. A read that finds the commit needs no key. | 10.6, 10.8 |
+| A sync that ends with an exception after the stop of the poller logs `INFO`, not `ERROR`. | The stop interrupts the remaining syncs. A planned shutdown must not write lines that alert operators. | 10.6 |
+| The cache sweep examines only directories whose name is a ConfigSet UUID, and asks `git_source` which ConfigSets exist. | The sweep never deletes `ssh-home`, a symbolic link or another entry. The `git` module reads only its own tables. | 10.5 |
+| The integration tests remove the schedule of sync. They run polls, syncs and sweeps themselves. | A scheduled poll would claim the ConfigSets of a test while the test runs. A post-processor of the tests needs no production flag. | 10.6, 17 |
