@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+# The intellij_idea style follows the Kotlin coding conventions and matches the IntelliJ formatter. It wraps a
+# signature only when the signature does not fit in one line. ktlint_official wraps each signature with two or more
+# parameters, and that adds about 10% more lines.
+ktlint_code_style = intellij_idea
+# The root package io.github.big_sw_little_sw.folio contains underscores, and this ktlint rule rejects them.
+# The detekt rule PackageNaming checks package names instead.
+ktlint_standard_package-name = disabled
+
+[src/test/**.kt]
+# Test files import many names from a few packages. Wildcard imports for these packages keep the test files short.
+# Main sources keep explicit imports. The detekt rule WildcardImport permits the same packages.
+ij_kotlin_packages_to_use_import_on_demand = kotlin.test.*,io.github.big_sw_little_sw.testing.*,org.springframework.test.web.servlet.*,org.hamcrest.Matchers.*

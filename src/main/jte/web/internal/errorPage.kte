@@ -1,0 +1,10 @@
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param title: String
+@param code: String
+@param detail: String
+@template.web.layout(page = page, title = title, content = @`
+    <h1>${title}</h1>
+    @template.web.problem(code = code, detail = detail)
+    <p><a href="/">Go to the start page</a></p>
+`)

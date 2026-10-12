@@ -302,6 +302,11 @@ UI, Folio is also an OAuth client:
   cookie. They accept only bearer tokens.
 - A session ends after `folio.ui.session-timeout` (default 1 hour) without use. Group changes in a token have an
   effect at the next sign-in.
+- The UI client uses the one trusted issuer of section 6.1. Folio does not start if the issuer of the UI client is
+  different.
+- Folio keeps only the `Caller`. It does not keep the access or refresh tokens of the identity provider.
+- Deployments put Folio behind a proxy that ends TLS and sets `X-Forwarded-Proto` and `X-Forwarded-Host`. Folio
+  trusts these headers only from internal addresses. The session cookie is `Secure`.
 
 ### 6.3 Groups and directories
 
@@ -349,7 +354,9 @@ A Folio administrator does these steps.
    - Use a web application registration (a confidential client).
    - Add the redirect URI `https://<folio-host>/login/oauth2/code/folio`.
    - Give Folio its client ID and secret in `spring.security.oauth2.client.registration.folio`. Keep the secret in a
-     secret store.
+     secret store. The scope must contain `openid`.
+   - Set `spring.security.oauth2.client.provider.folio.issuer-uri` to the same issuer as `issuer-uri`. If the two
+     values differ, Folio does not start.
 5. **Register a client for the CLI and for scripts that people start.**
    - Use a public client registration.
    - Turn on "Allow public client flows" for the device flow.
@@ -379,7 +386,8 @@ A Folio administrator does these steps.
    Workspace organization can sign in.
 2. **Create the OAuth clients.**
    - A "Web application" client for the web UI, with the redirect URI `https://<folio-host>/login/oauth2/code/folio`.
-     Give its ID and secret to Folio in `spring.security.oauth2.client.registration.folio`.
+     Give its ID and secret to Folio in `spring.security.oauth2.client.registration.folio`. Set
+     `spring.security.oauth2.client.provider.folio.issuer-uri` to the same issuer as `issuer-uri` (step 3).
    - A "TVs and Limited Input devices" client for the CLI. It uses the device flow with the scopes `openid` and
      `email`. The CLI sends the ID token. The audience of this token is the client ID of the CLI.
 3. **Set the issuer and the audiences.**
@@ -527,16 +535,21 @@ of a module, which is its top-level package. Subpackages named `internal` are pr
            ▼      ▼         ▼
            catalog ────► audit
               │            │
-              ▼            ▼
-           identity      web
+              ▼            │
+           identity ◄──────┘
+              │
+              ▼
+             web
 ```
 
-Dependencies point down. The `git` module implements the Source interface of the `content` module. Thus `content`
-does not depend on `git`. Spring gives the adapters to `content` as beans.
+Dependencies point down. Each module can also use `web` for `ApiId`, `FolioException` and the UI layout. The diagram
+does not show these arrows. `audit` uses `identity` because each audit record takes the `Caller`. The `git` module
+implements the Source interface of the `content` module. Thus `content` does not depend on `git`. Spring gives the
+adapters to `content` as beans.
 
 | Module | Owns | Public interface for other modules | Hides |
 |---|---|---|---|
-| `web` | API ID format (section 5.2), error responses, the UI layout | `ApiId`, `FolioException`, the page layout and shared UI fragments | The map to problem details, the one `@RestControllerAdvice`, htmx and the styles |
+| `web` | API ID format (section 5.2), error responses, the UI layout | `ApiId`, `FolioException`, the page layout with its `PageContext`, the UI content security policy, and shared UI fragments | The map to problem details, the one `@RestControllerAdvice`, the `/error` route, htmx and the styles |
 | `identity` | Token validation, browser sign-in, sessions, directories, `Caller` | `Caller`, `CurrentCaller` (HTTP layers only) | The filter chains, the claim map, the directory adapters, URL rules |
 | `audit` | `audit_event` | `AuditLog.record(entry)` | The insert, the retention period |
 | `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access.requireAllowed`, `Access.isPublic`, `ConfigSets` | The tree lock, recursive queries, the nearest-rule algorithm, move checks, super admins |
@@ -636,8 +649,8 @@ operations. Thus a new audited operation changes one module only.
   subclass for each expected failure.
 - Each subclass has a kind and a stable `code`. The kinds are `NOT_FOUND`, `CONFLICT`, `INVALID`, `FORBIDDEN`,
   `UNAUTHENTICATED`, `UNAVAILABLE`, `UPSTREAM_FAILED`, `UPSTREAM_TIMEOUT` and `TOO_LARGE`.
-- The one advice in `web` changes each kind to a status: 404, 409, 400, 403, 401, 503, 502, 504 and 422. It writes an
-  RFC 9457 problem detail with the `code`. Modules never select HTTP statuses.
+- `ErrorKind` gives each kind one status: 404, 409, 400, 403, 401, 503, 502, 504 and 422. Modules never select HTTP
+  statuses. The one advice in `web` writes an RFC 9457 problem detail with the status of the kind and the `code`.
 - Some unique and foreign-key violations have a domain meaning. The repository that owns the constraint changes them
   to the related exception.
 - Do not catch an exception of another module in your transaction. Spring already marked the transaction for
@@ -647,9 +660,19 @@ All API errors have the same body. This includes 401 and 403 responses from the 
 requests that are not valid, and unexpected errors. An unexpected error gives status 500 with the code `INTERNAL`, and
 the body never contains the exception message.
 
+- Spring MVC's own failures use the same body. A request that Spring cannot read, for example JSON that does not
+  parse or a missing parameter, gives status 400 with the code `INVALID_REQUEST`. Other statuses use the name of the
+  status as the code, for example `NOT_FOUND` or `METHOD_NOT_ALLOWED`.
+- The security filters give their failures to the advice. A bearer token that is not valid gives `INVALID_TOKEN`. If
+  Folio cannot get the discovery document or the signing keys of the issuer, a bearer token gives status 503 with
+  `ISSUER_UNAVAILABLE`. A UI request without a valid CSRF token gives `CSRF_TOKEN_INVALID`.
+- Errors outside Spring MVC, for example a request that the firewall rejects, go to the `/error` route of `web`. That
+  route gives them to the advice. A `FolioException` from a filter keeps its code and status.
+- All error responses have `Cache-Control: no-store`.
+- The body leaves out `type`, because RFC 9457 gives `about:blank` as its default.
+
 ```json
 {
-  "type": "about:blank",
   "title": "Forbidden",
   "status": 403,
   "code": "ACTION_NOT_ALLOWED",
@@ -1116,7 +1139,9 @@ All routes in this table are under `/api/v1/admin`.
   *Reason:* each Source has a different definition and different operations. One route with a body for each type
   would need a registry of types in the catalog.
 - A delete of a rule that does not exist succeeds.
-- springdoc generates the OpenAPI document. Future SDKs and the `folio` CLI use it as their contract.
+- springdoc generates the OpenAPI document for the `/api` routes at `/v3/api-docs`. Future SDKs and the `folio` CLI
+  use it as their contract. Folio does not serve Swagger UI, because Swagger UI needs inline styles that the UI content
+  security policy blocks.
 
 ### 12.3 Web UI
 
@@ -1153,6 +1178,9 @@ slice by hand during development.
 - Each UI response has a strict content security policy: `default-src 'self'`, no inline scripts and
   `frame-ancestors 'none'`.
 - The UI shows errors with the same `code` and `detail` as the API (section 8.6).
+- `/sign-in` starts the sign-in, and a `POST` to `/sign-out` ends the session. The layout links to them.
+- A page view by an anonymous caller makes no session. Only a signed-in caller gets a CSRF token in the page.
+- The layout loads a pinned htmx file with an `integrity` attribute. Thus the browser refuses a different file.
 
 ---
 
@@ -1209,10 +1237,13 @@ slice by hand during development.
   - The resource type and UUID.
   - The path after the operation, or before the operation for a delete. Renames and moves also have the previous path.
   - A JSON object with details.
+- A master-key re-encryption record has no resource UUID and no path.
 - A record never contains keys, ciphertext, secrets, tokens, transport output or file content. Folio does not store
   groups.
 - The table has no foreign keys, because records stay after their resources are deleted. It has an index on
-  `(resource_id, occurred_at)`.
+  `(resource_id, occurred_at)`, and an index on `occurred_at` for retention.
+- The module that does an operation names its operation and resource type as strings, for example
+  `NAMESPACE_RENAMED` and `NAMESPACE`. Thus a new audited operation changes one module only (section 8.5).
 - **Retention.** `folio.audit.retention` has the default 90 days. Each instance deletes old records one time each day,
   in batches of 1,000, with `FOR UPDATE SKIP LOCKED`. Thus instances never wait for each other. If a deployment needs
   records for longer, it exports them to a log store.
@@ -1280,6 +1311,7 @@ Folio uses PostgreSQL 18, Spring `JdbcClient` with plain SQL, and Flyway migrati
 | `git_source` | `config_set_id`, `credential_id`, `repository_path`, `branch`, `root_path`, sync state, lease | Deleted with its `config_set`. The foreign key to `credential` does not cascade. |
 | `git_revision` | `config_set_id`, `commit_id`, `published_at` | Deleted with its `git_source`. The statement that records a sync writes it. |
 | `audit_event` | `id`, `occurred_at`, actor, resource, path, `details jsonb` | No foreign keys |
+| `spring_session`, `spring_session_attributes` | The schema of Spring Session JDBC | UI sessions (section 6.2). Flyway creates them, not Spring Session. |
 
 The unique constraints on slugs examine only the current values. A rename or a move updates one row and keeps the ID,
 so no other table changes. Section 5.3 gives the rules.
@@ -1304,7 +1336,10 @@ so no other table changes. Section 5.3 gives the rules.
 - **UI** tests use MockMvc with a signed-in test session. They examine the status, the important elements and the
   CSRF protection. v1 has no browser tests.
 - **Local development.** `bootTestRun` starts PostgreSQL, the SSH Git server and a mock OIDC provider in
-  Testcontainers. Thus a developer can sign in to the UI and test each slice without a real identity provider.
+  Testcontainers. Thus a developer can sign in to the UI and test each slice without a real identity provider. The
+  mock provider is `ghcr.io/navikt/mock-oauth2-server` at a pinned version. One test signs in through it.
+- **Tokens in tests.** The other integration tests use an issuer in the test process. Thus a test can sign a token
+  with any claims, key, issuer or expiry time, and Folio validates it with its production decoder.
 - Tests that need Docker have `@Tag("integration")`.
 - A modularity test verifies the module boundaries. It also verifies that no HTTP layer calls `CredentialKeys`.
 
@@ -1449,3 +1484,5 @@ decision here with its reason.
 | Only Ed25519 keys in v1. | All target services accept them. One key type gives one code path. | 10.4 |
 | A credential can be deleted only when no Git source uses it. | A ConfigSet never loses its credential. | 11.1 |
 | Micrometer with Prometheus by default and OTLP by configuration. | One API in code. Each deployment selects its backend. | 15.1 |
+| Folio serves the OpenAPI document, but not Swagger UI. | The UI content security policy blocks the inline styles of Swagger UI. | 12.2 |
+| Folio runs behind a TLS proxy. It trusts forwarded headers only from internal addresses, and the session cookie is `Secure`. | Sign-in needs an `https` redirect URI, and the session cookie never goes over plain HTTP. | 6.2 |

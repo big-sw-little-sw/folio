@@ -32,7 +32,7 @@ when you write or change code:
 
 ## Kotlin
 
-- Follow the official Kotlin coding conventions. ktlint (`ktlint_official`) and detekt enforce them.
+- Follow the official Kotlin coding conventions. ktlint (`intellij_idea`) and detekt enforce them.
 - Prefer immutable data: `val`, data classes and read-only collections.
 - Use sealed interfaces and exhaustive `when` for closed sets of alternatives.
 - Use value classes for IDs inside a module. Use plain `UUID` and `String` at the HTTP and SQL edges.
@@ -40,6 +40,11 @@ when you write or change code:
 - Use scope functions only when the intent is clear, for example `?.let` for a null check. Do not nest them.
 - Use extension functions for mapping at module edges, not for domain logic.
 - Use constructor injection only.
+- Give the public service of a concept, which other modules use, the plural name of the concept. Examples are
+  `Namespaces` and `ConfigSets`.
+- Name the internal service of a module `<Concept>Service`, for example `GitSourceService`.
+- Name each other class for what it does, for example `SshKeyStore` or `OnDemandFetcher`. Do not use a plural name.
+- If two types for one concept are in scope, name each field after its type, for example `namespaceRepository`.
 
 ## Writing: ASD-STE100 in spirit
 
@@ -58,3 +63,6 @@ they make the text clearer. Do not apply the STE dictionary strictly: common tec
 - Use vertical lists for steps and for more than three items.
 
 In code comments, state intent, invariants, limits and surprising choices. Do not repeat what the code says.
+
+- Do not cite design sections in code comments. State the reason in the comment itself.
+- Write each invariant one time, in the module that enforces it. In other places, link to that module.

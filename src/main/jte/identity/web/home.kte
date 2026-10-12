@@ -1,0 +1,28 @@
+@import io.github.big_sw_little_sw.folio.identity.Caller
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param caller: Caller
+@template.web.layout(page = page, title = "Home", content = @`
+    <h1>Folio</h1>
+    @if(caller is Caller.Authenticated)
+        <p>Folio knows you as this caller. Rules name these values.</p>
+        <dl>
+            <dt>Subject</dt>
+            <dd><code>${caller.subject}</code></dd>
+            <dt>Groups</dt>
+            <dd>
+                @if(caller.groups.isEmpty())
+                    None
+                @else
+                    @for(group in caller.groups.sorted())
+                        <code>${group}</code>
+                    @endfor
+                @endif
+            </dd>
+            <dt>Application ID</dt>
+            <dd>@if(caller.applicationId != null)<code>${caller.applicationId}</code>@else None @endif</dd>
+        </dl>
+    @else
+        <p>You are not signed in. <a href="/sign-in">Sign in</a> to see the configuration that you can read.</p>
+    @endif
+`)

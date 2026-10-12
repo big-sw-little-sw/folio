@@ -1,0 +1,6 @@
+<%-- The CSRF token of a form that changes data. An anonymous caller has no token and gets no field. --%>
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@if(page.csrf != null)
+    <input type="hidden" name="${page.csrf.parameterName}" value="${page.csrf.token}">
+@endif
