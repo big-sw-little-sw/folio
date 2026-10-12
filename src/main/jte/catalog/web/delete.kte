@@ -1,0 +1,25 @@
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@import io.github.big_sw_little_sw.folio.web.FolioException
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param resource: ResourceView
+@param problem: FolioException? = null
+@template.web.layout(page = page, title = "Delete " + resource.path, content = @`
+    @template.catalog.web.crumbs(resource = resource)
+    <h1>Delete the ${resource.kind}</h1>
+    @if(resource.isNamespace)
+        <p>Folio deletes a Namespace only when it is empty. The rules of the Namespace go with it.</p>
+    @else
+        <p>
+            The rules, the Source definition and the revisions of the ConfigSet go with it. After the delete,
+            consumers get status 404.
+        </p>
+    @endif
+    @if(problem != null)
+        @template.web.problem(code = problem.code, detail = problem.detail)
+    @endif
+    <form method="post" action="${resource.url}/delete">
+        @template.web.csrfField(page = page)
+        <button class="danger" type="submit">Delete <code>${resource.path}</code></button>
+    </form>
+`)

@@ -1,4 +1,4 @@
-<%-- A one-line message, for example after a redirect or as an htmx response. --%>
+<%-- A one-line notice from the previous request. A form operation sets the notice before its redirect. --%>
 @param notice: String?
 @if(notice != null)
     <p class="notice" role="status">${notice}</p>

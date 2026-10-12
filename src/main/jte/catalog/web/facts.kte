@@ -1,0 +1,9 @@
+<%-- The page shows the ID, because consumers keep the ID, not the path. --%>
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@param resource: ResourceView
+<dt>ID</dt>
+<dd><code>${resource.id}</code></dd>
+<dt>Path</dt>
+<dd><code>${resource.path}</code></dd>
+<dt>Description</dt>
+<dd>@if(resource.description != null)${resource.description}@else<span class="muted">None</span>@endif</dd>

@@ -9,7 +9,7 @@ interface Directory {
     fun groups(claims: Map<String, Any>): Set<String>
 }
 
-/** The `token` directory: the groups claim of the token. A token without the claim has no groups. */
+/** The `token` directory reads the groups claim of the token. A token without the claim gives no groups. */
 class TokenDirectory(private val groupsClaim: String) : Directory {
     override fun groups(claims: Map<String, Any>): Set<String> {
         val value = claims[groupsClaim] ?: return emptySet()

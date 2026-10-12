@@ -7,21 +7,21 @@ import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.GetMapping
 
-/** The start page, which shows the caller, and the sign-in route that the layout links to. */
+/**
+ * The caller page and the sign-in route, which the layout links to. The caller page shows the subject, the groups and
+ * the application ID of the caller. Thus a person can see which subjects a rule must name. The catalog serves the start
+ * page.
+ */
 @Controller
 class IdentityPages(private val currentCaller: CurrentCaller) {
-    @GetMapping("/")
-    fun home(model: Model): String {
+    @GetMapping("/me")
+    fun caller(model: Model): String {
         model.addAttribute("caller", currentCaller.get())
-        return "identity/web/home"
+        return "identity/web/caller"
     }
 
     @GetMapping("/sign-in")
     fun signIn(): String = "redirect:$AUTHORIZATION_PATH"
-
-    /** Spring Security sends a failed sign-in here. A page explains the failure, because a new redirect could loop. */
-    @GetMapping("/sign-in", params = ["error"])
-    fun signInFailed(): String = "identity/web/signInFailed"
 
     private companion object {
         const val AUTHORIZATION_PATH =

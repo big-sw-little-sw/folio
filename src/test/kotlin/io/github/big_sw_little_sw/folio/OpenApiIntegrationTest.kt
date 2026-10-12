@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio
 
 import io.github.big_sw_little_sw.testing.*
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.*
@@ -14,8 +15,18 @@ class OpenApiIntegrationTest(@Autowired private val mvc: MockMvc) {
             status { isOk() }
             content { contentTypeCompatibleWith(MediaType.APPLICATION_JSON) }
             jsonPath("$.paths['/api/test/caller']") { exists() }
+            jsonPath("$.paths['/api/v1/configsets:resolve'].get") { exists() }
+            jsonPath("$.paths['/api/v1/admin/namespaces'].post") { exists() }
+            jsonPath("$.paths['/api/v1/admin/namespaces/{id}'].patch") { exists() }
+            jsonPath("$.paths['/api/v1/admin/configsets/{id}:move'].post") { exists() }
+            jsonPath("$.paths['/api/v1/admin/{collection}/{id}/rules/{action}'].put") { exists() }
+            jsonPath("$.paths['/api/v1/admin/{collection}/{id}/explain'].post") { exists() }
+            jsonPath("$RULES.get.parameters[?(@.name == 'collection')].schema.enum[*]") {
+                value(contains("namespaces", "configsets"))
+            }
             jsonPath("$.paths['/']") { doesNotExist() }
             jsonPath("$.paths['/sign-in']") { doesNotExist() }
+            jsonPath("$.paths['/namespaces/{id}']") { doesNotExist() }
             jsonPath("$.paths['/test/notice']") { doesNotExist() }
         }
     }
@@ -23,5 +34,12 @@ class OpenApiIntegrationTest(@Autowired private val mvc: MockMvc) {
     @Test
     fun `Folio serves no Swagger UI`() {
         mvc.get("/swagger-ui/index.html").andExpect { status { isNotFound() } }
+    }
+
+    private companion object {
+        /**
+         * One route serves the rules of Namespaces and of ConfigSets, so its `collection` path variable has two values.
+         */
+        const val RULES = "$.paths['/api/v1/admin/{collection}/{id}/rules']"
     }
 }

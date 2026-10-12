@@ -16,7 +16,7 @@ import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import org.springframework.web.context.request.NativeWebRequest
+import org.springframework.web.context.request.ServletWebRequest
 import org.springframework.web.context.request.WebRequest
 import org.springframework.web.server.ResponseStatusException
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler
@@ -29,7 +29,8 @@ import java.time.Duration
  * get an HTML page with the same code and detail. The security filters of `identity` send their failures here too, so
  * all errors have one format.
  *
- * The base class handles Spring MVC's own failures, for example JSON that does not parse or a missing parameter.
+ * The base class handles the failures of Spring MVC itself, for example JSON that does not parse or a missing
+ * parameter.
  */
 @RestControllerAdvice
 class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEntityExceptionHandler() {
@@ -41,7 +42,7 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
         return respond(request, Problem(exception.kind.status, exception.code, exception.detail), headers)
     }
 
-    /** The exception message can contain internal details, so only the log gets it. */
+    /** The message of the exception can contain internal details. Thus only the log gets the message. */
     @ExceptionHandler
     fun unexpected(exception: Exception, request: HttpServletRequest): ResponseEntity<Any> {
         log.error("Unexpected error", exception)
@@ -54,9 +55,10 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
         headers: HttpHeaders,
         statusCode: HttpStatusCode,
         request: WebRequest,
-    ): ResponseEntity<Any>? {
+    ): ResponseEntity<Any> {
         val status = HttpStatus.valueOf(statusCode.value())
-        // The /error route throws ResponseStatusException after the container logged the cause.
+        // ErrorPageController throws ResponseStatusException only after the container logged the cause. Without this
+        // check, the log would contain each such cause two times.
         if (status.is5xxServerError && ex !is ResponseStatusException) log.error("Unexpected error", ex)
         val problem =
             when {
@@ -64,13 +66,15 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
 
                 status == HttpStatus.INTERNAL_SERVER_ERROR -> Problem(status, INTERNAL, UNEXPECTED)
 
-                // The detail of another server error can contain internal facts, so the client gets only the status.
+                // The detail of another server error can contain internal details. Thus the client gets only the
+                // status.
                 status.is5xxServerError -> Problem(status, status.name, status.reasonPhrase)
 
                 else -> Problem(status, status.name, detailOf(body, status))
             }
-        val servletRequest = (request as NativeWebRequest).getNativeRequest(HttpServletRequest::class.java)
-        return servletRequest?.let { respond(it, problem, HttpHeaders(headers)) }
+        // Spring MVC always gives a ServletWebRequest, so the cast is safe. A null return would make the failure an
+        // empty 200 response.
+        return respond((request as ServletWebRequest).request, problem, HttpHeaders(headers))
     }
 
     private fun respond(request: HttpServletRequest, problem: Problem, headers: HttpHeaders): ResponseEntity<Any> {
@@ -78,11 +82,12 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
         if (isApi(request)) {
             val body = ProblemDetail.forStatusAndDetail(problem.status, problem.detail)
             body.setProperty("code", problem.code)
-            // Without an instance, Spring sets the request URI, which is /error on the error dispatch.
+            // Without an instance, Spring sets the request URI. On the error dispatch, the request URI is /error.
             body.instance = URI.create(originalUri(request))
             return ResponseEntity.status(problem.status).headers(headers).body(body)
         }
-        // Spring Security writes no headers on the error dispatch, so the page sets the UI headers itself.
+        // Spring Security writes no headers on the error dispatch. Thus the advice sets the UI headers on each error
+        // page.
         headers.set(CONTENT_SECURITY_POLICY_HEADER, CONTENT_SECURITY_POLICY)
         headers.set(CONTENT_TYPE_OPTIONS_HEADER, "nosniff")
         return ResponseEntity
@@ -115,7 +120,7 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
         val HTML = MediaType(MediaType.TEXT_HTML, StandardCharsets.UTF_8)
         val log = LoggerFactory.getLogger(ProblemDetailsAdvice::class.java)
 
-        /** Whole seconds, rounded up and at least 1, so that a client never retries too early. */
+        /** Rounds up to whole seconds, with a minimum of 1 second, so that a client never retries too early. */
         fun retryAfterSeconds(delay: Duration): Long = delay
             .plusSeconds(1)
             .minusNanos(1)
@@ -124,7 +129,10 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
 
         fun detailOf(body: Any?, status: HttpStatus): String = (body as? ProblemDetail)?.detail ?: status.reasonPhrase
 
-        /** The URI that the client requested. The `/error` dispatch keeps it in a request attribute. */
+        /**
+         * The URI that the client requested. On the `/error` dispatch, the container keeps that URI in a request
+         * attribute.
+         */
         fun originalUri(request: HttpServletRequest): String =
             request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI) as? String ?: request.requestURI
 

@@ -8,7 +8,7 @@ spring:
       enabled: true
   session:
     jdbc:
-      # Flyway owns the session tables (V1__spring_session.sql).
+      # Flyway creates the session tables in V1__spring_session.sql. Spring Session must not create them again.
       initialize-schema: never
   # Deployments set the identity provider:
   #   security.oauth2.resourceserver.jwt.issuer-uri: the one trusted issuer. Folio does not start without it.
@@ -17,8 +17,8 @@ spring:
   #     client. Its redirect URI is https://<folio-host>/login/oauth2/code/folio.
   #   security.oauth2.client.provider.folio.issuer-uri: the same issuer. Folio does not start if the two differ.
 server:
-  # Deployments put Folio behind a TLS proxy on an internal address. The proxy sets X-Forwarded-Proto and
-  # X-Forwarded-Host, and Tomcat trusts them only from internal addresses. Sign-in then uses an https redirect URI.
+  # Each deployment puts Folio behind a TLS proxy on an internal address. The proxy sets X-Forwarded-Proto and
+  # X-Forwarded-Host. Tomcat trusts these headers only from internal addresses. Sign-in then uses an https redirect URI.
   forward-headers-strategy: native
   servlet:
     session:
@@ -33,16 +33,21 @@ springdoc:
   paths-to-match: /api/**
 management:
   server:
-    # The application port never serves the actuator. Keep this port off public networks, because health and
-    # prometheus need no token. Probes use this port.
+    # The actuator has its own port, and the application port never serves it. Keep the management port off public
+    # networks, because health and prometheus need no token. Probes use the management port.
     port: 8081
   endpoints:
     web:
       exposure:
-        # Nothing else: other endpoints, such as env and configprops, show configuration.
+        # Folio exposes only these endpoints. Other endpoints, such as env and configprops, show configuration values.
         include: health, prometheus
-# Folio's own settings, with their defaults:
-#   folio.security.claims.subject (sub), .groups (groups), .application-id (azp): the claim names of the caller.
-#   folio.security.directory (token): the origin of groups.
-#   folio.ui.session-timeout (1h): a UI session ends after this time without use.
-#   folio.audit.retention (90d): Folio deletes older audit records one time each day.
+# Folio has these settings of its own. The default of each setting is in parentheses.
+#   folio.security.claims.subject (sub), .groups (groups) and .application-id (azp) name the claims that give the
+#     caller.
+#   folio.security.directory (token) selects the directory, which gives the groups of a caller.
+#   folio.ui.session-timeout (1h) is the time without use after which a UI session ends.
+#   folio.audit.retention (90d) is the age at which Folio deletes an audit record. Each instance deletes old records
+#     one time each day.
+#   folio.super-admins (none) lists the subjects of the super admins, for example group:<id>. Each entry is a user:,
+#     group: or application: subject. Keep the list small. Without super admins, nobody can create a top-level
+#     Namespace. A UI session keeps its super-admin status until the next sign-in.

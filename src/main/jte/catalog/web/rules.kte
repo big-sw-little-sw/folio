@@ -1,0 +1,83 @@
+@import io.github.big_sw_little_sw.folio.catalog.Action
+@import io.github.big_sw_little_sw.folio.catalog.web.ExplainForm
+@import io.github.big_sw_little_sw.folio.catalog.web.ExplanationReason
+@import io.github.big_sw_little_sw.folio.catalog.web.ExplanationResponse
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@import io.github.big_sw_little_sw.folio.catalog.web.RuleRow
+@import io.github.big_sw_little_sw.folio.web.FolioException
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param resource: ResourceView
+@param rules: List<RuleRow>
+@param explain: ExplainForm
+@param explanation: ExplanationResponse? = null
+@param problem: FolioException? = null
+@template.web.layout(page = page, title = "Rules of " + resource.path, content = @`
+    @template.catalog.web.crumbs(resource = resource)
+    <h1>Rules of the ${resource.kind}</h1>
+    <p>
+        The nearest rule for an action decides. An action without a rule here inherits the rule of the nearest
+        Namespace above. Subjects are <code>public</code>, <code>authenticated</code>, <code>user:&lt;id&gt;</code>,
+        <code>group:&lt;id&gt;</code> and <code>application:&lt;id&gt;</code>.
+    </p>
+    @if(problem != null)
+        @template.web.problem(code = problem.code, detail = problem.detail)
+    @endif
+    @for(rule in rules)
+        <section class="rule">
+            <h2>${rule.action.name}</h2>
+            @if(rule.inherits)
+                <p class="muted">No rule. ${rule.action.name} inherits.</p>
+            @endif
+            <form class="stacked" method="post" action="${resource.url}/rules/${rule.action.name}">
+                @template.web.csrfField(page = page)
+                <label for="subjects-${rule.action.name}">Subjects, one on each line</label>
+                <textarea id="subjects-${rule.action.name}" name="subjects" rows="3">${rule.text}</textarea>
+                <button type="submit">Save the ${rule.action.name} rule</button>
+            </form>
+            @if(!rule.inherits)
+                <form method="post" action="${resource.url}/rules/${rule.action.name}/delete">
+                    @template.web.csrfField(page = page)
+                    <button class="danger" type="submit">Delete the ${rule.action.name} rule</button>
+                </form>
+            @endif
+        </section>
+    @endfor
+    <h2 id="explain">Explain a decision</h2>
+    <form class="stacked" method="get" action="${resource.url}/rules#explain">
+        <label for="explain-action">Action</label>
+        <select id="explain-action" name="action">
+            @for(action in Action.entries)
+                <option value="${action.name}" selected="${action == explain.action}">${action.name}</option>
+            @endfor
+        </select>
+        <label for="explain-subject">Subject</label>
+        <input id="explain-subject" name="subject" value="${explain.subject}" aria-describedby="explain-subject-help">
+        <small id="explain-subject-help">Leave it empty for an anonymous caller.</small>
+        <label for="explain-groups">Groups, one on each line</label>
+        <textarea id="explain-groups" name="groups" rows="2">${explain.groups}</textarea>
+        <label for="explain-application">Application ID</label>
+        <input id="explain-application" name="applicationId" value="${explain.applicationId}">
+        <button type="submit">Explain</button>
+    </form>
+    @if(explanation != null)
+        <div class="explanation" role="status">
+            <p><strong>@if(explanation.allowed)Permitted@else Denied@endif</strong>: ${explanation.action.name}.</p>
+            @if(explanation.reason == ExplanationReason.SUPER_ADMIN)
+                <p>The super-admin entry <code>${explanation.matchedSubject}</code> matched. Rules do not count.</p>
+            @elseif(explanation.reason == ExplanationReason.NO_RULE)
+                <p>No rule for ${explanation.action.name} exists on this resource or above it.</p>
+            @elseif(explanation.rule != null)
+                <p>
+                    The rule on <code>${explanation.rule.path}</code> (<code>${explanation.rule.resourceId}</code>)
+                    decided.
+                    @if(explanation.matchedSubject != null)
+                        Its subject <code>${explanation.matchedSubject}</code> matched.
+                    @else
+                        None of its subjects matched.
+                    @endif
+                </p>
+            @endif
+        </div>
+    @endif
+`)

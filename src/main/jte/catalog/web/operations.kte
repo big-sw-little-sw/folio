@@ -1,0 +1,19 @@
+@import io.github.big_sw_little_sw.folio.catalog.web.Operations
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@param resource: ResourceView
+@param operations: Operations
+@if(operations.manage || operations.grant)
+    <nav class="operations" aria-label="Operations">
+        @if(operations.manage)
+            @if(resource.isNamespace)
+                <a href="/namespaces/new?parentId=${resource.id}">Create a Namespace here</a>
+            @endif
+            <a href="${resource.url}/edit">Rename or describe</a>
+            <a href="${resource.url}/move">Move</a>
+            <a href="${resource.url}/delete">Delete</a>
+        @endif
+        @if(operations.grant)
+            <a href="${resource.url}/rules">Rules</a>
+        @endif
+    </nav>
+@endif

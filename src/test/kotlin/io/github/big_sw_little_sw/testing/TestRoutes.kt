@@ -32,6 +32,7 @@ class TestRoutes(private val currentCaller: CurrentCaller) {
                 "subject" to caller.subject,
                 "groups" to caller.groups.sorted(),
                 "applicationId" to caller.applicationId,
+                "superAdmin" to caller.superAdmin,
             )
         }
 
@@ -50,7 +51,7 @@ class TestRoutes(private val currentCaller: CurrentCaller) {
     @GetMapping("/api/test/unexpected", "/test/unexpected")
     fun unexpected(): Nothing = throw IllegalStateException(SECRET)
 
-    /** A UI operation that redirects with a notice, as later pages do after a change. */
+    /** Redirects with a notice, as a UI page does after a successful change. */
     @GetMapping("/test/notice")
     fun notice(redirect: RedirectAttributes): ModelAndView {
         redirect.addFlashAttribute(PageContext.NOTICE, NOTICE)
@@ -76,7 +77,8 @@ class TestRoutes(private val currentCaller: CurrentCaller) {
             kind,
             "TEST_${kind.name}",
             "A test failure of kind ${kind.name}.",
-            // A fraction of a second rounds up to RETRY_AFTER_SECONDS.
+            // The delay is 4.2 seconds, so the test shows that Folio rounds a fraction of a second up to
+            // RETRY_AFTER_SECONDS.
             if (kind == ErrorKind.UNAVAILABLE) Duration.ofSeconds(RETRY_AFTER_SECONDS).minusMillis(800) else null,
         )
 

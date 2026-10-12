@@ -6,9 +6,9 @@ import java.net.http.HttpResponse
 import kotlin.test.*
 
 /**
- * Errors outside Spring MVC go to the servlet container's `/error` dispatch. MockMvc has no such dispatch, so this
- * test uses a real port. Spring Security's firewall rejects a path parameter before any controller runs, and
- * [TestFilter] fails other requests.
+ * Errors outside Spring MVC go to the `/error` dispatch of the servlet container. MockMvc has no such dispatch, so
+ * these tests use a real port. The tests cause errors in two ways. The Spring Security firewall rejects a path
+ * parameter before any controller runs. [TestFilter] fails other requests.
  */
 @FolioServerTest
 class ErrorDispatchIntegrationTest(@Value("\${local.server.port}") private val serverPort: Int) {

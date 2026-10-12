@@ -1,0 +1,18 @@
+@import io.github.big_sw_little_sw.folio.catalog.ConfigSet
+@import io.github.big_sw_little_sw.folio.catalog.web.Operations
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param resource: ResourceView
+@param configSet: ConfigSet
+@param operations: Operations
+@template.web.layout(page = page, title = resource.path, content = @`
+    @template.catalog.web.crumbs(resource = resource)
+    <h1>${resource.slug} <span class="kind">ConfigSet</span></h1>
+    <dl>
+        @template.catalog.web.facts(resource = resource)
+        <dt>Source</dt>
+        <dd>${configSet.sourceType.name}</dd>
+    </dl>
+    @template.catalog.web.operations(resource = resource, operations = operations)
+`)

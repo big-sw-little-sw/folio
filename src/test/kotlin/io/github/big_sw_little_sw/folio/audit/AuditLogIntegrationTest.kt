@@ -22,8 +22,7 @@ class AuditLogIntegrationTest(
     fun `a record keeps the actor, the resource, the paths and the details`() {
         val entry =
             AuditEntry(
-                caller = Caller.Authenticated("alice", setOf("secret-group"), "cli"),
-                superAdmin = true,
+                caller = Caller.Authenticated("alice", setOf("secret-group"), "cli", superAdmin = true),
                 operation = "NAMESPACE_MOVED",
                 resourceType = "NAMESPACE",
                 resourceId = resourceId,
@@ -66,6 +65,19 @@ class AuditLogIntegrationTest(
     }
 
     @Test
+    fun `the super-admin flag comes from the caller`() {
+        transactions.executeWithoutResult {
+            auditLog.record(entry(Caller.Authenticated("bob", emptySet(), null)))
+            auditLog.record(entry(Caller.Authenticated("root", emptySet(), null, superAdmin = true)))
+        }
+
+        assertEquals<Map<Any?, Any?>>(
+            mapOf("bob" to false, "root" to true),
+            records().associate { it["actor_subject"] to it["actor_super_admin"] },
+        )
+    }
+
+    @Test
     fun `system and anonymous actors have no subject`() {
         transactions.executeWithoutResult {
             auditLog.record(entry(Caller.System))
@@ -98,8 +110,7 @@ class AuditLogIntegrationTest(
         val marker = UUID.randomUUID().toString()
         val entry =
             AuditEntry(
-                caller = Caller.Authenticated("alice", emptySet(), null),
-                superAdmin = true,
+                caller = Caller.Authenticated("alice", emptySet(), null, superAdmin = true),
                 operation = "MASTER_KEYS_REENCRYPTED",
                 resourceType = "MASTER_KEY_RING",
                 resourceId = null,
@@ -118,7 +129,7 @@ class AuditLogIntegrationTest(
         assertEquals(listOf("MASTER_KEYS_REENCRYPTED"), operations)
     }
 
-    private fun entry(caller: Caller) = AuditEntry(caller, false, "SYNC_FAILED", "CONFIG_SET", resourceId, "a/b")
+    private fun entry(caller: Caller) = AuditEntry(caller, "SYNC_FAILED", "CONFIG_SET", resourceId, "a/b")
 
     private fun records(): List<Map<String, Any?>> = jdbc
         .sql("select * from audit_event where resource_id = :resourceId order by actor_type")

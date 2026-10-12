@@ -12,12 +12,13 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.server.ResponseStatusException
 
 /**
- * Replaces Spring Boot's `/error` route. The servlet container sends a request here when a filter fails or calls
- * `sendError`, for example when the firewall rejects a request. The exception goes to [ProblemDetailsAdvice], so these
- * errors have the same body as all others.
+ * Replaces the `/error` route of Spring Boot. The servlet container sends a request here when a filter throws or calls
+ * `sendError`. For example, the firewall of Spring Security calls `sendError` when it rejects a request. This route
+ * throws an exception to [ProblemDetailsAdvice], so these errors have the same body as all others.
  *
- * A [FolioException] from a filter keeps its code and status. Other exceptions give 500 `INTERNAL`. The container
- * already logged them, so this route gives only their status to the advice.
+ * A [FolioException] from a filter keeps its code and status. For each other error, this route throws a
+ * [ResponseStatusException] with only the status from the container. The container already logged the cause, so the
+ * advice must not log the cause again.
  */
 @Controller
 class ErrorPageController : ErrorController {
@@ -26,7 +27,10 @@ class ErrorPageController : ErrorController {
         throw request.getAttribute(RequestDispatcher.ERROR_EXCEPTION) as? FolioException
             ?: ResponseStatusException(statusOf(request))
 
-    /** Only the container sends requests here. A client that requests /error directly finds nothing. */
+    /**
+     * A client can request /error directly. Such a request is not an error dispatch, so the client gets 404, as for
+     * an unknown path.
+     */
     private fun statusOf(request: HttpServletRequest): HttpStatusCode {
         val status = request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE)
         return when {

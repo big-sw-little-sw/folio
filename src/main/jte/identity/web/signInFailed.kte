@@ -1,7 +1,0 @@
-@import io.github.big_sw_little_sw.folio.web.PageContext
-@param page: PageContext
-@template.web.layout(page = page, title = "Sign-in failed", content = @`
-    <h1>Sign-in failed</h1>
-    <p>Folio could not sign you in. If this occurs again, ask an administrator to examine the Folio log.</p>
-    <p><a href="/sign-in">Try again</a></p>
-`)

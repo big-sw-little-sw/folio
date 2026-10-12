@@ -1,0 +1,42 @@
+@import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceDetails
+@import io.github.big_sw_little_sw.folio.catalog.web.Operations
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param resource: ResourceView
+@param details: NamespaceDetails
+@param operations: Operations
+@template.web.layout(page = page, title = resource.path, content = @`
+    @template.catalog.web.crumbs(resource = resource)
+    <h1>${resource.slug} <span class="kind">Namespace</span></h1>
+    <dl>
+        @template.catalog.web.facts(resource = resource)
+    </dl>
+    @template.catalog.web.operations(resource = resource, operations = operations)
+    <h2>Namespaces</h2>
+    @if(details.namespaces.isEmpty())
+        <p class="muted">No Namespaces that you can read.</p>
+    @else
+        <ul class="children">
+            @for(namespace in details.namespaces)
+                <li>
+                    <a href="${ResourceView.pageOf(namespace.id)}">${namespace.slug.value}</a>
+                    @if(namespace.description != null)<span class="muted">${namespace.description}</span>@endif
+                </li>
+            @endfor
+        </ul>
+    @endif
+    <h2>ConfigSets</h2>
+    @if(details.configSets.isEmpty())
+        <p class="muted">No ConfigSets that you can read.</p>
+    @else
+        <ul class="children">
+            @for(configSet in details.configSets)
+                <li>
+                    <a href="${ResourceView.pageOf(configSet.id)}">${configSet.slug.value}</a>
+                    @if(configSet.description != null)<span class="muted">${configSet.description}</span>@endif
+                </li>
+            @endfor
+        </ul>
+    @endif
+`)

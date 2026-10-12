@@ -54,11 +54,11 @@ Use these terms in code, APIs, logs and reviews. Do not use synonyms for them.
 | **Path** | Slugs from the root, joined by `/`. Paths are for people and for discovery. A rename or a move changes a path. It does not change an ID. |
 | **Slug** | The name of a Namespace or ConfigSet in its parent. It has 1 to 100 characters: lowercase letters, digits and single hyphens between them. |
 | **Directory** | The origin of the groups of a caller: the token, or the Google Cloud Identity API (section 6.3). |
-| **Caller** | The identity that makes a request. A caller is anonymous, or it is an authenticated subject with groups and an optional application ID. |
-| **Subject** | The identity that a rule names: `public`, `authenticated`, `user:<id>`, `group:<id>` or `application:<id>`. |
+| **Caller** | The identity that makes a request. A caller is anonymous, or it is an authenticated subject with groups, an optional application ID and a super-admin status. |
+| **Subject** | The identity that a rule names: `public`, `authenticated`, `user:<id>`, `group:<id>` or `application:<id>`. The ID of a subject has 1 to 500 characters and no control characters. It is exact: case and spaces count. |
 | **Action** | The operation that a rule permits: `READ`, `MANAGE` or `GRANT` (section 7). |
 | **Rule** | A grant of one action on one Namespace or ConfigSet to a set of one or more subjects. |
-| **Super admin** | A subject in the deployment configuration. A super admin can do all actions on all resources. Rules do not change this. |
+| **Super admin** | A caller that a subject in the deployment configuration names. A super admin can do all actions on all resources. Rules do not change this. |
 | **Git instance** | A Git server that Folio can connect to. The deployment configuration gives its host, port, SSH user and trusted host keys. |
 | **Credential** | The SSH identity that Folio uses to read repositories on one Git instance. A Namespace owns each credential. A credential contains key pairs. |
 | **Key** | An SSH key pair of a credential. v1 generates only Ed25519 keys (section 10.4). Its status is `PENDING`, `ACTIVE` or `RETIRED`. |
@@ -167,7 +167,11 @@ for this item. The database Source adds an adapter and an interface for edits. C
 - A ConfigSet is always in a Namespace. A ConfigSet is never at the root.
 - The root is not a resource and has no rules. Thus only super admins can act at the root. For example, only super
   admins can create top-level Namespaces, move a Namespace to the top level and manage master keys.
-- Each Namespace and each ConfigSet has a slug and an optional description of 1,000 characters or fewer.
+- Each Namespace and each ConfigSet has a slug and an optional description of 1,000 characters or fewer. A blank
+  description is no description. Thus an empty form field clears it.
+- Folio counts the characters of a description as Unicode code points, as `char_length` in SQL does. It stores CRLF
+  line breaks as LF, because browsers send form text with CRLF. Thus the UI and the API store the same text. A
+  description cannot contain NUL, because PostgreSQL text rejects it.
 
 ### 5.2 Identifiers
 
@@ -257,21 +261,30 @@ Folio converts the request to a `Caller`:
 
 ```kotlin
 sealed interface Caller {
-    data object Anonymous : Caller
+    /** True if an entry of folio.super-admins names the caller. Identity sets it. */
+    val superAdmin: Boolean
+
+    data object Anonymous : Caller            // superAdmin is false
 
     data class Authenticated(
         val subject: String,
         val groups: Set<String>,
         val applicationId: String?,
+        override val superAdmin: Boolean = false,
     ) : Caller
 
     /** Background work such as sync. It matches no rule. Audit records show it as SYSTEM. */
-    data object System : Caller
+    data object System : Caller               // superAdmin is false
 }
 ```
 
 Services get the caller as an explicit parameter. *Reason:* background work and tests then need no security context.
 Also, the signature shows which operations act for a caller.
+
+Identity decides the super-admin status when it makes the `Caller`, for bearer tokens and for sign-in alike (section
+7.2). It uses `SuperAdmins.caller(subject, groups, applicationId)`. Other modules read `caller.superAdmin`. Only an
+explanation calls `SuperAdmins.caller`, for the caller that a request describes (section 7.4). *Reason:* the audit record of each module and the master-key operations need the
+status. Only `identity` can compute it for all of them, because the other modules depend on it.
 
 ### 6.2 Bearer tokens and the different flows
 
@@ -300,8 +313,10 @@ UI, Folio is also an OAuth client:
   each session.
 - The UI routes use a session cookie and CSRF protection. The API routes under `/api` do not accept the session
   cookie. They accept only bearer tokens.
-- A session ends after `folio.ui.session-timeout` (default 1 hour) without use. Group changes in a token have an
-  effect at the next sign-in.
+- A session ends after `folio.ui.session-timeout` (default 1 hour) without use.
+- The session keeps the `Caller` from sign-in, with its groups and its super-admin status. Thus a change of the groups
+  in a token or of `folio.super-admins` takes effect at the next sign-in. *Reason:* the same rule applies to both, and
+  a request needs no lookup.
 - The UI client uses the one trusted issuer of section 6.1. Folio does not start if the issuer of the UI client is
   different.
 - Folio keeps only the `Caller`. It does not keep the access or refresh tokens of the identity provider.
@@ -460,7 +475,7 @@ The actions are independent. `MANAGE` does not include `READ`. If a person needs
 - *Reason for one or more subjects:* a rule with no subjects stops inheritance and denies all callers below it. That
   is a deny rule, and v1 has no deny rules.
 - Folio decides an action on a resource in this sequence:
-  1. If the caller is a super admin, Folio permits the action.
+  1. If the caller is a super admin (`caller.superAdmin`), Folio permits the action.
   2. Folio looks for a rule for the action on the resource, then on each parent up to the top-level Namespace.
   3. The nearest rule decides. If a subject of the rule matches the caller, Folio permits the action. If not, Folio
      denies it.
@@ -470,6 +485,11 @@ The actions are independent. `MANAGE` does not include `READ`. If a person needs
   rule also.
 - Super admins are in the configuration, `folio.super-admins`, in the subject format. They are not rules, so no rule
   can lock them out. Keep the list small. One group is best.
+- `identity` owns the subject format and the matching of subjects to callers: `Subject.parse` and
+  `Subject.matching(caller)`. Rules and super-admin entries use the same matcher. Identity applies the entries when it
+  makes the caller (section 6.1), and the catalog applies the rules.
+- `folio.super-admins` accepts only `user:`, `group:` and `application:` entries. `public` or `authenticated` would
+  make each caller a super admin, so Folio does not start.
 - `public` matches all callers, also anonymous callers. `authenticated` matches all valid tokens.
   `application:<id>` matches the application claim of the token.
 
@@ -485,7 +505,7 @@ The actions are independent. `MANAGE` does not include `READ`. If a person needs
 | Rules and explanations | `GRANT` |
 | Git check, manual sync | `MANAGE` on the ConfigSet. The check also needs `MANAGE` on the Namespace of the credential. |
 | Credential operations | `MANAGE` on the Namespace that owns the credential |
-| Master-key status and re-encryption | A super admin |
+| Master-key status and re-encryption | A super admin (`Access.requireSuperAdmin`) |
 
 *Reason for `GRANT` on a move with rules:* a moved resource keeps its own rules. These rules are then nearer than the
 rules of the target. Without this check, a caller could move rules into a Namespace and lock out its administrators.
@@ -505,6 +525,18 @@ that the credential can read. Only people that the owner of the credential trust
   a path that does not exist and for a path that it cannot see. An anonymous caller gets the same 401 for both.
 - Lists do not show resources that the caller cannot `READ`.
 - A caller that can see a resource can also see its path. Thus a grant deep in the tree shows the slugs above it.
+- **The start page** (section 12.3) shows the top-most resources that the caller can `READ`, as GitLab does. These are
+  the Namespaces and ConfigSets that the caller can `READ` and whose parent it cannot `READ`. Each has its full path.
+  A slug of a Namespace that the caller cannot `READ` is plain text, not a link. The lists of the Namespace pages show
+  the other readable resources, so the start page does not show them again. For a super admin, the start page shows
+  the top-level Namespaces. An anonymous caller sees the resources that `public` permits.
+  - For other callers, a resource gets `READ` without its own rule only from its parent. Thus each of their
+    start-page resources has a `READ` rule that names the caller.
+  - One query finds these rules: their subjects overlap the subjects that match the caller (`public`,
+    `authenticated`, `user:`, each `group:` and `application:`). A GIN index on `rule.subjects` serves it. The same
+    query walks up the ancestry of each resource.
+  - The nearest-rule algorithm then decides each link of each path, because a nearer rule can take `READ` away. A
+    resource below such a Namespace is then on the start page again, with its own path.
 - `GRANT` on a resource permits an explanation of each decision on it. The explanation shows which rule decided, the
   resource of the rule and the matched subject. If a super-admin entry matched, the explanation shows that.
 
@@ -543,16 +575,17 @@ of a module, which is its top-level package. Subpackages named `internal` are pr
 ```
 
 Dependencies point down. Each module can also use `web` for `ApiId`, `FolioException` and the UI layout. The diagram
-does not show these arrows. `audit` uses `identity` because each audit record takes the `Caller`. The `git` module
+does not show these arrows. `audit` uses `identity` because each audit record takes the `Caller` and its super-admin
+status. The `git` module
 implements the Source interface of the `content` module. Thus `content` does not depend on `git`. Spring gives the
 adapters to `content` as beans.
 
 | Module | Owns | Public interface for other modules | Hides |
 |---|---|---|---|
-| `web` | API ID format (section 5.2), error responses, the UI layout | `ApiId`, `FolioException`, the page layout with its `PageContext`, the UI content security policy, and shared UI fragments | The map to problem details, the one `@RestControllerAdvice`, the `/error` route, htmx and the styles |
-| `identity` | Token validation, browser sign-in, sessions, directories, `Caller` | `Caller`, `CurrentCaller` (HTTP layers only) | The filter chains, the claim map, the directory adapters, URL rules |
+| `web` | API ID format (section 5.2), error responses, the UI layout | `ApiId`, `FolioException`, the page layout with its `PageContext`, `submit` for UI forms (section 12.3), the UI content security policy, and shared UI fragments | The map to problem details and statuses, the one `@RestControllerAdvice`, the `/error` route, htmx and the styles |
+| `identity` | Token validation, browser sign-in, sessions, directories, `Caller`, subjects, super admins | `Caller`, `CurrentCaller` (HTTP layers only), `Subject`, `SuperAdmins`, `IdentityException` | The filter chains, the claim map, the directory adapters, URL rules |
 | `audit` | `audit_event` | `AuditLog.record(entry)` | The insert, the retention period |
-| `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access.requireAllowed`, `Access.isPublic`, `ConfigSets` | The tree lock, recursive queries, the nearest-rule algorithm, move checks, super admins |
+| `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access`, `SnapshotRead`, `ConfigSets`, `ConfigSet`, the ID types and their API IDs, `Slug`, `Path`, `Action`, `SourceType`, `CatalogException` | The tree lock, recursive queries, the nearest-rule algorithm, move checks |
 | `credential` | Credentials, keys, the master-key ring | `Credentials.requireUsable`, `CredentialKeys.withActiveKey` | Key generation, encryption, rotation, OpenSSH format |
 | `content` | The consumption API, the Source interface, validation | `ConfigSource`, for adapters to implement | Revision selection, cache headers, media types, validation |
 | `git` | Git sources, sync, the cache | None. It is an adapter with its own admin routes. | SSH, host keys, JGit, leases, fetch limits, the cache, revision history |
@@ -580,6 +613,9 @@ class Access {
 
     /** True if an anonymous caller can READ the resource. Content uses it for Cache-Control. */
     fun isPublic(resource: ResourceId): Boolean
+
+    /** Throws Forbidden (403) on "the root" or Unauthenticated (401) if the caller is not a super admin. */
+    fun requireSuperAdmin(caller: Caller)
 }
 
 /** ConfigSet creation for Source adapters. The HTTP routes do the other operations. */
@@ -590,11 +626,29 @@ class ConfigSets {
     /** Finds a ConfigSet without authorization. */
     fun find(id: ConfigSetId): ConfigSet?
 }
+
+/** The ConfigSet with its current path. Consumers keep the ID. */
+data class ConfigSet(val id: ConfigSetId, val namespaceId: NamespaceId, val slug: Slug, val description: String?,
+                     val sourceType: SourceType, val path: Path)
+
+/** A Namespace or a ConfigSet. `NamespaceId` and `ConfigSetId` are value classes that implement it. */
+sealed interface ResourceId { val value: UUID }
 ```
+
+- **Who matches.** `Caller.System` matches no rule, also not `public`, and is never a super admin. Background work
+  acts without authorization, so it does not call `Access`. If it does, `Access` denies it with status 403.
+- **Super admins.** `Access` reads `caller.superAdmin` first and needs no query for it. `requireSuperAdmin` is the
+  same check as `MANAGE` at the root, because the root has no rules. Thus a master-key operation and a top-level
+  create give the same errors. It is in `Access`, not in `identity`, because the catalog already owns the 403 and 401
+  errors of authorization.
+- **A resource that is gone.** If the resource was deleted after the caller found it, it has no rules. Then `Access`
+  permits only super admins, and the next step of the caller finds nothing.
 
 - **Authorization.** The catalog owns the rules, so it makes all decisions. Each module calls
   `Access.requireAllowed` in its service before it does an operation. Other modules never read rules.
-- **Tree lock.** Each catalog write, also a rule write, first takes one PostgreSQL advisory lock for the transaction.
+- **Tree lock.** Each catalog write, also a rule write, first takes one PostgreSQL advisory lock for the transaction:
+  `pg_advisory_xact_lock(hashtextextended('folio.catalog.tree', 0))`. `ConfigSets.create` takes it in the transaction
+  of the Source adapter.
   Thus only one catalog write runs at a time. A write examines the tree and then changes it. The lock makes sure that
   the tree does not change between these two steps. Examples:
   - A move examines that the target is not below the moved Namespace. Without the lock, a parallel move could make a
@@ -603,9 +657,37 @@ class ConfigSets {
   - A move examines the rules at the target for `GRANT`. Without the lock, a parallel rule write could change them.
 
   Writes are rare administrative operations, so the lock costs almost nothing. Reads do not take the lock.
+- **Read snapshots.** A read that authorizes, also in `Access`, runs in one read-only `REPEATABLE READ` transaction.
+  Thus the ancestry and the rules of a decision come from one snapshot. A decision never combines a tree and rules
+  that did not exist together. Writes keep `READ COMMITTED`, because their snapshot must start after the tree lock.
+  When `Access` joins the transaction of another module, that transaction sets the isolation. The annotation
+  `@SnapshotRead` of the catalog gives this transaction. Put it on each read that authorizes, also in `content`,
+  `credential` and `git`. *Reason:* one name for one policy. A read with the wrong isolation still compiles.
 - **Ancestors.** A recursive query on `parent_id` finds the ancestors. Trees are shallow. A closure table makes moves
   more difficult and gives no measurable gain.
 - **Nearest-rule algorithm.** It is a pure function in `catalog.internal`. Unit tests examine it without Spring.
+- **Lists.** A list reads the rules of the parent chain and of all children in one query, and applies the algorithm to
+  each child.
+
+The catalog declares these errors:
+
+| Error | Status | Code | Meaning |
+|---|---|---|---|
+| `NamespaceNotFound`, `ConfigSetNotFound` | 404 | `NAMESPACE_NOT_FOUND`, `CONFIG_SET_NOT_FOUND` | No resource has the ID. |
+| `PathNotFound` | 404 | `PATH_NOT_FOUND` | Resolve found no ConfigSet that the caller can read (section 7.4). |
+| `Forbidden` | 403 | `ACTION_NOT_ALLOWED` | The detail names the action and the API ID, or "the root". |
+| `Unauthenticated` | 401 | `AUTHENTICATION_REQUIRED` | An anonymous caller. The detail names the action. |
+| `InvalidSlug`, `InvalidPath`, `InvalidDescription` | 400 | `INVALID_SLUG`, `INVALID_PATH`, `INVALID_DESCRIPTION` | The value does not have the correct form. |
+| `NoSubjects` | 400 | `NO_SUBJECTS` | A rule needs one or more subjects. |
+| `SlugTaken` | 409 | `SLUG_TAKEN` | A sibling has the slug. The repository that owns the unique constraint changes the violation to this error. |
+| `NamespaceNotEmpty` | 409 | `NAMESPACE_NOT_EMPTY` | The Namespace has children, ConfigSets or credentials. |
+| `MoveIntoOwnSubtree` | 409 | `MOVE_INTO_OWN_SUBTREE` | The target is the Namespace or a Namespace below it. |
+
+Folio finds the resource, then authorizes, then examines the tree. Thus a caller without permission gets 403 or 401,
+not a conflict. Values in the body, such as slugs, give status 400 before Folio finds the resource.
+
+A subject that does not have the subject format gives `IdentityException.InvalidSubject` (400, `INVALID_SUBJECT`),
+because `identity` owns the format (section 7.2).
 
 ### 8.2 content
 
@@ -650,7 +732,8 @@ operations. Thus a new audited operation changes one module only.
 - Each subclass has a kind and a stable `code`. The kinds are `NOT_FOUND`, `CONFLICT`, `INVALID`, `FORBIDDEN`,
   `UNAUTHENTICATED`, `UNAVAILABLE`, `UPSTREAM_FAILED`, `UPSTREAM_TIMEOUT` and `TOO_LARGE`.
 - `ErrorKind` gives each kind one status: 404, 409, 400, 403, 401, 503, 502, 504 and 422. Modules never select HTTP
-  statuses. The one advice in `web` writes an RFC 9457 problem detail with the status of the kind and the `code`.
+  statuses. The one advice in `web` writes an RFC 9457 problem detail with the status of the kind and the `code`. The UI
+  form helper `submit` of `web` uses the same status, so a failed form has the status of the API (section 12.3).
 - Some unique and foreign-key violations have a domain meaning. The repository that owns the constraint changes them
   to the related exception.
 - Do not catch an exception of another module in your transaction. Spring already marked the transaction for
@@ -665,7 +748,11 @@ the body never contains the exception message.
   status as the code, for example `NOT_FOUND` or `METHOD_NOT_ALLOWED`.
 - The security filters give their failures to the advice. A bearer token that is not valid gives `INVALID_TOKEN`. If
   Folio cannot get the discovery document or the signing keys of the issuer, a bearer token gives status 503 with
-  `ISSUER_UNAVAILABLE`. A UI request without a valid CSRF token gives `CSRF_TOKEN_INVALID`.
+  `ISSUER_UNAVAILABLE`. A UI request without a valid CSRF token gives `CSRF_TOKEN_INVALID`. A failed browser sign-in
+  gives status 401 with `SIGN_IN_FAILED`.
+- The log gets the cause of a failure that the configuration can cause: each failed sign-in, and a bearer token that
+  the issuer signed for Folio but whose claims give no caller. The client gets only the code. Folio does not log
+  other token failures, such as a bad signature, because any client can cause them.
 - Errors outside Spring MVC, for example a request that the firewall rejects, go to the `/error` route of `web`. That
   route gives them to the advice. A `FolioException` from a filter keeps its code and status.
 - All error responses have `Cache-Control: no-store`.
@@ -729,6 +816,7 @@ interface ConfigSource {
     ): T
 }
 
+// In the public API of catalog, because the catalog stores the type and content depends on the catalog.
 enum class SourceType { GIT }
 
 data class Revision(val id: RevisionId, val publishedAt: Instant)
@@ -751,7 +839,8 @@ content: Git knows both from the object ID, and the database Source stores both.
 **`SourceType`.** The enum names the Sources that this build contains. A new Source needs new code in any case: an
 adapter, a creation route and a migration. Thus a closed enum costs nothing, and exhaustive `when` expressions show
 each location that a new Source must update. Content keeps a map from `SourceType` to the adapter bean. The
-`config_set.source_type` column stores the name. Folio has no plugins. If plugins become necessary, the enum changes to
+`config_set.source_type` column stores the name. The enum is in the public API of the `catalog` module, because
+`ConfigSets.create` takes it and `content` depends on the catalog. Folio has no plugins. If plugins become necessary, the enum changes to
 a string.
 
 The `content` module declares these errors:
@@ -1091,6 +1180,8 @@ each request.
 | `GET /api/v1/configsets/{id}/files?revision=…` | `{revision, files: [{path, size}]}` | `READ` |
 | `GET /api/v1/configsets/{id}/files/{*path}?revision=…` | Raw bytes | `READ` |
 
+- The `catalog` module serves `:resolve`, because it owns paths and their authorization (section 7.4). The `content`
+  module serves the other routes.
 - `revision` is `latest` (the default) or a revision ID. If the ID is not valid, Folio gives status 400.
 - Folio refuses a file larger than `folio.content.max-file-size` (default 100 MB) with status 422, before it opens the
   file. Folio streams files, so this limit protects bandwidth, not memory. Folio keeps files of 3 MB or less in memory
@@ -1125,7 +1216,7 @@ All routes in this table are under `/api/v1/admin`.
 
 | Area | Routes |
 |---|---|
-| Namespaces | `POST /namespaces`, `GET /namespaces/{id}` (with the children that the caller can read), `PATCH /namespaces/{id}` (slug, description), `POST /namespaces/{id}:move`, `DELETE /namespaces/{id}` |
+| Namespaces | `POST /namespaces`, `GET /namespaces` (the top-level Namespaces that the caller can read), `GET /namespaces/{id}` (with the children that the caller can read), `PATCH /namespaces/{id}` (slug, description), `POST /namespaces/{id}:move`, `DELETE /namespaces/{id}` |
 | ConfigSets | `GET /configsets/{id}`, `PATCH /configsets/{id}`, `POST /configsets/{id}:move`, `DELETE /configsets/{id}` |
 | Rules | `GET …/{namespaces or configsets}/{id}/rules`, `PUT …/rules/{action}` with `{subjects}`, `DELETE …/rules/{action}`, `POST …/explain` with `{action, caller}` |
 | Git | `POST /git/configsets`, `GET /configsets/{id}/git` (source and sync state), `POST /configsets/{id}/git:check`, `POST /configsets/{id}/git:sync` |
@@ -1139,6 +1230,22 @@ All routes in this table are under `/api/v1/admin`.
   *Reason:* each Source has a different definition and different operations. One route with a body for each type
   would need a registry of types in the catalog.
 - A delete of a rule that does not exist succeeds.
+- `PATCH` changes the fields in the body. An absent field stays the same. A null or blank `description` clears it.
+- `:move` of a Namespace takes `{"parentId": "ns_…"}`. A null or absent `parentId` moves it to the top level. `:move`
+  of a ConfigSet takes `{"namespaceId": "ns_…"}`.
+- `GET …/rules` gives the own rules of the resource, not the inherited rules. An explanation shows the rule that
+  decides.
+- `explain` takes `{"action": …, "caller": {"subject": …, "groups": […], "applicationId": …}}`. A null or absent
+  `caller` is an anonymous caller. The response has `allowed`, `reason` (`SUPER_ADMIN`, `GRANTED`, `NOT_GRANTED` or
+  `NO_RULE`), `matchedSubject`, and the deciding `rule` with its `resourceId` and `path`. The rule has no
+  `subjects`, because it is often on a Namespace above, and a list of the rules there needs `GRANT` there. Folio gives
+  the described caller the super-admin status that `folio.super-admins` gives to a token with the same claims. The
+  request cannot set it.
+- `GET /namespaces` gives `{namespaces: [...]}`, the top-level Namespaces that the caller can read, in slug order. Each
+  item has the shape of a child in `GET /namespaces/{id}`. An anonymous caller gets the Namespaces that `public`
+  permits. A caller with `READ` only deeper in the tree gets an empty list. The UI start page shows such grants
+  (section 7.4). *Reason:* the route stays simple and has the shape of the children list. A route for deep grants can
+  come later, for example for the CLI, without a change to this route.
 - springdoc generates the OpenAPI document for the `/api` routes at `/v3/api-docs`. Future SDKs and the `folio` CLI
   use it as their contract. Folio does not serve Swagger UI, because Swagger UI needs inline styles that the UI content
   security policy blocks.
@@ -1172,14 +1279,32 @@ slice by hand during development.
 - Each module serves its own pages. The `web` module gives the layout and the shared fragments.
 - The services authorize each operation. The UI also calls `Access.allows` to hide operations that the caller cannot
   do. Hiding is for convenience, not for security.
+- A form page needs the action of its operation, not `READ` (section 7.1). The rules page and the explain form need
+  `GRANT`. The edit, move and delete forms need `MANAGE` on the resource. The create form needs `MANAGE` on the
+  parent.
 - Each form uses CSRF protection. htmx sends the CSRF token in a header.
 - The UI shows file content as escaped text. It never renders a file as HTML. A download has
   `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`.
 - Each UI response has a strict content security policy: `default-src 'self'`, no inline scripts and
   `frame-ancestors 'none'`.
 - The UI shows errors with the same `code` and `detail` as the API (section 8.6).
-- `/sign-in` starts the sign-in, and a `POST` to `/sign-out` ends the session. The layout links to them.
-- A page view by an anonymous caller makes no session. Only a signed-in caller gets a CSRF token in the page.
+- `/sign-in` starts the sign-in, and a `POST` to `/sign-out` ends the session. The layout links to them. A failed
+  sign-in shows the error page with `SIGN_IN_FAILED` (section 8.6). It does not start a new sign-in, because that
+  could fail in the same way.
+- The start page `/` is the tree browser of the catalog. It shows the top-most Namespaces and ConfigSets that the
+  caller can read, each with its full path (section 7.4), and a form that opens a ConfigSet by path. In a path and in
+  the breadcrumbs, only the resources that the caller can read are links. The catalog service `StartService.entries`
+  makes the list. The API route `GET /namespaces` lists only the top-level Namespaces (section 12.2). For a super
+  admin, the two lists are the same. `/me` shows the subject, groups and application ID of the caller, which
+  rules name. The layout links to it.
+- If a page needs an authenticated caller and the caller is anonymous, Folio sends the browser to `/sign-in`. After
+  sign-in, Spring Security sends it back to the page. This applies to `GET` pages, not to the API. Anonymous form
+  posts fail the CSRF check first.
+- If a form fails with an expected error, the page shows the form again with the values, the `code` and the
+  `detail`. The response has the status that the API gives for the error.
+- The explain form uses `GET`, because it changes nothing. Thus it needs no CSRF token.
+- A page view by an anonymous caller makes no session, except when Folio sends the browser to sign-in. Then the
+  session keeps the page for the return after sign-in. Only a signed-in caller gets a CSRF token in the page.
 - The layout loads a pinned htmx file with an `integrity` attribute. Thus the browser refuses a different file.
 
 ---
@@ -1233,7 +1358,7 @@ slice by hand during development.
 - Each record contains:
   - The time, from the database clock.
   - The actor: `AUTHENTICATED` with the subject and application ID, `ANONYMOUS`, or `SYSTEM`.
-  - If the actor was a super admin.
+  - If the actor was a super admin. `AuditLog.record` reads it from the `Caller`, so no module passes it.
   - The resource type and UUID.
   - The path after the operation, or before the operation for a delete. Renames and moves also have the previous path.
   - A JSON object with details.
@@ -1244,6 +1369,10 @@ slice by hand during development.
   `(resource_id, occurred_at)`, and an index on `occurred_at` for retention.
 - The module that does an operation names its operation and resource type as strings, for example
   `NAMESPACE_RENAMED` and `NAMESPACE`. Thus a new audited operation changes one module only (section 8.5).
+- The catalog records `NAMESPACE_` and `CONFIG_SET_` with `CREATED`, `RENAMED`, `DESCRIBED`, `MOVED` and `DELETED`.
+  A `PATCH` that changes the slug and the description writes two records, one for each operation. Thus a query for
+  one operation finds all of them. Rule writes are `RULE_PUT` and `RULE_DELETED`, with the resource type, the ID and
+  the path of the target of the rule. Their details have the action and the subjects before and after.
 - **Retention.** `folio.audit.retention` has the default 90 days. Each instance deletes old records one time each day,
   in batches of 1,000, with `FOR UPDATE SKIP LOCKED`. Thus instances never wait for each other. If a deployment needs
   records for longer, it exports them to a log store.
@@ -1305,7 +1434,7 @@ Folio uses PostgreSQL 18, Spring `JdbcClient` with plain SQL, and Flyway migrati
 |---|---|---|
 | `namespace` | `id`, `parent_id`, `slug`, `description` | `unique nulls not distinct (parent_id, slug)` also covers the top level |
 | `config_set` | `id`, `namespace_id`, `slug`, `description`, `source_type` | `unique (namespace_id, slug)`. The foreign key to `namespace` does not cascade. |
-| `rule` | `id`, `namespace_id` or `config_set_id`, `action`, `subjects text[]` | One target only. One rule for each target and action. One or more subjects. The rule is deleted with its target. |
+| `rule` | `id`, `namespace_id` or `config_set_id`, `action`, `subjects text[]` | One target only. One rule for each target and action. One or more subjects. The rule is deleted with its target. A GIN index on `subjects` serves the start page (section 7.4). |
 | `credential` | `id`, `namespace_id`, `git_instance`, `name`, `status` | `unique (namespace_id, name)`. The foreign key to `namespace` does not cascade. Keys are deleted with their credential. |
 | `credential_key` | `id`, `credential_id`, `status`, `public_key`, `fingerprint`, encryption columns | Partial unique indexes for one `ACTIVE` key and one `PENDING` key |
 | `git_source` | `config_set_id`, `credential_id`, `repository_path`, `branch`, `root_path`, sync state, lease | Deleted with its `config_set`. The foreign key to `credential` does not cascade. |
@@ -1396,6 +1525,7 @@ The database Source also needs these items:
 | One cache for all ConfigSets of a repository | In `git` only |
 | Bundles, views, composition, push, Spring Cloud Config | Built on `content`, above the Source interface |
 | API to read audit records | In `audit` |
+| An API list of the top-most readable resources (deep grants) | A new route in `catalog` that serves `StartService.entries`. `GET /namespaces` does not change. |
 
 ---
 
@@ -1485,4 +1615,16 @@ decision here with its reason.
 | A credential can be deleted only when no Git source uses it. | A ConfigSet never loses its credential. | 11.1 |
 | Micrometer with Prometheus by default and OTLP by configuration. | One API in code. Each deployment selects its backend. | 15.1 |
 | Folio serves the OpenAPI document, but not Swagger UI. | The UI content security policy blocks the inline styles of Swagger UI. | 12.2 |
+| The catalog serves resolve. `SourceType` is in the public API of the catalog. | The catalog owns paths and stores the Source type. Content depends on the catalog. | 9, 12.1 |
+| A `PATCH` of slug and description writes two audit records. | Each audited operation has one name, so a query finds all of its records. | 14 |
+| An anonymous browser goes to sign-in and back to the page. | People see the page that they asked for, not an error. The API keeps its 401. | 12.3 |
 | Folio runs behind a TLS proxy. It trusts forwarded headers only from internal addresses, and the session cookie is `Secure`. | Sign-in needs an `https` redirect URI, and the session cookie never goes over plain HTTP. | 6.2 |
+| Identity decides the super-admin status when it makes the `Caller`, and the `Caller` carries it. Audit records and `Access` read it from the `Caller`. | Each module that audits or does master-key work needs the status. The other modules depend on `identity`, so only `identity` can compute it for all of them. | 6.1, 7.2, 8, 14 |
+| `identity` owns subjects: their format and one matcher for rules and super-admin entries. | Rules and super-admin entries use one format. One matcher cannot disagree with a copy. | 7.2, 8 |
+| An explanation gives the described caller the super-admin status of the configuration. | The explanation must match what a token with the same claims gives. | 7.4, 12.2 |
+| `Access.requireSuperAdmin` guards master-key operations. It is the check for `MANAGE` at the root. | The catalog already owns the 403 and 401 errors of authorization. A master-key operation and a top-level create then give the same errors. | 7.3, 8.1 |
+| A UI session keeps the super-admin status from sign-in. | The same rule as for groups. A request needs no lookup. | 6.2 |
+| The start page shows the top-most resources that the caller can read, with their full paths. Slugs that the caller cannot read are plain text. | A caller with `READ` only deep in the tree finds its resources, as in GitLab. Design 7.4 already shows the path of a visible resource. | 7.4, 12.3 |
+| `GET /api/v1/admin/namespaces` lists only the top-level Namespaces that the caller can read. | The route stays simple and has the shape of the children list. A route for deep grants can come later. | 12.2 |
+| `@SnapshotRead` gives each read that authorizes its transaction, in each module. | One policy has one name. A read with the wrong isolation compiles, so each site must not spell it. | 8.1 |
+| A failed sign-in is an error with the code `SIGN_IN_FAILED`. One failure handler logs each cause. | One error style for the UI and the API. Spring logs these failures only at debug levels. | 8.6, 12.3 |

@@ -14,7 +14,10 @@
         <meta name="csrf-header" content="${page.csrf.headerName}">
         <meta name="csrf-token" content="${page.csrf.token}">
     @endif
-    <%-- The content security policy blocks inline styles and eval. These settings stop htmx from using them. --%>
+    <%--
+        The content security policy blocks inline styles and eval. These settings stop htmx from using inline styles
+        and eval. Without these settings, the browser blocks parts of htmx and reports policy violations.
+    --%>
     <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false}'>
     <link rel="stylesheet" href="/css/folio.css">
     <%--

@@ -6,7 +6,7 @@ import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.web.filter.OncePerRequestFilter
 
-/** Fails requests in a servlet filter, outside Spring MVC, so that tests can examine the `/error` dispatch. */
+/** This servlet filter fails requests outside Spring MVC, so that tests can examine the `/error` dispatch. */
 class TestFilter : OncePerRequestFilter() {
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         when (request.requestURI) {
@@ -17,10 +17,10 @@ class TestFilter : OncePerRequestFilter() {
     }
 
     companion object {
-        /** A filter throws a FolioException of kind CONFLICT. */
+        /** At this path, the filter throws a FolioException of kind CONFLICT. */
         const val FAILURE = "/api/test/filter/failure"
 
-        /** A filter sends status 503 with `sendError`. */
+        /** At this path, the filter sends status 503 with `sendError`. */
         const val SEND_ERROR = "/api/test/filter/send-error"
     }
 }

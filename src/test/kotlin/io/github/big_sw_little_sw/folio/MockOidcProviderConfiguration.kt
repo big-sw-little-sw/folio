@@ -23,7 +23,7 @@ class MockOidcProviderConfiguration {
         registry.add("spring.security.oauth2.client.provider.folio.issuer-uri", provider::issuer)
     }
 
-    /** The mapped port changes at each run, so a developer reads the issuer for API tokens from the log. */
+    /** The mapped port changes at each run, so a developer must read the issuer from the log to get API tokens. */
     @Bean
     fun mockOidcProviderLog(provider: MockOidcProvider) = ApplicationRunner {
         LoggerFactory
@@ -40,7 +40,7 @@ class MockOidcProvider : GenericContainer<MockOidcProvider>(IMAGE) {
         waitingFor(Wait.forHttp("/$ISSUER_ID/.well-known/openid-configuration"))
     }
 
-    /** The issuer that tokens name. The provider takes the host of its URL from each request. */
+    /** Returns the issuer that tokens name. The provider takes the host of the issuer URL from each request. */
     fun issuer(): String = "http://$host:$firstMappedPort/$ISSUER_ID"
 
     private companion object {

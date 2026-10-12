@@ -1,0 +1,29 @@
+@import io.github.big_sw_little_sw.folio.catalog.web.ResourceView
+@import io.github.big_sw_little_sw.folio.web.FolioException
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param resource: ResourceView
+@param target: String?
+@param problem: FolioException? = null
+@template.web.layout(page = page, title = "Move " + resource.path, content = @`
+    @template.catalog.web.crumbs(resource = resource)
+    <h1>Move the ${resource.kind}</h1>
+    <p>
+        A move changes the path, not the ID. The ${resource.kind} keeps its own rules. Its inherited rules then come
+        from the new parent.
+    </p>
+    @if(problem != null)
+        @template.web.problem(code = problem.code, detail = problem.detail)
+    @endif
+    <form class="stacked" method="post" action="${resource.url}/move">
+        @template.web.csrfField(page = page)
+        <label for="target">ID of the new parent Namespace</label>
+        @if(resource.isNamespace)
+            <input id="target" name="target" value="${target}" placeholder="ns_…" aria-describedby="target-help">
+            <small id="target-help">Leave it empty to move to the top level. Only super admins can do that.</small>
+        @else
+            <input id="target" name="target" value="${target}" placeholder="ns_…" required>
+        @endif
+        <button type="submit">Move</button>
+    </form>
+`)

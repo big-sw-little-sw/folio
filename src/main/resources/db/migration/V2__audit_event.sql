@@ -1,7 +1,7 @@
 -- Audit records. There are no foreign keys, because records stay after their resources are deleted.
 create table audit_event (
     id uuid primary key default uuidv7(),
-    -- The database clock at the start of the transaction of the operation.
+    -- now() gives the database time at the start of the transaction. All records of one operation have the same time.
     occurred_at timestamptz not null default now(),
     actor_type text not null check (actor_type in ('AUTHENTICATED', 'ANONYMOUS', 'SYSTEM')),
     actor_subject text,
@@ -19,5 +19,6 @@ create table audit_event (
 
 create index audit_event_resource on audit_event (resource_id, occurred_at);
 
--- Retention deletes records by age only. The index above cannot find them.
+-- Retention finds records by age only. The audit_event_resource index starts with resource_id, so it cannot serve
+-- that query.
 create index audit_event_occurred_at on audit_event (occurred_at);

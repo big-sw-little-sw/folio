@@ -1,0 +1,42 @@
+@import io.github.big_sw_little_sw.folio.catalog.web.StartItem
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param items: List<StartItem>
+@param superAdmin: Boolean
+@template.web.layout(page = page, title = "Catalog", content = @`
+    <h1>Catalog</h1>
+    <form class="inline" method="get" action="/configsets">
+        <label for="path">Open a ConfigSet by path</label>
+        <input id="path" name="path" placeholder="engineering/search/service-a" required>
+        <button type="submit">Open</button>
+    </form>
+    <h2>What you can read</h2>
+    @if(items.isEmpty())
+        <p class="muted">There are no Namespaces or ConfigSets that you can read.</p>
+    @else
+        <ul class="children">
+            @for(item in items)
+                <li>
+                    @for(index in item.path.indices)
+                        @if(index > 0) / @endif
+                        @if(item.path[index].url != null)
+                            <a href="${item.path[index].url}">${item.path[index].label}</a>
+                        @else
+                            ${item.path[index].label}
+                        @endif
+                    @endfor
+                    <span class="kind">${item.kind}</span>
+                    @if(item.description != null)<span class="muted">${item.description}</span>@endif
+                </li>
+            @endfor
+        </ul>
+    @endif
+    @if(page.signedInAs == null)
+        <p><a href="/sign-in">Sign in</a> to see the configuration that you can read.</p>
+    @endif
+    @if(superAdmin)
+        <nav class="operations" aria-label="Operations">
+            <a href="/namespaces/new">Create a top-level Namespace</a>
+        </nav>
+    @endif
+`)

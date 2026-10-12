@@ -83,7 +83,8 @@ tasks.named("compileKotlin") {
     dependsOn(tasks.named("generateJte"))
 }
 
-// ktlint skips the generated templates, but its tasks still read their directory, so they run after generation.
+// ktlint skips the generated templates, but the ktlint tasks still read the generated-sources directory. Without a
+// dependency on generateJte, Gradle stops the build, because the ktlint tasks use an undeclared task output.
 ktlint {
     version = libs.versions.ktlint
     filter {
@@ -137,7 +138,8 @@ tasks.withType<Test>().configureEach {
     jvmArgs(folioJvmArgs)
 }
 
-// Tests tagged "integration" need Docker (Testcontainers). `test` stays runnable without a Docker daemon.
+// Tests with the tag "integration" use Testcontainers and need Docker. The `test` task excludes them, so `test` runs
+// on a machine without Docker. The `check` task runs both tasks.
 tasks.test {
     useJUnitPlatform {
         excludeTags("integration")

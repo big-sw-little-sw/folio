@@ -1,6 +1,7 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 import io.github.big_sw_little_sw.folio.identity.Caller
+import io.github.big_sw_little_sw.folio.identity.SuperAdmins
 import kotlin.test.*
 
 class CallerFactoryTest {
@@ -42,9 +43,20 @@ class CallerFactoryTest {
     }
 
     @Test
+    fun `a caller that a super-admin entry names is a super admin`() {
+        val claims = mapOf("sub" to "root", "groups" to listOf("folio-admins"))
+
+        assertEquals(
+            Caller.Authenticated("root", setOf("folio-admins"), null, superAdmin = true),
+            defaults.toCaller(claims),
+        )
+    }
+
+    @Test
     fun `claim names must not be blank`() {
         assertFailsWith<IllegalArgumentException> { IdentityProperties.ClaimNames(subject = "") }
     }
 
-    private fun callerFactory(names: IdentityProperties.ClaimNames) = CallerFactory(names, TokenDirectory(names.groups))
+    private fun callerFactory(names: IdentityProperties.ClaimNames) =
+        CallerFactory(names, TokenDirectory(names.groups), SuperAdmins(listOf("group:folio-admins")))
 }

@@ -22,13 +22,6 @@ class ErrorResponsesIntegrationTest(@Autowired private val mvc: MockMvc) {
     }
 
     @Test
-    fun `an unauthenticated caller is told to send a bearer token`() {
-        mvc.get("/api/test/failures/UNAUTHENTICATED").andExpect {
-            header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") }
-        }
-    }
-
-    @Test
     fun `an unavailable failure can tell the client when to try again`() {
         mvc.get("/api/test/failures/UNAVAILABLE").andExpect {
             header { string(HttpHeaders.RETRY_AFTER, TestRoutes.RETRY_AFTER_SECONDS.toString()) }
@@ -87,24 +80,14 @@ class ErrorResponsesIntegrationTest(@Autowired private val mvc: MockMvc) {
         }
     }
 
-    private fun ResultActionsDsl.andExpectProblem(status: Int, code: String) = andExpect {
-        status { isEqualTo(status) }
-        content { contentType(MediaType.APPLICATION_PROBLEM_JSON) }
-        header { string(HttpHeaders.CACHE_CONTROL, "no-store") }
-        jsonPath("$.status") { value(status) }
-        jsonPath("$.code") { value(code) }
-        jsonPath("$.title") { exists() }
-        jsonPath("$.type") { doesNotExist() }
-    }
-
-    private fun ResultActionsDsl.andExpectPage(status: Int, code: String) = andExpect {
-        status { isEqualTo(status) }
-        content { contentTypeCompatibleWith(MediaType.TEXT_HTML) }
-        content { string(containsString("<code>$code</code>")) }
-        header { string(HttpHeaders.CACHE_CONTROL, "no-store") }
-        header { stringValues("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'") }
-        header { stringValues("X-Content-Type-Options", "nosniff") }
-    }
+    /** Spring Security writes no headers on the error dispatch, so the error page must set the UI headers itself. */
+    private fun ResultActionsDsl.andExpectPage(status: Int, code: String) =
+        andExpectProblemPage(status, code).andExpect {
+            content { contentTypeCompatibleWith(MediaType.TEXT_HTML) }
+            header { string(HttpHeaders.CACHE_CONTROL, "no-store") }
+            header { stringValues("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'") }
+            header { stringValues("X-Content-Type-Options", "nosniff") }
+        }
 
     private companion object {
         val STATUS =

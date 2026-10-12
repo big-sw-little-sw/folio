@@ -7,8 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
-import org.springframework.http.HttpHeaders
-import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.*
 import kotlin.test.*
 
@@ -20,12 +18,9 @@ import kotlin.test.*
 class IssuerOutageIntegrationTest(@Autowired private val mvc: MockMvc) {
     @Test
     fun `a token is ISSUER_UNAVAILABLE when the issuer gives no signing keys`() {
-        mvc.get("/api/test/caller") { bearer(TestIssuer.token(issuer = KeylessIssuer.uri)) }.andExpect {
-            status { isServiceUnavailable() }
-            content { contentType(MediaType.APPLICATION_PROBLEM_JSON) }
-            header { string(HttpHeaders.CACHE_CONTROL, "no-store") }
-            jsonPath("$.code") { value("ISSUER_UNAVAILABLE") }
-        }
+        mvc
+            .get("/api/test/caller") { bearer(TestIssuer.token(issuer = KeylessIssuer.uri)) }
+            .andExpectProblem(503, "ISSUER_UNAVAILABLE")
     }
 
     @Test
