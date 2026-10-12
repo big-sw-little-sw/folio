@@ -14,8 +14,7 @@ bouncycastle = "1.86"
 # Folio uses only this Google library, for Application Default Credentials. It calls the Cloud Identity API with
 # RestClient, so it needs no Google API client.
 googleAuth = "1.54.0"
-# Spring Boot gives no observations for JDBC calls. datasource-micrometer adds them, so database calls get spans
-# (design 15.1). The version of datasource-micrometer must match Spring Boot: version 2.3 is for Spring Boot 4.1.
+# The version of datasource-micrometer must match Spring Boot: version 2.3 is for Spring Boot 4.1.
 datasourceMicrometer = "2.3.0"
 ktlintGradle = "14.2.0"
 ktlint = "1.8.0"

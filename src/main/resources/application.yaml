@@ -10,9 +10,8 @@ spring:
     hikari:
       data-source-properties:
         # Without this setting, the PostgreSQL driver puts the server detail of an error into the exception message.
-        # The detail of a unique violation has the key values, for example a slug. A failed statement records the
-        # message in its span, and the log line of an unexpected error contains it. Spans and logs must never contain
-        # such values (design 15.1).
+        # The detail of a unique violation contains the key values, for example a slug. The span of the failed
+        # statement and the log line of an unexpected error would then contain these values.
         logServerErrorDetail: false
   session:
     jdbc:
@@ -58,8 +57,8 @@ management:
       exposure:
         # Folio exposes only these endpoints. Other endpoints, such as env and configprops, show configuration values.
         include: health, prometheus
-  # Folio records meters with Micrometer (design 15.1). Prometheus scrapes the meters from /actuator/prometheus on
-  # the management port. To push the meters to an OpenTelemetry collector too, do these steps:
+  # Prometheus scrapes the meters from /actuator/prometheus on the management port. To also push the meters to an
+  # OpenTelemetry collector, do these steps:
   #   1. Set otlp.metrics.export.enabled to true.
   #   2. Set otlp.metrics.export.url to the collector, for example http://collector:4318/v1/metrics.
   otlp:
@@ -70,15 +69,14 @@ management:
   #   1. Set tracing.sampling.probability above 0, for example 0.1.
   #   2. Set opentelemetry.tracing.export.otlp.endpoint to the collector, for example http://collector:4318/v1/traces.
   # Without the endpoint, Folio exports no spans. The sampler follows the sampled flag of an incoming traceparent
-  # header. Thus, with an endpoint and probability 0, Folio still exports the spans of each request whose traceparent
-  # is sampled. A span can contain a ConfigSet ID, but never a path, a subject, a token, file content or an exception
-  # message.
+  # header. Thus, with an endpoint and a probability of 0, Folio still exports the spans of each request whose
+  # traceparent is sampled. A span can contain a ConfigSet ID, but never a path, a subject, a token, file content or an
+  # exception message.
   tracing:
     sampling:
       probability: 0.0
-# The datasource-micrometer library gives the spans of database calls (design 15.1): one span for the use of each
-# connection and one span for each statement. Folio does not include the spans of result sets, because they would add
-# many spans with little information.
+# The datasource-micrometer library gives one span for each use of a connection and one span for each statement.
+# Folio leaves out the spans of result sets, because they add many spans with little information.
 jdbc:
   includes: connection, query
   datasource-proxy:

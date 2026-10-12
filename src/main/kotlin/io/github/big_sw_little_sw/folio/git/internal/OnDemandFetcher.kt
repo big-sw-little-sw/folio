@@ -38,8 +38,8 @@ data class OnDemandProperties(val maxConcurrentFetches: Int = DEFAULT_MAX_CONCUR
  * - If the last sync failed with `REPOSITORY_TOO_LARGE`, a read that needs a fetch fails immediately with that code,
  *   because the fetch would fail in the same way.
  *
- * The meter `folio.content.fetches` counts each read that needs a fetch, by its result. A read that waited for another
- * fetch counts as `fetched` if that fetch got the commit, and as `busy` if the wait was too long.
+ * Each read that needs a fetch counts once in `folio.content.fetches`, by its result. A read that waited for another
+ * fetch counts as `fetched` if that fetch got the commit, or as `busy` if the wait was too long.
  */
 @Component
 class OnDemandFetcher(

@@ -1,13 +1,7 @@
 package io.github.big_sw_little_sw.folio
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSets
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.SshGitServer
-import io.github.big_sw_little_sw.testing.TestCatalog
-import io.github.big_sw_little_sw.testing.TestGit
-import io.github.big_sw_little_sw.testing.TestIssuer
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
+import io.github.big_sw_little_sw.testing.*
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter
@@ -19,21 +13,14 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.context.TestPropertySource
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/**
- * These tests turn traces on and collect the spans in memory (design 15.1). Each sync fetch has a span with the
- * ConfigSet ID. HTTP requests and database calls have spans too. No span contains a path, a subject, a token or a
- * parameter value of a statement. A span with an error has the exception type, but no exception message.
- */
+/** These tests turn traces on and collect the spans in memory. */
 @GitIntegrationTest
+@FreshGitRepository
 @TestPropertySource(properties = ["management.tracing.sampling.probability=1.0"])
 @Import(TracingIntegrationTest.InMemorySpans::class)
 class TracingIntegrationTest(
@@ -95,16 +82,13 @@ class TracingIntegrationTest(
     }
 
     /**
-     * Syncs a new ConfigSet, resolves its path and reads a file with a bearer token. Then the function does two steps
-     * that fail: a create of a Namespace whose slug a sibling already has, and a sync after the key was revoked.
-     * Returns the spans of these steps, the API ID of the ConfigSet, and the values that no span may contain: the
-     * paths, the slug of the Namespace, the repository path, the subject, the group and the token.
+     * Makes the spans of a sync, a resolve, a file read and two failures: a slug conflict in the database and a sync
+     * after the key was revoked. Returns these spans, the API ID of the ConfigSet and the values that no span may
+     * contain.
      */
     private fun trace(): Traced {
-        SshGitServer.revokeAll()
-        SshGitServer.createRepository("configs")
         val slug = TestCatalog.uniqueSlug("secret-slug")
-        val configSet = git.configSet(git.authorizedCredential().id, namespace = catalog.namespace(slug = slug))
+        val configSet = git.connected(catalog.namespace(slug = slug))
         val path = checkNotNull(configSets.find(configSet)).path.toString()
         val subject = "subject-${UUID.randomUUID()}"
         val token = TestIssuer.token(mapOf("sub" to subject, "groups" to listOf(GROUP)))

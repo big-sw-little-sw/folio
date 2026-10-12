@@ -32,7 +32,7 @@ import kotlin.test.*
  * with `UNREACHABLE` while a permit is free, and with `SOURCE_BUSY` when no permit is free. The context has the default
  * limit of two fetches on demand.
  *
- * The tests also check the meter `folio.content.fetches`, which counts each read that needs a fetch by its result.
+ * The tests also check the meter `folio.content.fetches`.
  */
 @GitIntegrationTest
 @FreshGitRepository
@@ -52,15 +52,13 @@ class OnDemandFetchIntegrationTest(
     fun `a read that fetches its commit counts as fetched, and the meters of sync do not change`() {
         val configSet = published()
         val fetched = fetches("fetched")
-        val attempts = meters.total("folio.sync.attempts")
-        val syncFetches = meters.get("folio.sync.fetch.duration").timer().count()
+        val sync = meters.syncCounts()
 
         read(configSet).andExpect { status { isOk() } }
         read(configSet).andExpect { status { isOk() } }
 
         assertEquals(1.0, fetched.added())
-        assertEquals(attempts, meters.total("folio.sync.attempts"))
-        assertEquals(syncFetches, meters.get("folio.sync.fetch.duration").timer().count())
+        assertEquals(sync, meters.syncCounts())
     }
 
     @Test
@@ -165,11 +163,8 @@ class OnDemandFetchIntegrationTest(
     fun `a missing commit is fetched again after one sync interval`() {
         val (configSet, third) = missingAfterForcePush()
         val interval = Duration.ofSeconds(1)
-        val syncProperties = SyncProperties(interval, maxBackoff = interval)
-        val onDemand =
-            OnDemandFetcher(fetcher, cache, syncRepository, properties, OnDemandProperties(), syncProperties, meters)
-        val source = checkNotNull(gitSourceRepository.find(configSet))
-        val fetch = { onDemand.fetch(configSet, source, RevisionId(third), ObjectId.fromString(third)) }
+        val onDemand = onDemandFetcher(fetcher, SyncProperties(interval, maxBackoff = interval))
+        val fetch = { onDemand.fetchCommit(configSet, third) }
 
         repeat(2) { assertFailsWith<ContentException.RevisionUnavailable> { fetch() } }
         assertEquals(2, SshGitServer.loggedCommands(LOG))
@@ -206,27 +201,23 @@ class OnDemandFetchIntegrationTest(
         val tip = git.publishTip(configSet)
         git.dropCache(configSet)
         val tooSmall = properties.copy(maxRepositorySize = DataSize.ofBytes(1))
-        val onDemand =
-            OnDemandFetcher(
-                instances.fetcher(tooSmall),
-                cache,
-                syncRepository,
-                properties,
-                OnDemandProperties(),
-                SyncProperties(),
-                meters,
-            )
-        val source = checkNotNull(gitSourceRepository.find(configSet))
+        val onDemand = onDemandFetcher(instances.fetcher(tooSmall), SyncProperties())
         val tooLarge = fetches("too_large")
         val failed = fetches("failed")
 
-        val failure =
-            assertFailsWith<ContentException.SourceFailed> {
-                onDemand.fetch(configSet, source, RevisionId(tip), ObjectId.fromString(tip))
-            }
+        val failure = assertFailsWith<ContentException.SourceFailed> { onDemand.fetchCommit(configSet, tip) }
 
         assertEquals("REPOSITORY_TOO_LARGE", failure.code)
         assertEquals(listOf(1.0, 0.0), listOf(tooLarge, failed).map { it.added() })
+    }
+
+    /** Builds an [OnDemandFetcher] with the given Fetcher and sync interval, so a test can change one of them. */
+    private fun onDemandFetcher(fetcher: Fetcher, syncProperties: SyncProperties) =
+        OnDemandFetcher(fetcher, cache, syncRepository, properties, OnDemandProperties(), syncProperties, meters)
+
+    private fun OnDemandFetcher.fetchCommit(configSet: ConfigSetId, commit: String) {
+        val source = checkNotNull(gitSourceRepository.find(configSet))
+        fetch(configSet, source, RevisionId(commit), ObjectId.fromString(commit))
     }
 
     /** A ConfigSet with a published revision that the cache of this instance does not have. */

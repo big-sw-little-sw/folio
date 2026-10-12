@@ -28,8 +28,8 @@ sealed interface SyncAttempt {
 /**
  * Syncs Git sources under leases. Each object of this class has its own lease owner, so it acts as one Folio instance.
  *
- * The meter `folio.sync.attempts` counts each recorded attempt. An attempt that lost its lease records nothing, so the
- * meter does not count it. The timer `folio.sync.fetch.duration` measures each fetch of sync, also a failed fetch.
+ * Only a recorded attempt counts in `folio.sync.attempts`, so an attempt that lost its lease does not count. The timer
+ * `folio.sync.fetch.duration` measures each fetch of sync, also a failed fetch and the fetch of a lost lease.
  */
 @Service
 class Synchronizer(
@@ -94,10 +94,7 @@ class Synchronizer(
         }
     }
 
-    /**
-     * A success gets the code tag `none`, so each series of the meter has the same tag keys. Prometheus requires the
-     * same tag keys for all series of one meter.
-     */
+    /** A success gets the code `none`, because Prometheus requires the same tag keys for all series of one meter. */
     private fun count(attempt: SyncAttempt) {
         val (outcome, code) =
             when (attempt) {

@@ -9,10 +9,10 @@ import org.springframework.context.annotation.Configuration
 import java.util.function.Supplier
 
 /**
- * Runs [fetch] in the span of one Git fetch (design 15.1). The only attribute of the span is the ConfigSet ID. The span
- * has no repository path, no branch and no server output. Each exception of [fetch], also a [GitFailure], marks the
- * span as an error. The span records the exception, but the exporters of the `web` module keep only the exception
- * type. Thus an unexpected exception, for example an `IOException` of the cache, exports no message.
+ * Runs [fetch] in the span of one Git fetch. The only attribute of the span is the ConfigSet ID, so the span has no
+ * repository path, no branch and no server output. Each exception of [fetch], also a [GitFailure], marks the span as
+ * an error. The exporters of the `web` module keep only the exception type. Thus the message of an unexpected
+ * exception, for example an `IOException` with a cache path, never leaves Folio.
  */
 fun <T> ObservationRegistry.fetchSpan(configSet: ConfigSetId, fetch: () -> T): T = Observation
     .createNotStarted(FETCH_OBSERVATION, this)
@@ -21,9 +21,8 @@ fun <T> ObservationRegistry.fetchSpan(configSet: ConfigSetId, fetch: () -> T): T
     .observe(Supplier(fetch))
 
 /**
- * Micrometer makes a timer and a long task timer for each observation. The fetch observation exists only for its span.
- * Without this filter, the timers of the fetch observation would repeat `folio.sync.fetch.duration`. They would also
- * add meters that design 15.1 does not name.
+ * The fetch observation exists only for its span, but Micrometer also makes a timer and a long task timer for it.
+ * Without this filter, Folio would have two more `folio.*` meters that repeat `folio.sync.fetch.duration`.
  */
 @Configuration(proxyBeanMethods = false)
 class FetchSpanConfiguration {

@@ -18,11 +18,13 @@ class CounterGrowth(private val meters: MeterRegistry, private val name: String,
         ?.count() ?: 0.0
 }
 
-fun MeterRegistry.tagKeys(name: String): Set<String> = find(name)
-    .meters()
-    .flatMap { it.id.tags }
-    .map { it.key }
-    .toSet()
+/**
+ * The attempts of sync for all tag values, and the fetches of sync that the timer measured. A test compares the
+ * counts before and after a step to see what the step added.
+ */
+data class SyncCounts(val attempts: Double, val fetches: Long)
 
-/** Returns the sum of all counters with [name], for all tag values. */
-fun MeterRegistry.total(name: String): Double = find(name).counters().sumOf { it.count() }
+fun MeterRegistry.syncCounts() = SyncCounts(
+    find("folio.sync.attempts").counters().sumOf { it.count() },
+    get("folio.sync.fetch.duration").timer().count(),
+)

@@ -110,25 +110,20 @@ class SyncLeaseIntegrationTest(
         assertTrue(synchronizer.sync(lease))
     }
 
-    /**
-     * A sync that lost its lease has no outcome, so `folio.sync.attempts` does not count that sync. The timer
-     * `folio.sync.fetch.duration` still counts the fetch of that sync (design 15.1).
-     */
+    /** The sync that lost its lease counts no attempt, but [Synchronizer] still times its fetch. */
     @Test
     fun `an instance takes over an ended lease, and the earlier owner records nothing`(commits: Commits) {
         val configSet = git.connected()
         val lost = synchronizer.claim(1).single()
         git.expireLease(configSet)
         val taken = other.claim(1).single()
-        val attempts = meters.total(ATTEMPTS)
-        val fetches = fetchDuration()
+        val sync = meters.syncCounts()
 
         assertFalse(synchronizer.sync(lost))
         assertNull(git.state(configSet).lastAttemptAt)
         assertEquals(other.owner, git.leaseOwner(configSet))
         assertEquals(emptyList(), syncRecords(configSet))
-        assertEquals(attempts, meters.total(ATTEMPTS))
-        assertEquals(fetches + 1, fetchDuration())
+        assertEquals(sync.copy(fetches = sync.fetches + 1), meters.syncCounts())
 
         assertTrue(other.sync(taken))
         assertEquals(commits.tip, git.state(configSet).lastSeenCommit)
@@ -208,11 +203,8 @@ class SyncLeaseIntegrationTest(
     private fun syncRecords(configSet: ConfigSetId) =
         audit.records(configSet.value).map { it["operation"] as String }.filter { it.startsWith("SYNC_") }
 
-    private fun fetchDuration() = meters.get("folio.sync.fetch.duration").timer().count()
-
     private companion object {
         const val CONFIG_SETS = 6
-        const val ATTEMPTS = "folio.sync.attempts"
 
         /** The default fetch deadline of 5 minutes and the margin of 3 minutes. */
         const val LEASE_SECONDS = 8 * 60L

@@ -1,28 +1,16 @@
 package io.github.big_sw_little_sw.folio.catalog
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.CounterGrowth
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.send
-import io.github.big_sw_little_sw.testing.tagKeys
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.http.HttpMethod
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.springframework.http.HttpMethod.GET
+import org.springframework.http.HttpMethod.POST
+import org.springframework.test.web.servlet.*
+import kotlin.test.*
 
-/**
- * These tests check the meter `folio.authorization.decisions` (design 15.1) through [Access] and the HTTP routes. The
- * meter counts each decision about the caller of a request, with the action, the result and the reason as tags. A
- * super admin gets the same number of decisions as other callers.
- */
+/** These tests check the meter `folio.authorization.decisions` through [Access] and the HTTP routes. */
 @FolioIntegrationTest
 class AuthorizationMetricsIntegrationTest(
     @Autowired private val access: Access,
@@ -50,10 +38,15 @@ class AuthorizationMetricsIntegrationTest(
         assertFalse(access.allows(bob, Action.READ, configSet))
 
         assertEquals(listOf(1.0, 1.0, 1.0, 1.0), listOf(noRule, superAdmin, granted, notGranted).map { it.added() })
-        assertEquals(setOf("action", "result", "reason"), meters.tagKeys(DECISIONS))
+        val tagKeys = meters.find(DECISIONS).meters().flatMap { it.id.tags }.map { it.key }.toSet()
+        assertEquals(setOf("action", "result", "reason"), tagKeys)
     }
 
-    /** The READ decision for the super admin, the caller of [ConfigSets.requireReadable], counts once. */
+    /**
+     * The test calls [ConfigSets.requireReadable] as the super admin, so one READ decision about the super admin
+     * counts. The explain route also counts its GRANT check of the super admin. The explained READ decision about alice
+     * does not count.
+     */
     @Test
     fun `the public check and the decision of an explanation do not count`() {
         val configSet = catalog.configSet(catalog.namespace())
@@ -69,7 +62,7 @@ class AuthorizationMetricsIntegrationTest(
         assertFalse(configSets.requireReadable(SUPER_ADMIN, configSet).public)
         mvc
             .send(
-                HttpMethod.POST,
+                POST,
                 "/api/v1/admin/configsets/${configSet.toApiId()}/explain",
                 SUPER_ADMIN,
                 """{"action": "READ", "caller": {"subject": "alice"}}""",
@@ -95,18 +88,14 @@ class AuthorizationMetricsIntegrationTest(
         val notGranted = decisions(Action.READ, "denied", "not_granted")
         val superAdmin = decisions(Action.READ, "allowed", "super_admin")
 
-        get("/api/v1/admin/namespaces/${namespace.toApiId()}", alice)
+        mvc.send(GET, "/api/v1/admin/namespaces/${namespace.toApiId()}", alice).andExpect { status { isOk() } }
         assertEquals(listOf(3.0, 1.0, 0.0), listOf(granted, notGranted, superAdmin).map { it.added() })
 
-        get("/api/v1/admin/namespaces/${namespace.toApiId()}", SUPER_ADMIN)
+        mvc.send(GET, "/api/v1/admin/namespaces/${namespace.toApiId()}", SUPER_ADMIN).andExpect { status { isOk() } }
         assertEquals(4.0, superAdmin.added())
 
-        get("/api/v1/admin/configsets/${visible.toApiId()}", SUPER_ADMIN)
+        mvc.send(GET, "/api/v1/admin/configsets/${visible.toApiId()}", SUPER_ADMIN).andExpect { status { isOk() } }
         assertEquals(4.0 + 3.0, superAdmin.added())
-    }
-
-    private fun get(url: String, caller: Caller.Authenticated) {
-        mvc.get(url) { bearer(caller) }.andExpect { status { isOk() } }
     }
 
     private fun decisions(action: Action, result: String, reason: String) =

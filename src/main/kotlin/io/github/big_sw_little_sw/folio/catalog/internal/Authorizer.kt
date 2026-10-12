@@ -13,8 +13,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * Makes all authorization decisions of Folio, because only the catalog reads rules. Each caller carries its super-admin
  * status, so a decision for a super admin needs no query.
  *
- * The meter `folio.authorization.decisions` counts each decision about the caller of the request, and one decision for
- * each item of a list. [decideUncounted] decides for a different caller, so the meter does not count that decision.
+ * Each decision about the caller of the request counts in `folio.authorization.decisions`, also the decision for each
+ * item of a list.
  */
 @Component
 class Authorizer(
@@ -38,9 +38,8 @@ class Authorizer(
         decideUncounted(caller, action, ancestry).also { count(action, it) }
 
     /**
-     * Decides for a caller that is not the caller of the request: the caller that an explanation describes, or the
-     * anonymous caller of the public check for cache headers. The decision does not control what the request can do,
-     * so the meter does not count it.
+     * Decides for a caller that is not the caller of the request, and does not count the decision. Explanations and
+     * the public check for the cache headers use this method. Their decisions do not control what the request can do.
      */
     fun decideUncounted(caller: Caller, action: Action, ancestry: Ancestry): Decision =
         decide(caller, ancestry.resources, ruleRepository.subjects(action, ancestry.resources))
@@ -65,8 +64,8 @@ class Authorizer(
 
     /**
      * The links of [ancestries] that the caller can READ. A nearer rule can take `READ` away, so each link gets its own
-     * decision. One query reads the rules for all links. A super admin needs no query, but the meter still counts one
-     * decision for each link. Thus a request makes the same number of decisions for a super admin as for other callers.
+     * decision. One query reads the rules for all links. A super admin needs no query, but each link still counts as
+     * one decision. Without this count, the meter would show fewer decisions for a super admin than for other callers.
      */
     fun readable(caller: Caller, ancestries: Collection<Ancestry>): Set<ResourceId> {
         val links = ancestries.flatMapTo(mutableSetOf()) { it.resources }
@@ -97,7 +96,10 @@ class Authorizer(
         return decision.allowed
     }
 
-    /** The tags contain no IDs and no subjects. Without this limit, the meter gets one series for each resource. */
+    /**
+     * The tags contain no IDs and no subjects. With an ID or a subject as a tag, the meter gets a series for each
+     * resource or each caller.
+     */
     private fun count(action: Action, decision: Decision) {
         val reason =
             when (decision) {

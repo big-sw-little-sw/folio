@@ -53,12 +53,12 @@ dependencies {
     // The google directory gets its access token for the Cloud Identity API from Application Default Credentials.
     implementation(libs.google.auth)
     // The OpenTelemetry starter gives the OTLP meter registry, Micrometer Tracing with the OpenTelemetry bridge and
-    // the OTLP span exporter (design 15.1). Folio code uses only the Micrometer API. Thus a change of backend changes
-    // only the configuration and the dependencies, not the code.
+    // the OTLP span exporter. Folio code uses only the Micrometer API, so a change of backend changes only the
+    // configuration and the dependencies.
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
-    // Spring Boot gives no spans for JDBC calls. This library wraps the DataSource with observations. Without the
-    // library, database calls have no spans (design 15.1).
+    // This library wraps the DataSource with observations. Spring Boot observes no JDBC calls, so without the
+    // library, database calls have no spans.
     runtimeOnly(libs.datasource.micrometer.spring.boot)
     runtimeOnly("org.postgresql:postgresql")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
@@ -70,7 +70,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-session-jdbc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
-    // TracingIntegrationTest collects the spans in memory and examines their attributes (design 15.1).
+    // TracingIntegrationTest collects the spans in memory and examines their attributes.
     testImplementation("io.opentelemetry:opentelemetry-sdk-testing")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.springframework.modulith:spring-modulith-starter-test")

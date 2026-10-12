@@ -34,9 +34,9 @@ class WebConfiguration : WebMvcConfigurer {
         TemplateEngine.createPrecompiled(null, ContentType.Html, null, TEMPLATE_PACKAGE)
 
     /**
-     * The span of each HTTP request has only the low-cardinality values of `http.server.requests`: the method, the
-     * route pattern, the status, the outcome and the exception type. The default convention also adds the request path
-     * as `http.url`. Without this override, spans would contain ConfigSet paths and item paths (design 15.1).
+     * The span of each HTTP request gets only the low-cardinality values of `http.server.requests`, which name the
+     * route pattern, not the path. The default convention also adds the request path as `http.url`. Without this
+     * override, spans contain ConfigSet paths and item paths.
      */
     @Bean
     fun serverRequestObservationConvention(): ServerRequestObservationConvention =

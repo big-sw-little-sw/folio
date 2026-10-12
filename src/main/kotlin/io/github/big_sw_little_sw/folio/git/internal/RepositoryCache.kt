@@ -51,8 +51,8 @@ import kotlin.io.path.exists
  * The bean sets the global JGit settings before any repository opens. [IsolatedSsh] depends on this bean, so the
  * settings also apply to each `ls-remote`.
  *
- * The gauges `folio.git.cache.size` and `folio.git.cache.repositories` give the last measurement of [sweep]. A walk of
- * the cache at each scrape could be slow, so the gauges do not walk it. Both gauges are 0 until the first sweep.
+ * The cache gauges show the measurement of the last [sweep], because a walk of the cache at each scrape could be slow.
+ * Both gauges are 0 until the first sweep.
  */
 @Component
 class RepositoryCache(properties: GitProperties, meters: MeterRegistry) {
@@ -144,8 +144,7 @@ class RepositoryCache(properties: GitProperties, meters: MeterRegistry) {
      * thread of the polls ([SyncSchedule]). Without the skip, a slow read of a deleted ConfigSet would stop the polls
      * for up to the fetch deadline.
      *
-     * After the deletes, the sweep measures the repositories that stay and sets the gauges of the cache. The gauges
-     * count a repository that the sweep could not delete.
+     * After the deletes, the sweep measures the repositories that stay, also a repository that it could not delete.
      */
     fun sweep(existing: (Set<ConfigSetId>) -> Set<ConfigSetId>) {
         val cached =

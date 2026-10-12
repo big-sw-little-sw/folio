@@ -50,7 +50,7 @@ class ActuatorIntegrationTest(
     }
 
     /**
-     * The meters of Spring and of the libraries must also have no IDs and no SQL text as tags (design 15.1). The
+     * Like the meters of Folio, the meters of Spring and of the libraries must have no IDs and no SQL text as tags. The
      * request with an API ID shows that the `uri` tag has the route pattern, not the ID.
      */
     @Test
