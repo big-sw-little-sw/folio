@@ -2,9 +2,7 @@ package io.github.big_sw_little_sw.folio.content.internal
 
 import io.github.big_sw_little_sw.folio.content.RevisionId
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
+import kotlin.test.*
 
 class CachingTest {
     private val exact = RevisionSelector.Exact(RevisionId("a".repeat(40)))

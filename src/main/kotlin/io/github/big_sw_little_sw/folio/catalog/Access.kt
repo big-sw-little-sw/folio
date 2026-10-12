@@ -17,8 +17,8 @@ import org.springframework.stereotype.Service
  * [TreeRepository.lockShared] before it reads the ancestry.
  *
  * A write that also takes the exclusive tree lock, for example through [ConfigSets.create], must take that lock before
- * it calls Access or [Namespaces.require]. Both take the shared form. Otherwise two such writes can each hold the
- * shared form and wait for the exclusive form, and they deadlock.
+ * it calls Access, [Namespaces.require] or [ConfigSets.requireReadable]. These take the shared form. Otherwise two
+ * such writes can each hold the shared form and wait for the exclusive form, and they deadlock.
  */
 @Service
 class Access(private val tree: TreeRepository, private val authorizer: Authorizer) {
@@ -31,13 +31,6 @@ class Access(private val tree: TreeRepository, private val authorizer: Authorize
     @SnapshotRead
     fun allows(caller: Caller, action: Action, resource: ResourceId): Boolean =
         authorizer.decide(caller, action, ancestry(resource)).allowed
-
-    /**
-     * True if an anonymous caller can READ the resource. The call to [allows] does not go through the Spring proxy, so
-     * this method needs its own [SnapshotRead]. Without it, the method runs without a snapshot.
-     */
-    @SnapshotRead
-    fun isPublic(resource: ResourceId): Boolean = allows(Caller.Anonymous, Action.READ, resource)
 
     /**
      * Throws Forbidden (403) on the root or Unauthenticated (401) if the caller is not a super admin. The root has no

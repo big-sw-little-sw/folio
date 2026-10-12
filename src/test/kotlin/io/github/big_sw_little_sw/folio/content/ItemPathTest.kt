@@ -1,8 +1,6 @@
 package io.github.big_sw_little_sw.folio.content
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 class ItemPathTest {
     @Test

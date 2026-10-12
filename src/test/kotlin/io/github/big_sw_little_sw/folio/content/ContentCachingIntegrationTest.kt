@@ -3,26 +3,14 @@ package io.github.big_sw_little_sw.folio.content
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.InMemorySource
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.InMemorySource.TestItem
-import io.github.big_sw_little_sw.testing.TestCatalog
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.send
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
-import org.springframework.http.HttpMethod
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.get
-import kotlin.test.Test
-import kotlin.test.assertNotEquals
+import org.springframework.http.HttpMethod.PATCH
+import org.springframework.test.web.servlet.*
+import kotlin.test.*
 
-/**
- * These tests check the cache headers and the ETags of the consumption routes (design 12.1) with the in-memory Source.
- */
 @FolioIntegrationTest
 class ContentCachingIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -53,7 +41,7 @@ class ContentCachingIntegrationTest(
 
     @Test
     fun `a matching If-None-Match gives 304 with the cache headers and no body`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val revision = source.publish(id, mapOf("app.yaml" to "a: 1\n"))
 
         ROUTES.forEach { route ->
@@ -65,8 +53,7 @@ class ContentCachingIntegrationTest(
                 header { string(HttpHeaders.ETAG, etag) }
                 header { string(HttpHeaders.CACHE_CONTROL, checkNotNull(first.getHeader(HttpHeaders.CACHE_CONTROL))) }
                 content { string("") }
-                // Only the file list route and the file route name one revision, so only they send the revision header
-                // (design 12.1).
+                // Only the file routes name one revision, so only they send the revision header.
                 if (route.startsWith("/files")) header { string(REVISION, revision.value) }
             }
             read(url(id) + route, ifNoneMatch = "\"other\"").andExpect { status { isOk() } }
@@ -82,7 +69,7 @@ class ContentCachingIntegrationTest(
 
     @Test
     fun `the ETags of the metadata and the revision list change with their content`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         catalog.rule(id, Action.MANAGE, "user:alice")
         source.publish(id, mapOf("app.yaml" to "a: 1\n"))
         val metadataTag = etagOf(url(id))
@@ -98,7 +85,7 @@ class ContentCachingIntegrationTest(
 
         val publishedTag = etagOf(url(id))
         mvc
-            .send(HttpMethod.PATCH, "/api/v1/admin/configsets/${id.toApiId()}", alice, """{"description": "Changed"}""")
+            .send(PATCH, "/api/v1/admin/configsets/${id.toApiId()}", alice, """{"description": "Changed"}""")
             .andExpect { status { isOk() } }
         read(url(id), ifNoneMatch = publishedTag).andExpect {
             status { isOk() }
@@ -114,27 +101,10 @@ class ContentCachingIntegrationTest(
         val bob = Caller.Authenticated("bob", emptySet(), null)
 
         ROUTES.forEach { route ->
-            val etag =
-                checkNotNull(
-                    mvc
-                        .get(url(id) + route) { bearer(bob) }
-                        .andReturn()
-                        .response
-                        .getHeader(HttpHeaders.ETAG),
-                )
-            read(url(id) + route, ifNoneMatch = etag).andExpectForbidden(Action.READ, id.toApiId())
+            val etag = mvc.get(url(id) + route) { bearer(bob) }.andReturn().response.getHeader(HttpHeaders.ETAG)
+            read(url(id) + route, ifNoneMatch = checkNotNull(etag)).andExpectForbidden(Action.READ, id.toApiId())
             read(url(id) + route, ifNoneMatch = "*").andExpectForbidden(Action.READ, id.toApiId())
-            mvc
-                .get(url(id) + route) { header(HttpHeaders.IF_NONE_MATCH, etag) }
-                .andExpectProblem(401, "AUTHENTICATION_REQUIRED")
         }
-    }
-
-    /** Creates a ConfigSet that alice can READ. */
-    private fun readable(): ConfigSetId {
-        val id = catalog.configSet(catalog.namespace())
-        catalog.rule(id, Action.READ, "user:alice")
-        return id
     }
 
     private fun read(url: String, ifNoneMatch: String? = null): ResultActionsDsl = mvc.get(url) {

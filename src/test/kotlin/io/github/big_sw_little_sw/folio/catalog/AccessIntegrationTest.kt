@@ -80,15 +80,15 @@ class AccessIntegrationTest(
     }
 
     @Test
-    fun `isPublic is true when an anonymous caller can READ`() {
+    fun `an anonymous caller can READ a ConfigSet under a public rule`() {
         val top = catalog.namespace()
         val open = catalog.configSet(top, "open")
         val closed = catalog.configSet(top, "closed")
         catalog.rule(top, Action.READ, "public")
         catalog.rule(closed, Action.READ, "authenticated")
 
-        assertTrue(access.isPublic(open))
-        assertFalse(access.isPublic(closed))
+        assertTrue(access.allows(Caller.Anonymous, Action.READ, open))
+        assertFalse(access.allows(Caller.Anonymous, Action.READ, closed))
         assertTrue(access.allows(bob, Action.READ, closed))
     }
 

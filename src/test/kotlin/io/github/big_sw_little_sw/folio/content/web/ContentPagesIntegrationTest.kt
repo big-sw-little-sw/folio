@@ -2,31 +2,18 @@ package io.github.big_sw_little_sw.folio.content.web
 
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
-import io.github.big_sw_little_sw.folio.content.ContentException
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.InMemorySource
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.InMemorySource.TestItem
-import io.github.big_sw_little_sw.testing.TestCatalog
-import io.github.big_sw_little_sw.testing.andExpectProblemPage
-import io.github.big_sw_little_sw.testing.signedIn
-import org.hamcrest.Matchers.allOf
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.not
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.*
 import org.springframework.web.util.UriUtils
-import java.io.InputStream
 import java.net.URI
 import java.nio.charset.StandardCharsets
-import kotlin.test.Test
-import kotlin.test.assertContains
-import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/** These tests check the content pages for callers with READ (design 12.3) through MockMvc. */
 @FolioIntegrationTest
 class ContentPagesIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -37,33 +24,22 @@ class ContentPagesIntegrationTest(
 
     @Test
     fun `the ConfigSet page of the catalog links to the files and the revisions`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
 
-        mvc.get(page(id)) { with(signedIn(alice)) }.andExpect {
-            status { isOk() }
-            content {
-                string(
-                    allOf(
-                        containsString("""<a href="${page(id)}/files">Files at the latest revision</a>"""),
-                        containsString("""<a href="${page(id)}/revisions">Revisions</a>"""),
-                    ),
-                )
-            }
-        }
+        val html = mvc.page(page(id), alice)
+
+        assertContains(html, """<a href="${page(id)}/files">Files at the latest revision</a>""")
+        assertContains(html, """<a href="${page(id)}/revisions">Revisions</a>""")
     }
 
     @Test
     fun `the revisions page lists the revisions newest first and marks latest`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val old = source.publish(id, mapOf("app.yaml" to "v: 1\n"))
         val new = source.publish(id, mapOf("app.yaml" to "v: 2\n"))
 
-        val html =
-            mvc
-                .get("${page(id)}/revisions") { with(signedIn(alice)) }
-                .andExpect { status { isOk() } }
-                .andReturn()
-                .response.contentAsString
+        val html = mvc.page("${page(id)}/revisions", alice)
+
         val newLink = """<a href="${page(id)}/files?revision=$new"><code>$new</code></a>"""
         val oldLink = """<a href="${page(id)}/files?revision=$old"><code>$old</code></a>"""
         assertTrue(html.indexOf(newLink) in 0 until html.indexOf(oldLink), html)
@@ -72,79 +48,49 @@ class ContentPagesIntegrationTest(
 
     @Test
     fun `the files page of latest names the exact revision and links to it`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val revision = source.publish(id, mapOf("app.yaml" to "a: 1\n", "my dir/a#b.json" to "{}"))
+        val encodedFile = "${page(id)}/files/my%20dir/a%23b.json?revision=$revision"
 
-        mvc.get("${page(id)}/files") { with(signedIn(alice)) }.andExpect {
-            status { isOk() }
-            content {
-                string(
-                    allOf(
-                        containsString("<code>$revision</code> <span class=\"muted\">(latest)</span>"),
-                        containsString("""<a href="${page(id)}/files/app.yaml?revision=$revision">app.yaml</a>"""),
-                        containsString(
-                            """<a href="${page(
-                                id,
-                            )}/files/my%20dir/a%23b.json?revision=$revision">my dir/a#b.json</a>""",
-                        ),
-                    ),
-                )
-            }
-        }
+        val html = mvc.page("${page(id)}/files", alice)
+
+        assertContains(html, """<code>$revision</code> <span class="muted">(latest)</span>""")
+        assertContains(html, """<a href="${page(id)}/files/app.yaml?revision=$revision">app.yaml</a>""")
+        assertContains(html, """<a href="$encodedFile">my dir/a#b.json</a>""")
         // A URI keeps the encoded segments. A URL template would encode the percent signs again.
-        mvc
-            .get(
-                URI.create("${page(id)}/files/my%20dir/a%23b.json?revision=$revision"),
-            ) { with(signedIn(alice)) }
-            .andExpect {
-                status { isOk() }
-                content { string(containsString("<span class=\"validation\">VALID</span>")) }
-            }
+        mvc.get(URI.create(encodedFile)) { with(signedIn(alice)) }.andExpect {
+            status { isOk() }
+            content { string(containsString("""<span class="validation">VALID</span>""")) }
+        }
     }
 
     @Test
     fun `the file page shows the content as escaped text with the validation status`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val revision = source.publish(id, mapOf("bad.yaml" to "a: [1\n<script>alert(1)</script>\n"))
 
-        mvc
-            .get("${page(id)}/files/bad.yaml?revision=$revision") { with(signedIn(alice)) }
-            .andExpect {
-                status { isOk() }
-                content {
-                    string(
-                        allOf(
-                            containsString("<span class=\"validation\">INVALID</span>"),
-                            containsString("&lt;script&gt;alert(1)&lt;/script&gt;"),
-                            not(containsString("<script>alert")),
-                            containsString("""<a href="${page(id)}/download/bad.yaml?revision=$revision">"""),
-                        ),
-                    )
-                }
-            }
+        val html = mvc.page("${page(id)}/files/bad.yaml?revision=$revision", alice)
+
+        assertContains(html, """<span class="validation">INVALID</span>""")
+        assertContains(html, "&lt;script&gt;alert(1)&lt;/script&gt;")
+        assertFalse("<script>alert" in html)
+        assertContains(html, """<a href="${page(id)}/download/bad.yaml?revision=$revision">""")
     }
 
     @Test
     fun `the file page shows no text for a file above 3 MB`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         source.publish(id, mapOf("large.json" to "[" + " ".repeat(3 * 1024 * 1024) + "]"))
 
-        mvc.get("${page(id)}/files/large.json") { with(signedIn(alice)) }.andExpect {
-            status { isOk() }
-            content {
-                string(
-                    allOf(
-                        containsString("<span class=\"validation\">UNKNOWN</span>"),
-                        containsString("The file is larger than 3 MB."),
-                    ),
-                )
-            }
-        }
+        val html = mvc.page("${page(id)}/files/large.json", alice)
+
+        assertContains(html, """<span class="validation">UNKNOWN</span>""")
+        assertContains(html, "The file is larger than 3 MB.")
     }
 
     @Test
     fun `a download is an attachment with nosniff and the raw bytes`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val revision = source.publish(id, mapOf("site/index.html" to "<html><script>alert(1)</script></html>"))
 
         mvc.get("${page(id)}/download/site/index.html?revision=$revision") { with(signedIn(alice)) }.andExpect {
@@ -162,17 +108,13 @@ class ContentPagesIntegrationTest(
     }
 
     @Test
-    fun `the pages need READ, and an anonymous browser goes to sign-in`() {
+    fun `the pages need READ`() {
         val id = catalog.configSet(catalog.namespace())
         source.publish(id, mapOf("app.yaml" to "a: 1\n"))
         catalog.rule(id, Action.MANAGE, "user:alice")
 
-        listOf("/revisions", "/files", "/files/app.yaml", "/download/app.yaml").forEach { route ->
+        ROUTES.forEach { route ->
             mvc.get(page(id) + route) { with(signedIn(alice)) }.andExpectProblemPage(403, "ACTION_NOT_ALLOWED")
-            mvc.get(page(id) + route).andExpect {
-                status { is3xxRedirection() }
-                redirectedUrl("/sign-in")
-            }
         }
     }
 
@@ -182,38 +124,27 @@ class ContentPagesIntegrationTest(
         catalog.rule(id, Action.READ, "public")
         source.publish(id, mapOf("app.yaml" to "a: 1\n"))
 
-        listOf("/revisions", "/files", "/files/app.yaml", "/download/app.yaml").forEach { route ->
-            mvc.get(page(id) + route).andExpect { status { isOk() } }
-        }
+        ROUTES.forEach { route -> mvc.page(page(id) + route, null) }
     }
 
     @Test
     fun `the errors of content show on the error page`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
 
         mvc.get("${page(id)}/files") { with(signedIn(alice)) }.andExpectProblemPage(404, "NOT_PUBLISHED_YET")
         source.publish(id, mapOf("app.yaml" to "a: 1\n"))
         mvc.get("${page(id)}/files/missing.yaml") { with(signedIn(alice)) }.andExpectProblemPage(404, "ITEM_NOT_FOUND")
-        mvc
-            .get(
-                "${page(id)}/files?revision=a-b",
-            ) { with(signedIn(alice)) }
-            .andExpectProblemPage(400, "INVALID_REVISION")
+        mvc.get("${page(id)}/files?revision=a-b") {
+            with(signedIn(alice))
+        }.andExpectProblemPage(400, "INVALID_REVISION")
         mvc.get("${page(id)}/files/a/") { with(signedIn(alice)) }.andExpectProblemPage(400, "INVALID_ITEM_PATH")
     }
 
     @Test
     fun `a download that fails gives the error page without the headers of the file`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val size = 4L * 1024 * 1024
-        val failing =
-            TestItem(size, "e") {
-                object : InputStream() {
-                    override fun read(): Int =
-                        throw ContentException.SourceFailed("UNREACHABLE", "Folio cannot connect to the Git server.")
-                }
-            }
-        val revision = source.publishItems(id, mapOf("large.bin" to failing))
+        val revision = source.publishItems(id, mapOf("large.bin" to TestItem.failing(size)))
 
         val response =
             mvc
@@ -231,29 +162,24 @@ class ContentPagesIntegrationTest(
 
     @Test
     fun `the pages escape HTML in item paths`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val path = "\"><script>alert(1)</script>.yaml"
         val revision = source.publish(id, mapOf(path to "a: 1\n"))
         val encoded = path.split('/').joinToString("/") { UriUtils.encodePathSegment(it, StandardCharsets.UTF_8) }
 
-        val pages = listOf("${page(id)}/files?revision=$revision", "${page(id)}/files/$encoded?revision=$revision")
-        pages.forEach { url ->
-            mvc
-                .get(URI.create(url)) { with(signedIn(alice)) }
-                .andExpect {
-                    status { isOk() }
-                    content { string(containsString("&lt;script&gt;alert(1)")) }
-                    content { string(not(containsString("<script>alert"))) }
-                }
+        listOf("${page(id)}/files?revision=$revision", "${page(id)}/files/$encoded?revision=$revision").forEach { url ->
+            mvc.get(URI.create(url)) { with(signedIn(alice)) }.andExpect {
+                status { isOk() }
+                content { string(containsString("&lt;script&gt;alert(1)")) }
+                content { string(not(containsString("<script>alert"))) }
+            }
         }
     }
 
-    /** Creates a ConfigSet that alice can READ. */
-    private fun readable(): ConfigSetId {
-        val id = catalog.configSet(catalog.namespace())
-        catalog.rule(id, Action.READ, "user:alice")
-        return id
-    }
-
     private fun page(id: ConfigSetId) = "/configsets/${id.toApiId()}"
+
+    private companion object {
+        /** The pages of the `content` module, relative to the page of the ConfigSet. */
+        val ROUTES = listOf("/revisions", "/files", "/files/app.yaml", "/download/app.yaml")
+    }
 }

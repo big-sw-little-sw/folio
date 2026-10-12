@@ -33,8 +33,7 @@ class OpenApiIntegrationTest(@Autowired private val mvc: MockMvc) {
             jsonPath("$FILE.get.responses['200'].headers['X-Folio-Revision']") { exists() }
             jsonPath("$FILE.get.responses['200'].headers['ETag']") { exists() }
             jsonPath("$FILE.get.responses['304']") { exists() }
-            // OpenAPI path templates support only {name}. OpenApiConfiguration renames each {*name} variable of Spring
-            // MVC, so no path in the document keeps one.
+            // OpenAPI tools cannot read the {*name} variables of Spring MVC, so no path in the document keeps one.
             jsonPath("$.paths.keys()") { value(everyItem(not(containsString("{*")))) }
             jsonPath("$.paths['/']") { doesNotExist() }
             jsonPath("$.paths['/sign-in']") { doesNotExist() }

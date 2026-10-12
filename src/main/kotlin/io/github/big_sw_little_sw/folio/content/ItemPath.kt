@@ -1,12 +1,10 @@
 package io.github.big_sw_little_sw.folio.content
 
 /**
- * The path of a ConfigItem relative to the root of its ConfigSet, for example `kafka/client.properties` (design 9).
- * The path is already in normal form: segments joined by `/`, no segment is empty, `.` or `..`, and no segment contains
- * a backslash or NUL. Folio rejects other paths and never rewrites them. Thus an adapter can join the segments below
- * the root of the ConfigSet, and a path cannot go outside the root.
- *
- * The constructor throws [ContentException.InvalidItemPath] for other text.
+ * The path of a ConfigItem relative to the root of its ConfigSet, for example `kafka/client.properties`. The path is in
+ * normal form: segments joined by `/`, no segment is empty, `.` or `..`, and no segment contains a backslash or NUL.
+ * The constructor throws [ContentException.InvalidItemPath] for other text and never rewrites it. Thus an adapter can
+ * join the segments below the root of the ConfigSet, and a path cannot go outside the root.
  */
 @JvmInline
 value class ItemPath(val value: String) {

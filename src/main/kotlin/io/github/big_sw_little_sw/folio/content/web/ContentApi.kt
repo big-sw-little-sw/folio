@@ -23,35 +23,29 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.context.request.ServletWebRequest
 
 /**
- * The consumption routes of content (design 12.1). The catalog serves `:resolve`. Anonymous callers can get to these
- * routes, so that `public` rules apply. The service authorizes each request.
+ * The consumption routes of content. The catalog serves the other consumption route, `GET /api/v1/configsets:resolve`,
+ * because the catalog owns paths. Anonymous callers can reach these routes, so that `public` rules apply, and the
+ * service authorizes each request.
  *
- * Each response has an `ETag` and a `Cache-Control` header. For the JSON routes, Spring MVC answers a matching
- * `If-None-Match` with 304 after the service authorized. The file route asks Spring to compare `If-None-Match`
- * before it reads the content, so a 304 reads no content. Each route parses the ID, the path and the revision first,
- * so a malformed value gives status 400 before Folio finds the ConfigSet.
+ * Each response has an `ETag` and a `Cache-Control` header, and Spring MVC answers a matching `If-None-Match` with 304.
+ * Each route parses the ID, the path and the revision first, so a malformed value gives status 400 before Folio finds
+ * the ConfigSet.
  */
 @RestController
 @RequestMapping("/api/v1/configsets/{id}")
 class ContentApi(private val currentCaller: CurrentCaller, private val content: ContentService) {
-    /**
-     * Returns the ID, the path, the description and the latest revision of the ConfigSet. `latestRevision` is null
-     * before the first publish.
-     */
     @GetMapping
     fun metadata(@PathVariable id: String): ResponseEntity<MetadataResponse> {
         val cached = content.metadata(currentCaller.get(), CONFIG_SET_ID.parse(id))
         return cachedResponse(cached).body(cached.body.toResponse())
     }
 
-    /** Returns the newest published revisions, newest first, with a maximum of 100. */
     @GetMapping("/revisions")
     fun revisions(@PathVariable id: String): ResponseEntity<RevisionsResponse> {
         val cached = content.revisions(currentCaller.get(), CONFIG_SET_ID.parse(id))
         return cachedResponse(cached).body(cached.body.toResponse())
     }
 
-    /** Returns the ConfigItems at the revision, with their sizes in bytes. */
     @GetMapping("/files")
     fun files(
         @PathVariable id: String,
@@ -64,11 +58,6 @@ class ContentApi(private val currentCaller: CurrentCaller, private val content: 
             .body(cached.body.toResponse())
     }
 
-    /**
-     * Returns the raw bytes of one ConfigItem. Folio never changes the bytes, also when they do not parse (design 13).
-     * The response has the media type of the extension and the validation status. The path is relative to the root of
-     * the ConfigSet and must be in normal form.
-     */
     @GetMapping("/files/{*path}")
     @Operation(
         responses = [
@@ -109,17 +98,12 @@ class ContentApi(private val currentCaller: CurrentCaller, private val content: 
         val configSet = CONFIG_SET_ID.parse(id)
         val itemPath = itemPathOf(path)
         content.read(currentCaller.get(), configSet, itemPath, RevisionSelector.parse(revision)) { read ->
+            response.setHeader(HttpHeaders.CACHE_CONTROL, read.cacheControl)
+            response.setHeader(REVISION_HEADER, read.revision.value)
             // Spring compares If-None-Match in the same way as for the JSON routes. Spring also sets the ETag and the
-            // 304 status. A match ends the request before the read of the content, so a 304 reads no content.
-            if (request.checkNotModified(read.item.etag)) {
-                response.setHeader(HttpHeaders.CACHE_CONTROL, read.cacheControl)
-                response.setHeader(REVISION_HEADER, read.revision.value)
-            } else {
-                writeRaw(response, read) {
-                    response.setHeader(HttpHeaders.CACHE_CONTROL, read.cacheControl)
-                    response.setHeader(REVISION_HEADER, read.revision.value)
-                    response.setHeader(VALIDATION_HEADER, read.content.validation.name)
-                }
+            // 304 status. A match ends the request before the content read, so a 304 reads no content.
+            if (!request.checkNotModified(read.item.etag)) {
+                writeRaw(response, read) { response.setHeader(VALIDATION_HEADER, read.validation.name) }
             }
         }
     }

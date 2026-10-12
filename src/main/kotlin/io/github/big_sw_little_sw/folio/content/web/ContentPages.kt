@@ -5,7 +5,6 @@ import io.github.big_sw_little_sw.folio.catalog.ConfigSet
 import io.github.big_sw_little_sw.folio.content.ItemPath
 import io.github.big_sw_little_sw.folio.content.RevisionId
 import io.github.big_sw_little_sw.folio.content.internal.ContentService
-import io.github.big_sw_little_sw.folio.content.internal.ItemContent
 import io.github.big_sw_little_sw.folio.content.internal.RevisionSelector
 import io.github.big_sw_little_sw.folio.identity.CurrentCaller
 import jakarta.servlet.http.HttpServletResponse
@@ -20,12 +19,7 @@ import org.springframework.web.servlet.ModelAndView
 import org.springframework.web.util.UriUtils
 import java.nio.charset.StandardCharsets
 
-/**
- * ContentPages serves the content pages for callers with `READ` (design 12.3): the revisions, the files at a revision,
- * one file as text and the download of one file. The catalog serves the ConfigSet page, and the catalog does not
- * depend on the `content` module. Thus the ConfigSet page links to these pages by path only. The service authorizes
- * each page.
- */
+/** The UI pages of the content of a ConfigSet. The service authorizes each page. */
 @Controller
 @RequestMapping("/configsets/{id}")
 class ContentPages(private val currentCaller: CurrentCaller, private val content: ContentService) {
@@ -55,10 +49,6 @@ class ContentPages(private val currentCaller: CurrentCaller, private val content
             .addObject("items", list.items)
     }
 
-    /**
-     * Shows the file as escaped text, never as HTML (design 12.3). A file larger than 3 MB is not in memory, so the
-     * page shows no text for it. The page offers the download instead.
-     */
     @GetMapping("/files/{*path}")
     fun file(
         @PathVariable id: String,
@@ -68,27 +58,17 @@ class ContentPages(private val currentCaller: CurrentCaller, private val content
         val configSet = CONFIG_SET_ID.parse(id)
         val itemPath = itemPathOf(path)
         return content.read(currentCaller.get(), configSet, itemPath, RevisionSelector.parse(revision)) { read ->
-            val body = read.content
-            val text =
-                when (body) {
-                    is ItemContent.InMemory -> body.bytes.toString(StandardCharsets.UTF_8)
-                    is ItemContent.Streamed -> null
-                }
             ModelAndView("content/web/file")
                 .addObject("links", ContentLinks(read.configSet))
                 .addObject("revision", read.revision)
                 .addObject("item", read.item)
                 .addObject("mediaType", read.mediaType)
-                .addObject("validation", body.validation)
-                .addObject("text", text)
+                .addObject("validation", read.validation)
+                .addObject("text", read.bytes?.toString(StandardCharsets.UTF_8))
         }
     }
 
-    /**
-     * Sends the raw bytes as an attachment with `nosniff` (design 12.3). Thus the browser saves the file and never
-     * shows it.
-     * The download needs no validation status, so Folio does not validate the file.
-     */
+    /** Sends the raw bytes as an attachment, so the browser saves the file and never shows it. */
     @GetMapping("/download/{*path}")
     fun download(
         @PathVariable id: String,
@@ -106,8 +86,8 @@ class ContentPages(private val currentCaller: CurrentCaller, private val content
 }
 
 /**
- * ContentLinks makes the URLs of the content pages of one ConfigSet. It encodes each segment of an item path
- * separately. Thus a `/` in the path stays a separator, and a character such as `#` or `?` cannot change the URL.
+ * The URLs of the content pages of one ConfigSet. Each segment of an item path is encoded separately. Thus a `/` in
+ * the path stays a separator, and a character such as `#` or `?` cannot change the URL.
  */
 class ContentLinks(configSet: ConfigSet) {
     val path: String = configSet.path.toString()

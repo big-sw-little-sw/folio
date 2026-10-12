@@ -36,6 +36,13 @@ class TestCatalog(
         rules.put(SUPER_ADMIN, resource, Rule(action, subjects.map(Subject::parse).toSet()))
     }
 
+    /** Creates a ConfigSet in a new top-level Namespace, with a READ rule for [subject]. */
+    fun readableConfigSet(subject: String): ConfigSetId {
+        val id = configSet(namespace())
+        rule(id, Action.READ, subject)
+        return id
+    }
+
     /** Returns the current path of [namespace]. */
     fun pathOf(namespace: NamespaceId): String = namespaces
         .get(SUPER_ADMIN, namespace)

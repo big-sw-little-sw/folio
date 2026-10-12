@@ -1,8 +1,4 @@
-<%--
-    This page shows one ConfigItem as escaped text with its validation status (design 12.3). JTE escapes the text, so
-    the page never renders a file as HTML. A file larger than 3 MB has no text here, because Folio keeps only smaller
-    files in memory.
---%>
+<%-- JTE escapes the text of the file, so the page never renders a file as HTML. --%>
 @import io.github.big_sw_little_sw.folio.content.ConfigItem
 @import io.github.big_sw_little_sw.folio.content.RevisionId
 @import io.github.big_sw_little_sw.folio.content.internal.ValidationStatus

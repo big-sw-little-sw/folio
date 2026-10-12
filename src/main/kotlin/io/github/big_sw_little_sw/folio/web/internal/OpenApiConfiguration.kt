@@ -6,10 +6,10 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
 /**
- * SDKs and the `folio` CLI will use the OpenAPI document as their contract (design 12.2). Spring MVC writes a path
- * variable that matches the rest of the path as `{*name}`. OpenAPI path templates support only `{name}`, so this
- * customizer renames each such variable. Without the rename, OpenAPI tools cannot read the template. The renamed
- * template does not show that the value can contain `/`. Thus the parameter description of the route must state it.
+ * Spring MVC writes a path variable that matches the rest of the path as `{*name}`. OpenAPI path templates support only
+ * `{name}`, so this customizer renames each such variable. Without the rename, OpenAPI tools cannot read the template.
+ * The renamed template does not show that the value can contain `/`, so the parameter description of the route must
+ * state it.
  */
 @Configuration(proxyBeanMethods = false)
 class OpenApiConfiguration {

@@ -12,3 +12,6 @@ data class ConfigSet(
     val sourceType: SourceType,
     val path: Path,
 )
+
+/** A ConfigSet that the caller can READ. [public] is true if an anonymous caller can READ the ConfigSet too. */
+data class ReadableConfigSet(val configSet: ConfigSet, val public: Boolean)

@@ -1,7 +1,3 @@
-<%--
-    This page lists the published revisions of a ConfigSet, newest first (design 12.3). Thus the first revision is
-    latest.
---%>
 @import io.github.big_sw_little_sw.folio.content.Revision
 @import io.github.big_sw_little_sw.folio.content.web.ContentLinks
 @import io.github.big_sw_little_sw.folio.web.PageContext

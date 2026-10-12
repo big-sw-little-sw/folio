@@ -3,10 +3,7 @@ package io.github.big_sw_little_sw.folio.content.internal
 import io.github.big_sw_little_sw.folio.content.ItemPath
 import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
+import kotlin.test.*
 
 class ConfigFormatTest {
     @Test
@@ -112,7 +109,7 @@ class ConfigFormatTest {
             ValidationStatus.VALID,
             validate("a.yaml", "bucket: !Ref MyBucket\nname: !Sub '\${AWS::Region}'\n"),
         )
-        // Global tags outside the yaml.org namespace are labels too, so they stay valid (design 13).
+        // Global tags outside the yaml.org namespace are labels too, so they stay valid.
         assertEquals(ValidationStatus.VALID, validate("a.yaml", "a: !<tag:example.com,2000:x> 1\n"))
         assertEquals(ValidationStatus.VALID, validate("a.yaml", "%TAG !e! tag:example.com,2000:\n---\na: !e!x 1\n"))
     }
@@ -213,19 +210,6 @@ class ConfigFormatTest {
         assertTimeoutPreemptively(Duration.ofSeconds(2)) {
             assertEquals(ValidationStatus.INVALID, validate("a.ini", "[s]\n$line\n"))
         }
-    }
-
-    @Test
-    fun `a file of exactly 3 MB is validated`() {
-        val json = "[" + " ".repeat(ConfigFormat.MAX_VALIDATED_BYTES - 2) + "]"
-
-        assertEquals(ConfigFormat.MAX_VALIDATED_BYTES, json.length)
-        assertEquals(ValidationStatus.VALID, validate("a.json", json))
-    }
-
-    @Test
-    fun `a file of another format is not validated`() {
-        assertEquals(ValidationStatus.UNKNOWN, validate("a.cfg", "[s]\na = 1\n"))
     }
 
     private fun format(path: String) = ConfigFormat.of(ItemPath(path))

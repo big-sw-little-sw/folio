@@ -6,18 +6,18 @@ import io.github.big_sw_little_sw.folio.web.FolioException
 import java.time.Duration
 
 /**
- * ContentException declares the expected failures of a read of a ConfigSet (design 9). Adapters of [ConfigSource]
- * throw these errors too. A detail repeats only
- * values that Folio validated, such as a revision ID. A detail never repeats an item path, because a path can contain
- * any text except a backslash or NUL.
+ * The expected failures of a content read. Adapters of [ConfigSource] throw them too. A detail repeats only values that
+ * Folio validated, such as a revision ID. A detail never repeats an item path, because a path can contain any text
+ * except a backslash or NUL.
+ *
+ * For [SourceFailed] and [SourceTimedOut], the adapter gives its own code, for example `UNREACHABLE`, and the fixed,
+ * safe summary of that code as the detail.
  */
 sealed class ContentException(kind: ErrorKind, code: String, detail: String, retryAfter: Duration? = null) :
     FolioException(kind, code, detail, retryAfter) {
-    /** A read of `latest` found no revision, because the ConfigSet has no published revision (design 5.5). */
     class NotPublishedYet(id: ConfigSetId) :
         ContentException(ErrorKind.NOT_FOUND, "NOT_PUBLISHED_YET", "ConfigSet ${id.toApiId()} is not published yet.")
 
-    /** The ConfigSet did not publish this revision. Consumers can read only published revisions (design 5.5). */
     class RevisionNotFound(revision: RevisionId) :
         ContentException(
             ErrorKind.NOT_FOUND,
@@ -25,7 +25,7 @@ sealed class ContentException(kind: ErrorKind, code: String, detail: String, ret
             "The ConfigSet did not publish revision $revision.",
         )
 
-    /** The ConfigSet published the revision, but this instance cannot read it now (design 10.8). */
+    /** The Source cannot find a revision that it published, for example after a force push. */
     class RevisionUnavailable(revision: RevisionId) :
         ContentException(
             ErrorKind.NOT_FOUND,
@@ -44,7 +44,6 @@ sealed class ContentException(kind: ErrorKind, code: String, detail: String, ret
             "The ConfigItem is larger than $maxBytes bytes, the limit of this deployment.",
         )
 
-    /** The Source cannot do the read now. The client can try again after [retryAfter]. */
     class SourceBusy(retryAfter: Duration) :
         ContentException(
             ErrorKind.UNAVAILABLE,
@@ -53,16 +52,8 @@ sealed class ContentException(kind: ErrorKind, code: String, detail: String, ret
             retryAfter,
         )
 
-    /**
-     * The Source failed (502). [code] is the code of the adapter, for example `UNREACHABLE`. [detail] is the fixed,
-     * safe summary that the adapter gives for the code.
-     */
     class SourceFailed(code: String, detail: String) : ContentException(ErrorKind.UPSTREAM_FAILED, code, detail)
 
-    /**
-     * The Source did not answer in time (504). [code] is the code of the adapter, for example `DEADLINE_EXCEEDED`.
-     * [detail] is the fixed, safe summary that the adapter gives for the code.
-     */
     class SourceTimedOut(code: String, detail: String) : ContentException(ErrorKind.UPSTREAM_TIMEOUT, code, detail)
 
     class InvalidRevision :

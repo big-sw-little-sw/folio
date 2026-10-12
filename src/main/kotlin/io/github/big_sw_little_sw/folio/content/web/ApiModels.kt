@@ -11,7 +11,6 @@ import java.time.Instant
 /** [latestRevision] is null if the ConfigSet has no published revision. */
 data class MetadataResponse(val id: String, val path: String, val description: String?, val latestRevision: String?)
 
-/** The list is newest first, so the first revision is `latest`. */
 data class RevisionsResponse(val revisions: List<RevisionResponse>)
 
 data class RevisionResponse(val id: String, val publishedAt: Instant)
@@ -30,13 +29,13 @@ fun ItemList.toResponse() = FilesResponse(revision.value, items.map { FileRespon
 
 /**
  * Writes the raw bytes of a ConfigItem, for the API and for a UI download. [headers] sets the other headers of the
- * route before this function writes the content. The media type has no charset, and `nosniff` stops a browser from
- * guessing a different type (design 12.1, 12.3). Thus a browser never runs a file as HTML or as a script.
+ * route before this function writes the content. `nosniff` stops a browser from guessing a type other than the media
+ * type. Thus a browser never runs a file as HTML or as a script.
  *
  * If the read fails before the response commits, this function resets the response. Spring itself resets only the
- * buffer, `Content-Type` and `Content-Disposition`. Without the reset, the error response would keep the success
- * headers, such as the `ETag` and the `Content-Length` of the file. Callers read the content only in [headers] or
- * here, so the reset covers each failed read.
+ * buffer, `Content-Type` and `Content-Disposition`. Without the reset, the error response keeps the success headers,
+ * such as the `ETag` and the `Content-Length` of the file. Callers read the content only in [headers] or here, so the
+ * reset covers each failed read.
  */
 fun writeRaw(response: HttpServletResponse, read: ItemRead, headers: () -> Unit) {
     runCatching {
@@ -44,16 +43,12 @@ fun writeRaw(response: HttpServletResponse, read: ItemRead, headers: () -> Unit)
         response.contentType = read.mediaType
         response.setHeader(CONTENT_TYPE_OPTIONS_HEADER, "nosniff")
         response.setContentLengthLong(read.item.size)
-        read.content.writeTo(response.outputStream)
+        read.writeTo(response.outputStream)
     }.onFailure { if (!response.isCommitted) response.reset() }
         .getOrThrow()
 }
 
-/**
- * Returns the [ItemPath] of a `{*path}` route variable. Spring MVC keeps the slash at the start of the variable, so
- * this function removes that one slash. The rest must already be in normal form, because Folio never rewrites an item
- * path.
- */
+/** Spring MVC keeps the slash at the start of a `{*path}` route variable, so this function removes that one slash. */
 fun itemPathOf(wildcard: String): ItemPath = ItemPath(wildcard.removePrefix("/"))
 
 private const val CONTENT_TYPE_OPTIONS_HEADER = "X-Content-Type-Options"

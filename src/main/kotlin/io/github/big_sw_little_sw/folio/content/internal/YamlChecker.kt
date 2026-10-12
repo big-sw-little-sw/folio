@@ -14,8 +14,8 @@ import org.yaml.snakeyaml.reader.UnicodeReader
 import java.io.ByteArrayInputStream
 
 /**
- * The YAML checker (design 13). SnakeYAML reads only parser events, so Folio keeps no node graph in memory. A node
- * graph uses about 60 times the size of the file. The checker applies the limits of the SnakeYAML composer itself:
+ * The YAML checker. SnakeYAML reads only parser events, so Folio keeps no node graph in memory. A node graph uses about
+ * 60 times the size of the file. The checker applies the limits of the SnakeYAML composer itself:
  *
  * - Nesting deeper than 50 collections is an error.
  * - An alias must name an anchor that comes before it in the same document.

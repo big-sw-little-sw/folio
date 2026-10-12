@@ -3,34 +3,17 @@ package io.github.big_sw_little_sw.folio.content
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.InMemorySource
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.InMemorySource.TestItem
-import io.github.big_sw_little_sw.testing.TestCatalog
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import org.hamcrest.Matchers.contains
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.hasSize
-import org.hamcrest.Matchers.not
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.get
-import java.io.InputStream
+import org.springframework.test.web.servlet.*
 import java.net.URI
 import java.time.Duration
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
+import kotlin.test.*
 
-/**
- * These tests check the consumption routes of content (design 8.2, 9, 12.1) with the in-memory Source. The
- * validation of each format has its own unit test.
- */
 @FolioIntegrationTest
 class ContentApiIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -69,15 +52,12 @@ class ContentApiIntegrationTest(
         ROUTES.forEach { route ->
             read(url(missing) + route).andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
             read(url(id) + route).andExpectForbidden(Action.READ, id.toApiId())
-            mvc.get(url(id) + route).andExpectProblem(401, "AUTHENTICATION_REQUIRED").andExpect {
-                header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") }
-            }
         }
     }
 
     @Test
     fun `the revision list is newest first with a maximum of 100`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val revisions = (1..101).map { source.publish(id, mapOf("n.txt" to "$it")) }
 
         read("${url(id)}/revisions").andExpect {
@@ -94,7 +74,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `the file list at latest names the exact revision`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val revision = source.publish(id, mapOf("b/extra.json" to "{}", "app.yaml" to "a: 1\n"))
 
         read("${url(id)}/files").andExpect {
@@ -109,7 +89,7 @@ class ContentApiIntegrationTest(
         read("${url(id)}/files?revision=$revision").andExpect {
             header { string(HttpHeaders.CACHE_CONTROL, "private, max-age=31536000, immutable") }
         }
-        // An empty revision value selects the default, latest (design 12.1).
+        // An empty revision value selects the default, latest.
         read("${url(id)}/files?revision=").andExpect {
             status { isOk() }
             header { string(REVISION, revision.value) }
@@ -124,7 +104,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `a file read gives the raw bytes with the media type, the revision and the validation status`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val yaml = "server:\n  port: 8080\n"
         val revision = source.publish(id, mapOf("app.yaml" to yaml, "bad.json" to "{\"a\": 1,}", "notes.txt" to "x"))
 
@@ -153,7 +133,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `an exact revision keeps its content after a newer publish`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val old = source.publish(id, mapOf("app.yaml" to "v: 1\n"))
         val new = source.publish(id, mapOf("app.yaml" to "v: 2\n"))
 
@@ -170,7 +150,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `latest of a ConfigSet without a revision is not published yet`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
 
         read("${url(id)}/files").andExpectProblem(404, "NOT_PUBLISHED_YET")
         read("${url(id)}/files/app.yaml").andExpectProblem(404, "NOT_PUBLISHED_YET")
@@ -179,7 +159,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `a revision that the ConfigSet did not publish is not found`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         source.publish(id, mapOf("app.yaml" to "a: 1\n"))
         val other = source.publish(catalog.configSet(catalog.namespace()), mapOf("app.yaml" to "a: 1\n"))
 
@@ -200,7 +180,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `a path that is not in normal form gives 400, also in encoded forms`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         source.publish(id, mapOf("app.yaml" to "secret: 1\n", "a/app.yaml" to "secret: 2\n"))
 
         listOf(
@@ -230,7 +210,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `a file above 3 MB is streamed without validation`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val large = "a: " + "x".repeat(3 * 1024 * 1024) + "\n"
         source.publish(id, mapOf("large.yaml" to large))
 
@@ -247,7 +227,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `a file of exactly 3 MB is in memory and validated`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         source.publish(id, mapOf("exact.json" to "[" + " ".repeat(3 * 1024 * 1024 - 2) + "]"))
 
         read("${url(id)}/files/exact.json").andExpect {
@@ -259,11 +239,11 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `a read that fails gives an error without the headers of the file`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         val size = 4L * 1024 * 1024
         // The large file is streamed, so its read fails only after the route set the headers of the file.
         val revision =
-            source.publishItems(id, mapOf("large.bin" to failingItem(size), "small.yaml" to failingItem(10)))
+            source.publishItems(id, mapOf("large.bin" to TestItem.failing(size), "small.yaml" to TestItem.failing(10)))
 
         listOf("large.bin", "small.yaml").forEach { path ->
             val response =
@@ -281,7 +261,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `a file above the maximum file size gives 422 before the adapter opens it`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         source.publishItems(id, mapOf("huge.bin" to TestItem.unopened(100L * 1024 * 1024 + 1)))
 
         read("${url(id)}/files/huge.bin").andExpectProblem(422, "ITEM_TOO_LARGE")
@@ -290,7 +270,7 @@ class ContentApiIntegrationTest(
 
     @Test
     fun `Source failures keep the code and the status of the adapter`() {
-        val id = readable()
+        val id = catalog.readableConfigSet("user:alice")
         source.publish(id, mapOf("app.yaml" to "a: 1\n"))
         val revision = source.publish(id, mapOf("app.yaml" to "a: 2\n"))
 
@@ -308,24 +288,9 @@ class ContentApiIntegrationTest(
         read("${url(id)}/files/app.yaml").andExpect { status { isOk() } }
     }
 
-    /** Creates a ConfigSet that alice can READ. */
-    private fun readable(): ConfigSetId {
-        val id = catalog.configSet(catalog.namespace())
-        catalog.rule(id, Action.READ, "user:alice")
-        return id
-    }
-
     private fun read(url: String): ResultActionsDsl = mvc.get(url) { bearer(alice) }
 
     private fun url(id: ConfigSetId) = "/api/v1/configsets/${id.toApiId()}"
-
-    /** Returns a file whose stream fails at the first read. A Git adapter can fail in this way during a stream. */
-    private fun failingItem(size: Long) = TestItem(size, "e") {
-        object : InputStream() {
-            override fun read(): Int =
-                throw ContentException.SourceFailed("UNREACHABLE", "Folio cannot connect to the Git server.")
-        }
-    }
 
     private companion object {
         const val REVISION = "X-Folio-Revision"

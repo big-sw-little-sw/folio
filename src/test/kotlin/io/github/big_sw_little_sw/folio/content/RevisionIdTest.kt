@@ -1,9 +1,7 @@
 package io.github.big_sw_little_sw.folio.content
 
 import io.github.big_sw_little_sw.folio.content.internal.RevisionSelector
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 class RevisionIdTest {
     @Test

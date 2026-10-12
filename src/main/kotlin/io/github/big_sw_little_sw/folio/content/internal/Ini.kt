@@ -6,8 +6,8 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
 /**
- * The INI checker (design 13). INI has no standard, so Folio uses the rules of `ConfigParser.read` in Python with the
- * default options. Most Python users use these rules.
+ * The INI checker. INI has no standard, so Folio uses the rules of `ConfigParser.read` in Python with the default
+ * options. Most Python users use these rules.
  *
  * - The file is UTF-8. Lines end with LF, CRLF or CR.
  * - Blank lines and lines that start with `#` or `;` after leading whitespace are comments, also inside a value.

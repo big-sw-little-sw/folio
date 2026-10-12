@@ -6,8 +6,8 @@ import java.io.InputStream
 import java.time.Instant
 
 /**
- * The origin of the content of a ConfigSet (design 9). There is one adapter for each [SourceType]. Spring gives the
- * adapter beans to the `content` module, so `content` does not depend on the modules of the adapters.
+ * The origin of the content of a ConfigSet. Each [SourceType] has one adapter. Spring gives the adapter beans to the
+ * `content` module, so `content` does not depend on the modules of the adapters.
  *
  * A revision is a snapshot of the full ConfigSet. An adapter accepts only revisions that it published, and a published
  * revision never changes. Adapters do not authorize, because the `content` module authorizes each read before it calls
@@ -32,9 +32,9 @@ interface ConfigSource {
      * Opens one ConfigItem, calls [consume] with its content as a stream, and closes the stream after [consume]
      * returns. The adapter owns the stream, so a caller cannot leak a repository handle or a database connection.
      *
-     * The adapter must get the size and the ETag of the [ConfigItem] without a read of the content. Thus the adapter
-     * can throw [ContentException.ItemTooLarge] above [maxBytes] before it opens the content. The adapter reads the
-     * content only when [consume] reads the stream. Thus a 304 response reads no content (design 12.1).
+     * The adapter must get the size and the ETag of the [ConfigItem] without a read of the content. It must throw
+     * [ContentException.ItemTooLarge] above [maxBytes] before it opens the content, and it must read the content only
+     * when [consume] reads the stream. Without these rules, a 304 response or a refused ConfigItem reads the content.
      */
     fun <T> read(
         configSet: ConfigSetId,

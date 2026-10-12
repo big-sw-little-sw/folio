@@ -20,10 +20,10 @@ import java.util.HexFormat
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * InMemorySource is the in-memory [ConfigSource] for tests (design 9, 17). Tests publish revisions with [publish], so
- * the tests of the `content` module need no Git. The adapter registers for [SourceType.GIT], because the catalog has
- * no other Source type and the test fixture creates Git ConfigSets. The Git slice must decide how this adapter and the
- * Git adapter share the type (design 17).
+ * An in-memory [ConfigSource] that lets tests publish revisions with [publish], so the tests of the `content` module
+ * need no Git. The adapter registers for [SourceType.GIT], because the catalog has no other Source type and
+ * [TestCatalog] creates Git ConfigSets. Folio does not start with two adapters for one type, so this adapter cannot run
+ * next to a Git adapter.
  */
 @TestComponent
 class InMemorySource : ConfigSource {
@@ -33,10 +33,7 @@ class InMemorySource : ConfigSource {
     private val published = ConcurrentHashMap<ConfigSetId, List<Published>>()
     private val failures = ConcurrentHashMap<ConfigSetId, ContentException>()
 
-    /**
-     * Publishes a new revision with these files and returns its ID. The ID is random and has the form of a Git commit
-     * ID.
-     */
+    /** The new revision gets a random ID in the form of a Git commit ID. */
     fun publish(configSet: ConfigSetId, files: Map<String, String>): RevisionId =
         publishItems(configSet, files.mapValues { (_, text) -> TestItem.of(text.toByteArray()) })
 
@@ -87,11 +84,11 @@ class InMemorySource : ConfigSource {
     }
 
     /**
-     * Content calls the adapter outside a transaction, so a slow read holds no database connection (design 8.2). The
-     * integration tests are not transactional. Thus each content test checks this rule on each route that it calls.
+     * The `content` module must call the adapter outside a transaction. The integration tests are not transactional,
+     * so each content test checks this rule on each route that it calls.
      */
     private fun requireNoTransaction() = check(!TransactionSynchronizationManager.isActualTransactionActive()) {
-        "Content called the adapter in a transaction (design 8.2)."
+        "Content called the adapter in a transaction."
     }
 
     private fun find(configSet: ConfigSetId, revision: RevisionId): Published =
@@ -102,7 +99,7 @@ class InMemorySource : ConfigSource {
     /** A TestItem is a file of a test revision. [open] gives a new stream of the content at each call. */
     class TestItem(val size: Long, val etag: String, val open: () -> InputStream) {
         companion object {
-            /** The ETag is the Git blob ID of the content, as the Git adapter will give it (design 12.1). */
+            /** The ETag is the Git blob ID of the content, as the Git adapter gives it. */
             fun of(bytes: ByteArray) = TestItem(bytes.size.toLong(), blobId(bytes)) { ByteArrayInputStream(bytes) }
 
             /**
@@ -110,6 +107,14 @@ class InMemorySource : ConfigSource {
              * size limit.
              */
             fun unopened(size: Long) = TestItem(size, "unopened") { error("The adapter opened a file of $size bytes") }
+
+            /** Returns a file whose stream fails at the first read, as a Git adapter can fail during a stream. */
+            fun failing(size: Long) = TestItem(size, "failing") {
+                object : InputStream() {
+                    override fun read(): Int =
+                        throw ContentException.SourceFailed("UNREACHABLE", "Folio cannot connect to the Git server.")
+                }
+            }
 
             fun blobId(bytes: ByteArray): String {
                 val digest = MessageDigest.getInstance("SHA-1")

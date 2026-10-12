@@ -58,4 +58,5 @@ management:
 #   folio.content.max-file-size (100MB) is the largest ConfigItem that Folio serves. Folio refuses a larger item with
 #     status 422. Folio streams files, so this limit protects bandwidth, not memory.
 #   folio.content.latest-max-age (30s) is how long caches keep responses for latest, metadata and revision lists. It
-#     is also how long shared caches keep a public exact revision before they revalidate it.
+#     is also how long shared caches keep a public exact revision before they revalidate it. Zero makes caches
+#     revalidate each time.

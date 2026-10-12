@@ -592,7 +592,7 @@ adapters to `content` as beans.
 | `web` | API ID format (section 5.2), error responses, the UI layout | `ApiId`, `FolioException`, the page layout with its `PageContext`, `submit` for UI forms (section 12.3), the UI content security policy, and shared UI fragments | The map to problem details and statuses, the one `@RestControllerAdvice`, the `/error` route, htmx and the styles |
 | `identity` | Token validation, browser sign-in, sessions, directories, `Caller`, subjects, super admins | `Caller`, `CurrentCaller` (HTTP layers only), `Subject`, `SuperAdmins`, `IdentityException` | The filter chains, the claim map, the directory adapters, URL rules |
 | `audit` | `audit_event` | `AuditLog.record(entry)` | The insert, the retention period |
-| `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access`, `SnapshotRead`, `ConfigSets`, `ConfigSet`, `Namespaces`, `Namespace`, the ID types and their API IDs, `Slug`, `Path`, `Action`, `SourceType`, `CatalogException` | The tree lock, recursive queries, the nearest-rule algorithm, move checks |
+| `catalog` | Namespaces, ConfigSets, paths, rules, decisions | `Access`, `SnapshotRead`, `ConfigSets`, `ConfigSet`, `ReadableConfigSet`, `Namespaces`, `Namespace`, the ID types and their API IDs, `Slug`, `Path`, `Action`, `SourceType`, `CatalogException` | The tree lock, recursive queries, the nearest-rule algorithm, move checks |
 | `credential` | Credentials, keys, the master-key ring | `Credentials.requireUsable`, `CredentialKeys.withActiveKey`, `CredentialKeys.withPendingKey`, `CredentialId`, `KeyId` and their API IDs, `CredentialException` | Key generation, encryption, rotation, OpenSSH format |
 | `content` | The consumption API, the Source interface, validation | `ConfigSource`, for adapters to implement | Revision selection, cache headers, media types, validation |
 | `git` | Git sources, sync, the cache | None. It is an adapter with its own admin routes. | SSH, host keys, JGit, leases, fetch limits, the cache, revision history |
@@ -618,21 +618,24 @@ class Access {
     /** True if the caller can do the action. The UI uses it to show only the operations that the caller can do. */
     fun allows(caller: Caller, action: Action, resource: ResourceId): Boolean
 
-    /** True if an anonymous caller can READ the resource. Content uses it for Cache-Control. */
-    fun isPublic(resource: ResourceId): Boolean
-
     /** Throws Forbidden (403) on "the root" or Unauthenticated (401) if the caller is not a super admin. */
     fun requireSuperAdmin(caller: Caller)
 }
 
-/** ConfigSet creation for Source adapters. The HTTP routes do the other operations. */
+/** ConfigSet creation for Source adapters, and the read check of content. The HTTP routes do the other operations. */
 class ConfigSets {
     /** Creates the ConfigSet. The adapter writes its Source definition in the same transaction. */
     fun create(caller: Caller, namespace: NamespaceId, slug: Slug, description: String?, sourceType: SourceType): ConfigSet
 
     /** Finds a ConfigSet without authorization. */
     fun find(id: ConfigSetId): ConfigSet?
+
+    /** Finds the ConfigSet (404), then requires READ on it (403 or 401). Content uses `public` for Cache-Control. */
+    fun requireReadable(caller: Caller, id: ConfigSetId): ReadableConfigSet
 }
+
+/** A ConfigSet that the caller can READ. `public` is true if an anonymous caller can READ it too. */
+data class ReadableConfigSet(val configSet: ConfigSet, val public: Boolean)
 
 /** Namespace lookups for other modules. The credential module uses it for the owner of a credential. */
 class Namespaces {
@@ -681,15 +684,16 @@ sealed interface ResourceId { val value: UUID }
   `credential` and `git`. *Reason:* one name for one policy. A read with the wrong isolation still compiles.
 - **Writes of other modules.** A write of another module, for example a credential change, authorizes in its own
   `READ COMMITTED` transaction. There each statement has its own snapshot, so a catalog commit could fall between the
-  ancestry read and the rules read. Thus `Access` and `Namespaces.require` take the shared form of the tree lock
-  (`pg_advisory_xact_lock_shared`) before the ancestry read when the transaction is not read-only. The shared form
+  ancestry read and the rules read. Thus `Access`, `Namespaces.require` and `ConfigSets.requireReadable` take the
+  shared form of the tree lock (`pg_advisory_xact_lock_shared`) before the ancestry read when the transaction is not
+  read-only. The shared form
   waits for a catalog write to commit, and it blocks the next catalog write until the transaction ends. Thus the two
   reads see one committed tree state.
   - A catalog write already holds the exclusive form. PostgreSQL never blocks a transaction on its own locks, so a
     catalog write that calls `Access` does not wait for itself.
   - A write that also takes the exclusive form, for example through `ConfigSets.create`, must take it before it calls
-    `Access` or `Namespaces.require`. Otherwise two such writes can each hold the shared form and wait for the
-    exclusive form of the other.
+    `Access`, `Namespaces.require` or `ConfigSets.requireReadable`. Otherwise two such writes can each hold the shared
+    form and wait for the exclusive form of the other.
 - **Ancestors.** A recursive query on `parent_id` finds the ancestors. Trees are shallow. A closure table makes moves
   more difficult and gives no measurable gain.
 - **Nearest-rule algorithm.** It is a pure function in `catalog.internal`. Unit tests examine it without Spring.
@@ -726,7 +730,8 @@ The `content` module owns all that consumers see, for all Sources. For each read
 4. Select the adapter for the `sourceType` of the ConfigSet, and call it.
 5. Add the validation status and the cache headers.
 
-Steps 1 and 2 run in one `@SnapshotRead` transaction. The adapter calls run outside a transaction. Thus a slow read or
+Steps 1 and 2 run in one `@SnapshotRead` transaction, in `ConfigSets.requireReadable`. The adapter calls run outside a
+transaction. Thus a slow read or
 a fetch on demand holds no database connection. Section 9 gives the interface that content calls.
 
 ### 8.3 credential
@@ -1784,7 +1789,7 @@ decision here with its reason.
 | The Git check has no `NO_ACTIVE_KEY` code. Each credential always has one active key. | Create and replace activate a key, and activate swaps keys in one transaction. Without a cause that can occur, the code would be dead interface. | 10.3, 11.1 |
 | A write outside the catalog that authorizes takes the shared tree lock in `Access`. Read-only reads stay without a lock. | A `READ COMMITTED` decision reads the ancestry and the rules in two statements. Without the lock, it could combine a tree and rules that never existed together. | 5.4, 8.1 |
 | A key that does not decrypt gives an `IllegalStateException` that names the key and the credential. | Callers never see crypto types. The operator can find the credential to replace, and a failed re-encryption can then complete. | 8.3, 11.3 |
-| Content finds and authorizes in one snapshot, and calls the adapter outside a transaction. | A decision uses one snapshot. A slow read or a fetch holds no database connection. | 8.2 |
+| Content finds and authorizes in one snapshot, through `ConfigSets.requireReadable`, and calls the adapter outside a transaction. | A decision uses one snapshot. The catalog owns the order "find, then authorize". A slow read or a fetch holds no database connection. | 8.1, 8.2 |
 | A revision ID has 1 to 64 lowercase letters and digits, and is never `latest`. | Content rejects a malformed value with 400 before it finds the ConfigSet. An ID needs no escape in a URL. | 9, 12.1 |
 | Content selects the adapter at the time of a read. Two adapters for one type stop the start. | The main code has no adapter until the Git slice, and Folio must still start. | 9, 20 |
 | The metadata shows `latestRevision: null` before the first publish. Only reads of `latest` give `NOT_PUBLISHED_YET`. | A consumer can see that the ConfigSet exists but has no content yet. | 5.5, 12.1 |

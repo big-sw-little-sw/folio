@@ -1,7 +1,6 @@
 <%--
-    The content module serves the files page and the revisions page of a ConfigSet. The catalog does not depend on the
-    content module, so this page links to those two pages by path only (design 12.3). This page does not show the
-    latest revision, because only the content module knows it. The files page names it.
+    The catalog does not depend on the content module, so this page links to the files page and the revisions page of
+    the content module by path only. Only the content module knows the latest revision, so this page does not show it.
 --%>
 @import io.github.big_sw_little_sw.folio.catalog.ConfigSet
 @import io.github.big_sw_little_sw.folio.catalog.web.Operations

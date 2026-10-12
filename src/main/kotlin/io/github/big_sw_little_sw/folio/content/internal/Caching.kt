@@ -5,13 +5,12 @@ import java.time.Duration
 import java.util.HexFormat
 
 /**
- * The `Cache-Control` value of a content response (design 12.1). A response is `public` if an anonymous caller can
- * READ the ConfigSet. Otherwise it is `private`, and only the cache of the caller can keep it.
+ * The `Cache-Control` value of a content response. A response is `public` if an anonymous caller can READ the
+ * ConfigSet. Otherwise it is `private`, and only the cache of the caller can keep it.
  *
  * - An exact revision never changes, so caches can keep it for a year. Shared caches revalidate a public exact revision
  *   after [latestMaxAge]. Thus they stop serving it soon after an administrator removes a `public` grant.
- * - `latest` changes with each publish, so all caches keep it for [latestMaxAge] only. Metadata and revision lists
- *   name the latest revision, so they use the policy of [RevisionSelector.Latest].
+ * - `latest` changes with each publish, so all caches keep it for [latestMaxAge] only.
  */
 fun cacheControl(selector: RevisionSelector, public: Boolean, latestMaxAge: Duration): String {
     val visibility = if (public) "public" else "private"
@@ -28,18 +27,16 @@ fun cacheControl(selector: RevisionSelector, public: Boolean, latestMaxAge: Dura
 }
 
 /**
- * A Cached value holds a response body, its entity tag without quotes, and its `Cache-Control` value. The HTTP layer
- * of the `content` module sends the entity tag and the `Cache-Control` value as headers. Spring MVC then answers a
- * matching `If-None-Match` with 304. The service authorized the caller before it made the value, so a 304 never
- * bypasses a denial (design 12.1).
+ * A response body with its entity tag, without quotes, and its `Cache-Control` value. The service authorizes the caller
+ * before it makes a Cached value. Thus the 304 that Spring MVC sends for a matching `If-None-Match` never bypasses a
+ * denial.
  */
 data class Cached<T>(val body: T, val etag: String, val cacheControl: String)
 
 /**
- * Returns an entity tag for a body that has no content hash of its own. The tag is the first 128 bits of the SHA-256
- * of [parts]. The caller must give each part that decides the body. Otherwise a changed body keeps its old tag, and
- * caches keep the old body. A NUL separates the parts, because no part contains NUL. Thus two different lists of parts
- * never give the same text.
+ * Returns an entity tag for a body that has no content hash of its own. The caller must give each part that decides the
+ * body. Otherwise a changed body keeps its old tag, and caches keep the old body. No part contains NUL, so the NUL
+ * separator makes sure that two different lists of parts never give the same text.
  */
 fun digestTag(parts: List<String>): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(parts.joinToString("\u0000").toByteArray())

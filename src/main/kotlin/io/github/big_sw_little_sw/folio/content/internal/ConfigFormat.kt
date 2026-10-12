@@ -9,8 +9,8 @@ import java.io.ByteArrayInputStream
 import java.util.Properties
 
 /**
- * The validation status is metadata about the raw content. Folio serves the content in all cases, also when the
- * content does not parse (design 13).
+ * The validation status is metadata about the raw content. Folio serves the content unchanged in all cases, also when
+ * the content does not parse.
  */
 enum class ValidationStatus {
     VALID,
@@ -21,7 +21,7 @@ enum class ValidationStatus {
 }
 
 /**
- * The formats that Folio validates (design 13). The file extension selects the format, and case is not important. To
+ * The formats that Folio validates. The file extension selects the format, and case is not important. To
  * add a format, add one entry with its extensions, its media type and one parser call. There is no validator
  * interface.
  *
@@ -31,12 +31,12 @@ enum class ValidationStatus {
 enum class ConfigFormat(
     /**
      * The media type of a file response. Folio sends no charset, because Folio serves the raw bytes and does not know
-     * their encoding (design 12.1).
+     * their encoding.
      */
     val mediaType: String,
     private vararg val extensions: String,
 ) {
-    /** SnakeYAML reads only parser events, and Folio checks the limits. [YamlChecker] gives the details. */
+    /** [YamlChecker] gives the rules. */
     YAML("application/yaml", "yaml", "yml") {
         override fun parses(bytes: ByteArray): Boolean = YamlChecker.parses(bytes)
     },
@@ -73,10 +73,7 @@ enum class ConfigFormat(
         }
     },
 
-    /**
-     * An INI file must follow the rules of the Python `configparser` module in its default strict mode. [Ini] gives the
-     * details.
-     */
+    /** [Ini] gives the rules. */
     INI("text/plain", "ini") {
         override fun parses(bytes: ByteArray): Boolean = Ini.parses(bytes)
     },
@@ -85,7 +82,7 @@ enum class ConfigFormat(
     protected abstract fun parses(bytes: ByteArray): Boolean
 
     companion object {
-        /** Folio validates only files of 3 MB or less, and keeps only these files in memory (design 9). */
+        /** Folio validates only files of this size or less. */
         const val MAX_VALIDATED_BYTES = 3 * 1024 * 1024
 
         const val OCTET_STREAM = "application/octet-stream"
@@ -93,7 +90,6 @@ enum class ConfigFormat(
         private val jsonMapper = JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build()
         private val tomlMapper = TomlMapper.builder().build()
 
-        /** Returns the format that the extension of [path] selects, or null if Folio does not know the format. */
         fun of(path: ItemPath): ConfigFormat? {
             val extension = path.name.substringAfterLast('.', "").lowercase()
             return entries.firstOrNull { extension in it.extensions }
@@ -102,8 +98,8 @@ enum class ConfigFormat(
         fun mediaTypeOf(path: ItemPath): String = of(path)?.mediaType ?: OCTET_STREAM
 
         /**
-         * This function does not check the size of [bytes]. The caller gives only files of [MAX_VALIDATED_BYTES] or
-         * less, as [ItemRead] does. A larger file is UNKNOWN (design 13).
+         * The caller must give only files of [MAX_VALIDATED_BYTES] or less, because this function does not check the
+         * size.
          */
         fun validate(path: ItemPath, bytes: ByteArray): ValidationStatus {
             val format = of(path)

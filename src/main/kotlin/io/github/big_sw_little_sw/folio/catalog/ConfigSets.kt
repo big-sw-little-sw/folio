@@ -9,7 +9,10 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
-/** Source adapters create and find ConfigSets through this class. The HTTP routes do the other ConfigSet operations. */
+/**
+ * Other modules create, find and authorize ConfigSets through this class. The HTTP routes of the catalog do the other
+ * ConfigSet operations.
+ */
 @Service
 class ConfigSets(
     private val tree: TreeRepository,
@@ -46,5 +49,20 @@ class ConfigSets(
         val row = configSetRepository.find(id) ?: return null
         val ancestry = tree.ancestry(id) ?: return null
         return row.toConfigSet(ancestry.path)
+    }
+
+    /**
+     * Finds the ConfigSet (404) and then requires `READ` on it (403 or 401). [ReadableConfigSet.public] comes from the
+     * same snapshot, so the ConfigSet, the decision and the public flag agree. The snapshot ends when this method
+     * returns.
+     */
+    @SnapshotRead
+    fun requireReadable(caller: Caller, id: ConfigSetId): ReadableConfigSet {
+        tree.lockShared()
+        val ancestry = tree.requireAncestry(id)
+        authorizer.require(caller, Action.READ, ancestry)
+        val row = configSetRepository.find(id) ?: throw CatalogException.ConfigSetNotFound(id)
+        val public = authorizer.decide(Caller.Anonymous, Action.READ, ancestry).allowed
+        return ReadableConfigSet(row.toConfigSet(ancestry.path), public)
     }
 }
