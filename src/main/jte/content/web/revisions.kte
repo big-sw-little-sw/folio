@@ -1,0 +1,29 @@
+@import io.github.big_sw_little_sw.folio.content.Revision
+@import io.github.big_sw_little_sw.folio.content.web.ContentLinks
+@import io.github.big_sw_little_sw.folio.web.PageContext
+@param page: PageContext
+@param links: ContentLinks
+@param revisions: List<Revision>
+@template.web.layout(page = page, title = "Revisions of " + links.path, content = @`
+    @template.content.web.crumbs(links = links, trail = @`Revisions`)
+    <h1>Revisions <span class="kind">of ${links.path}</span></h1>
+    @if(revisions.isEmpty())
+        <p class="muted">The ConfigSet is not published yet.</p>
+    @else
+        <p>Folio lists the newest 100 revisions. Older revisions stay readable by their ID.</p>
+        <table>
+            <thead>
+                <tr><th>Revision</th><th>Published at</th><th></th></tr>
+            </thead>
+            <tbody>
+                @for(revision in revisions)
+                    <tr>
+                        <td><a href="${links.files(revision.id)}"><code>${revision.id.value}</code></a></td>
+                        <td>${revision.publishedAt.toString()}</td>
+                        <td>@if(revision == revisions.first())<span class="muted">latest</span>@endif</td>
+                    </tr>
+                @endfor
+            </tbody>
+        </table>
+    @endif
+`)

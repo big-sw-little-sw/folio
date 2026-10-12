@@ -37,6 +37,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.springframework.modulith:spring-modulith-starter-core")
     implementation("tools.jackson.module:jackson-module-kotlin")
+    // Folio validates TOML files with this module. The Jackson BOM of Spring Boot sets its version.
+    implementation("tools.jackson.dataformat:jackson-dataformat-toml")
     implementation(libs.springdoc.openapi.webmvc.api)
     implementation(libs.jte.kotlin)
     implementation(libs.jte.spring.boot.starter)
