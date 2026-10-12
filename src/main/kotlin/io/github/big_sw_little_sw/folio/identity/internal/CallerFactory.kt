@@ -14,8 +14,8 @@ class CallerFactory(
     private val superAdmins: SuperAdmins,
 ) {
     /**
-     * Throws [InvalidClaims] if the claims give no caller or name an account that the directory rejects. Throws
-     * [DirectoryUnavailable] if the directory cannot give the groups now.
+     * Throws [InvalidClaims] if the claims give no subject or give an application ID that is not a string.
+     * [Directory.groups] gives the other failures.
      */
     fun toCaller(claims: Map<String, Any>): Caller.Authenticated {
         val subject = claims[names.subject]

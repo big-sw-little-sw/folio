@@ -54,13 +54,13 @@ management:
 #   folio.security.claims.subject (sub), .groups (groups) and .application-id (azp) name the claims that give the
 #     caller.
 #   folio.security.directory (token) selects the directory, which gives the groups of a caller: token reads the
-#     groups claim, and google reads the Cloud Identity Groups API (design 6.5). The google directory gets its access
-#     token from Application Default Credentials, and Folio does not start without them. With the issuer
+#     groups claim, and google reads the Cloud Identity Groups API. The google directory gets its access token from
+#     Application Default Credentials, and Folio does not start without them. With the issuer
 #     https://accounts.google.com, the directory must be google, because only the google directory restricts the
 #     accounts.
 #   folio.security.google.hosted-domain (none) is the Workspace domain. A person's token must have this domain in the
-#     hd claim. The token must also have an email claim, because the group lookup needs it. Folio does not start with
-#     the google directory without this setting.
+#     hd claim. The token must also have an email claim, because the group lookup needs it. The google directory needs
+#     this setting. Without it, Folio does not start.
 #   folio.security.google.service-account-projects (none) lists the projects of the workloads. A workload token must
 #     have an email that ends with @<project>.iam.gserviceaccount.com. Without projects, Folio rejects each workload.
 #     A token that matches neither restriction gets status 401.

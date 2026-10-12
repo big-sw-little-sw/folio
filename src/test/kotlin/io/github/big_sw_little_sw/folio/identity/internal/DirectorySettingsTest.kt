@@ -3,11 +3,9 @@ package io.github.big_sw_little_sw.folio.identity.internal
 import org.springframework.beans.factory.support.StaticListableBeanFactory
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerProperties
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
-/** These tests check the startup validation of `folio.security.directory` and `folio.security.google` (design 6.5). */
+/** These tests check the startup validation of `folio.security.directory` and `folio.security.google`. */
 class DirectorySettingsTest {
     private val google = IdentityProperties.Google(hostedDomain = "example.com")
 
@@ -51,9 +49,7 @@ class DirectorySettingsTest {
     fun `google settings must have the correct form, and the messages name the settings without values`() {
         mapOf(
             "folio.security.google.hosted-domain must not be blank" to {
-                IdentityProperties.Google(
-                    hostedDomain = " ",
-                )
+                IdentityProperties.Google(hostedDomain = " ")
             },
             "folio.security.google.service-account-projects must list project IDs" to {
                 IdentityProperties.Google(serviceAccountProjects = setOf("ok", "sa@bad"))
@@ -80,8 +76,8 @@ class DirectorySettingsTest {
     }
 
     private fun directory(properties: IdentityProperties, issuer: String): Directory {
-        val beans = StaticListableBeanFactory()
         val resourceServer = OAuth2ResourceServerProperties().apply { jwt.issuerUri = issuer }
-        return Directories().directory(properties, resourceServer, beans.getBeanProvider(CloudIdentity::class.java))
+        val cloudIdentity = StaticListableBeanFactory().getBeanProvider(CloudIdentity::class.java)
+        return DirectoryConfiguration().directory(properties, resourceServer, cloudIdentity)
     }
 }

@@ -3,10 +3,7 @@ package io.github.big_sw_little_sw.folio.identity
 import io.github.big_sw_little_sw.folio.MockOidcProvider
 import io.github.big_sw_little_sw.folio.MockOidcProviderConfiguration
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
-import io.github.big_sw_little_sw.testing.FakeCloudIdentity
-import io.github.big_sw_little_sw.testing.FakeCloudIdentityConfiguration
-import io.github.big_sw_little_sw.testing.NoSyncSchedule
-import io.github.big_sw_little_sw.testing.OidcBrowser
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.SIGN_IN_LINK
 import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.location
 import org.junit.jupiter.api.Tag
@@ -18,15 +15,12 @@ import org.springframework.boot.test.system.CapturedOutput
 import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.context.annotation.Import
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.*
 
 /**
- * These tests sign people in to the UI with the google directory (design 6.2, 6.5). The mock OIDC provider gives ID
- * tokens with the `hd` and `email` claims of Google, and [FakeCloudIdentity] gives the groups. This test class has its
- * own application context, because it sets the google directory.
+ * These tests sign people in to the UI with the google directory. The mock OIDC provider gives ID tokens with the `hd`
+ * and `email` claims of Google, and [FakeCloudIdentity] gives the groups. This test class has its own application
+ * context, because it sets the google directory.
  */
 @Tag("integration")
 @SpringBootTest(
@@ -61,8 +55,8 @@ class GoogleSignInIntegrationTest(
 
         assertEquals("$folio/", location(callback))
         assertContains(browser.get("$folio/me").body(), "<code>01team</code>")
-        // The session keeps the caller from sign-in (design 6.2). Thus a later failure of the API does not change the
-        // groups of the session.
+        // The session keeps the caller from sign-in. Thus a later failure of the API does not change the groups of the
+        // session.
         api.fail(email)
         assertContains(browser.get("$folio/me").body(), "<code>01team</code>")
         assertEquals(1, api.requestsFor(email).size)
@@ -87,10 +81,7 @@ class GoogleSignInIntegrationTest(
 
         assertEquals(503, response.statusCode())
         assertContains(response.body(), "<code>DIRECTORY_UNAVAILABLE</code>")
-        assertContains(
-            output.all,
-            "Sign-in failed: The Cloud Identity API answered with status 503",
-        )
+        assertContains(output.all, "Sign-in failed: The Cloud Identity API answered with status 503")
         assertFalse("secret detail" in output.all)
         assertContains(browser.get("$folio/").body(), SIGN_IN_LINK)
     }

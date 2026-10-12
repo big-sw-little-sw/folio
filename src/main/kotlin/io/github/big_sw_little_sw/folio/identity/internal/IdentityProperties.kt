@@ -20,8 +20,8 @@ data class IdentityProperties(
                 }
             }
 
-            // The google directory gives groups only to people, and the web UI signs in only people. Without a hosted
-            // domain, the google directory would reject each person.
+            // Without a hosted domain, the google directory would accept no person. Then nobody could sign in to
+            // the web UI, and no caller would get groups.
             DirectoryType.GOOGLE -> {
                 require(google.hostedDomain != null) {
                     "folio.security.directory google needs folio.security.google.hosted-domain"
@@ -52,7 +52,7 @@ data class IdentityProperties(
         GOOGLE,
     }
 
-    /** `folio.security.google`: the account restrictions and the group lookup of the google directory (design 6.5). */
+    /** `folio.security.google`: the account restrictions and the group lookup of the google directory. */
     data class Google(
         /** A person's token must have this value in its `hd` claim. */
         val hostedDomain: String? = null,

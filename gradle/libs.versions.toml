@@ -11,8 +11,8 @@ jte = "3.2.4"
 jgit = "7.8.0.202609011348-r"
 # Apache sshd uses this provider for Ed25519 keys in Git SSH. Folio's own crypto uses only the JDK.
 bouncycastle = "1.86"
-# The google directory gets its access token for the Cloud Identity API from Application Default Credentials
-# (design 6.5, 19). Folio uses no other Google client library.
+# Folio uses only this Google library, for Application Default Credentials. It calls the Cloud Identity API with
+# RestClient, so it needs no Google API client.
 googleAuth = "1.54.0"
 ktlintGradle = "14.2.0"
 ktlint = "1.8.0"

@@ -119,8 +119,8 @@ class SecurityConfiguration(
             sessionManagement { sessionCreationPolicy = SessionCreationPolicy.STATELESS }
             csrf { disable() }
         }
-        // By default, the filter rethrows an issuer outage, and the container then sends a 500. The Kotlin DSL has no
-        // setting for this, so a post-processor changes the failure handler of the filter.
+        // By default, the filter rethrows an issuer or directory outage, and the container then sends a 500. The Kotlin
+        // DSL has no setting for this, so a post-processor changes the failure handler of the filter.
         http.oauth2ResourceServer {
             it.withObjectPostProcessor(
                 object : ObjectPostProcessor<BearerTokenAuthenticationFilter> {
@@ -194,7 +194,7 @@ class SecurityConfiguration(
         val reason = listOfNotNull(error?.errorCode, error?.description ?: exception.message).joinToString(" ")
         log.warn("Sign-in failed: {}", reason)
         val failure =
-            if (exception is DirectoryUnavailable) {
+            if (exception is DirectoryOutage) {
                 IdentityException.DirectoryUnavailable()
             } else {
                 IdentityException.SignInFailed()
@@ -204,10 +204,12 @@ class SecurityConfiguration(
 
     /**
      * Spring gives [AuthenticationServiceException] when the decoder cannot get the discovery document or the signing
-     * keys of the issuer (see [OutageReportingJwtDecoder]). [DirectoryUnavailable] has the same type, so the `when`
-     * examines it first. The log gets a token whose claims give no caller, because the issuer signed that token for
-     * Folio, so the claim configuration or the account restriction is wrong. Other token failures are faults of the
-     * client, so only the client gets them.
+     * keys of the issuer (see [OutageReportingJwtDecoder]). [DirectoryOutage] is also an
+     * [AuthenticationServiceException], so the `when` examines it first.
+     *
+     * The log gets the [InvalidClaims] message, never the token. The issuer signed that token for Folio, so a claim
+     * that gives no caller means that the claim configuration or the account restriction is wrong. Other token failures
+     * are faults of the client, so only the client sees them.
      */
     private fun failToken(
         request: HttpServletRequest,
@@ -215,7 +217,7 @@ class SecurityConfiguration(
         exception: AuthenticationException,
     ) {
         when (exception) {
-            is DirectoryUnavailable -> {
+            is DirectoryOutage -> {
                 log.warn(
                     "A bearer token was not accepted, because the directory is not available: {}",
                     exception.message,

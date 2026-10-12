@@ -12,13 +12,13 @@ import java.net.URI
  * Gives the groups of an authenticated caller. `folio.security.directory` selects one adapter. Only the identity module
  * knows the directory, so other modules see only the groups in the caller.
  *
- * An adapter for an issuer that signs tokens for accounts outside the organization also restricts the accounts. Thus
- * each token goes through the restriction before it gets groups.
+ * If the issuer signs tokens for accounts outside the organization, the adapter must also reject those accounts. Each
+ * bearer token and each ID token goes through [groups], so no token gets a caller without the check.
  */
 interface Directory {
     /**
      * Throws [InvalidClaims] if the claims do not give groups in the form that this directory expects, or if the
-     * claims name an account that this directory does not accept. Throws [DirectoryUnavailable] if the directory
+     * claims name an account that this directory does not accept. Throws [DirectoryOutage] if the directory
      * cannot give the groups now. Folio never continues without groups, because a missing group can change a decision.
      */
     fun groups(claims: Map<String, Any>): Set<String>
@@ -36,15 +36,13 @@ class TokenDirectory(private val groupsClaim: String) : Directory {
 }
 
 /**
- * The directory cannot give the groups now. The token can still be valid, so the client gets status 503, not 401.
- * Spring Security passes the exception to the failure handlers of both filter chains. The message names the cause
- * without a token, an email address or a response body, so that the message is safe to log.
+ * The directory cannot give the groups now. Spring Security gives the exception to the failure handlers of both filter
+ * chains. The message names the cause without a token, an email address or a response body, so that it is safe to log.
  */
-class DirectoryUnavailable(override val message: String) : AuthenticationServiceException(message)
+class DirectoryOutage(override val message: String) : AuthenticationServiceException(message)
 
-/** Makes the one directory that `folio.security.directory` selects. */
 @Configuration(proxyBeanMethods = false)
-class Directories {
+class DirectoryConfiguration {
     @Bean
     fun directory(
         properties: IdentityProperties,
@@ -52,8 +50,8 @@ class Directories {
         cloudIdentity: ObjectProvider<CloudIdentity>,
     ): Directory = when (properties.directory) {
         IdentityProperties.DirectoryType.TOKEN -> {
-            // The Google issuer signs tokens for all Google accounts, and only the google directory restricts the
-            // accounts. Without this check, the token directory would accept each Google account.
+            // The Google issuer signs tokens for all Google accounts, and only the google directory rejects accounts
+            // outside the organization. Without this check, the token directory would accept each Google account.
             require(resourceServer.jwt.issuerUri?.let(::isGoogle) != true) {
                 "spring.security.oauth2.resourceserver.jwt.issuer-uri names Google, so " +
                     "folio.security.directory must be google"
@@ -67,9 +65,9 @@ class Directories {
     }
 
     /**
-     * The Cloud Identity client is lazy, because only the google directory needs Application Default Credentials.
-     * Thus a deployment with the token directory never creates the client. The google directory creates the client at
-     * startup, so Folio does not start without the credentials.
+     * The client is lazy, because only the google directory needs Application Default Credentials. Without @Lazy, a
+     * deployment with the token directory would also need the credentials. The google directory gets the client at
+     * startup, so a deployment with the google directory does not start without the credentials.
      */
     @Bean
     @Lazy

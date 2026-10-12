@@ -6,12 +6,10 @@ import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
-import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * A test browser with cookies. It signs in to Folio at [folio] through the mock OIDC provider at [issuer] (design 17).
+ * A test browser with cookies. It signs in to Folio at [folio] through the mock OIDC provider at [issuer].
  * The browser follows no redirects, so tests can examine each step of the authorization code flow.
  */
 class OidcBrowser(private val folio: String, private val issuer: String) {

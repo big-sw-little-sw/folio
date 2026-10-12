@@ -21,7 +21,7 @@ class CurrentCaller {
      * caller would hide the fault as a permissions problem.
      */
     private fun callerOf(principal: Any?): Caller = when (principal) {
-        // An API request has a bearer token, and BearerTokenConverter made this caller.
+        // An API request has a bearer token, and the API filter chain made this caller with CallerFactory.
         is Caller.Authenticated -> principal
 
         // A UI request has a browser session, and sign-in made this caller.

@@ -10,6 +10,7 @@ import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.STRING
 import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.form
 import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.formRequest
 import io.github.big_sw_little_sw.testing.OidcBrowser.Companion.location
+import io.github.big_sw_little_sw.testing.TestRoutes.Companion.CALLER
 import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
@@ -46,24 +47,12 @@ class LocalSignInIntegrationTest(
 
         assertContains(page, "Signed in as <a href=\"/me\"><strong>alice</strong></a>")
         assertContains(browser.get("$folio/me").body(), "<code>team-a</code>")
-        val lastAccess =
-            sessions
-                .findByPrincipalName("alice")
-                .values
-                .single()
-                .lastAccessedTime
+        val lastAccess = lastAccess("alice")
         Thread.sleep(Duration.ofMillis(SESSION_CLOCK_STEP_MILLIS))
         // The browser also sends the session cookie to the API. The API must ignore the session, so the caller is
         // anonymous and the session keeps its last access time.
-        assertContains(browser.get("$folio/api/test/caller").body(), "ANONYMOUS")
-        assertEquals(
-            lastAccess,
-            sessions
-                .findByPrincipalName("alice")
-                .values
-                .single()
-                .lastAccessedTime,
-        )
+        assertContains(browser.get("$folio$CALLER").body(), "ANONYMOUS")
+        assertEquals(lastAccess, lastAccess("alice"))
     }
 
     @Test
@@ -114,16 +103,14 @@ class LocalSignInIntegrationTest(
         val tokenResponse = HttpClient.newHttpClient().send(formRequest("${provider.issuer()}/token", form), STRING)
         val token = json.readTree(tokenResponse.body()).get("access_token").asString()
 
-        val request =
-            HttpRequest
-                .newBuilder(
-                    URI.create("$folio/api/test/caller"),
-                ).header("Authorization", "Bearer $token")
+        val request = HttpRequest.newBuilder(URI.create("$folio$CALLER")).header("Authorization", "Bearer $token")
         val caller = HttpClient.newHttpClient().send(request.build(), STRING)
 
         assertEquals(200, caller.statusCode())
         assertContains(caller.body(), "\"subject\":\"my-app\"")
     }
+
+    private fun lastAccess(username: String) = sessions.findByPrincipalName(username).values.single().lastAccessedTime
 
     /** Signs in through the mock provider with the group `team-a`, and returns the start page. */
     private fun signIn(username: String): String = browser.get(location(browser.signIn(username, TEAM_A))).body()

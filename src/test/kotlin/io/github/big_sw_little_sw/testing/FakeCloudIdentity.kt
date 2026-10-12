@@ -21,9 +21,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 
 /**
- * A fake Cloud Identity Groups API that runs in the test process (design 17). It serves `searchTransitiveGroups` and
- * `searchDirectGroups` in pages, as Google does, and records each request. Tests give each person groups, and can make
- * the API fail for one person. Thus tests in one application context do not disturb each other.
+ * A fake Cloud Identity Groups API that runs in the test process. It serves `searchTransitiveGroups` and
+ * `searchDirectGroups` in pages, as Google does, and records each request. Tests give each person groups, and can
+ * make the API fail for one person. Thus tests in one application context do not disturb each other.
  *
  * The HTTP server has one thread, so the fake API serves one request at a time. A test of shared lookups uses this
  * limit.
@@ -39,11 +39,10 @@ class FakeCloudIdentity : AutoCloseable {
     /** The requests in the order that the API got them. */
     val requests: List<Request> get() = recorded
 
-    /** The number of groups in each page. */
     @Volatile
     var pageSize: Int = DEFAULT_PAGE_SIZE
 
-    /** If a test sets the gate, the fake API waits for the latch before it answers each request. */
+    /** If a test sets the gate, the fake API waits for it before it answers each request. */
     @Volatile
     var gate: CountDownLatch? = null
 
@@ -194,8 +193,8 @@ class FakeCloudIdentity : AutoCloseable {
 
 /**
  * Replaces the Cloud Identity client of the google directory with a client of [FakeCloudIdentity]. Thus the tests need
- * no Application Default Credentials and no Google API. Spring Boot does not let one bean override another bean. Thus
- * the post-processor removes the bean definition of the real client before Spring creates beans.
+ * no Application Default Credentials and no Google API. Spring Boot does not let one bean override another bean, so
+ * [WithoutRealClient] removes the bean definition of the real client before Spring creates beans.
  */
 @TestConfiguration(proxyBeanMethods = false)
 @Import(FakeCloudIdentityConfiguration.WithoutRealClient::class)

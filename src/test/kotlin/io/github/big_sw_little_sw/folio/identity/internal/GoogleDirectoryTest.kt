@@ -3,21 +3,16 @@ package io.github.big_sw_little_sw.folio.identity.internal
 import com.github.benmanes.caffeine.cache.Ticker
 import com.google.auth.oauth2.AccessToken
 import com.google.auth.oauth2.GoogleCredentials
-import io.github.big_sw_little_sw.testing.FakeCloudIdentity
+import io.github.big_sw_little_sw.testing.*
 import org.junit.jupiter.api.AfterEach
 import java.io.IOException
 import java.time.Duration
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.test.Test
-import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/** These tests use the google directory with a fake Cloud Identity API in the test process (design 6.5, 17). */
+/** These tests use the google directory with a fake Cloud Identity API in the test process. */
 class GoogleDirectoryTest {
     private val api = FakeCloudIdentity()
     private val ticker = TestTicker()
@@ -45,9 +40,7 @@ class GoogleDirectoryTest {
     fun `without nested groups, only direct memberships count`() {
         api.member(ALICE, listOf("01abc"), nestedGroups = listOf("03ghi"))
 
-        val direct = GoogleDirectory(settings(), api.client(nestedGroups = false), ticker)
-
-        assertEquals(setOf("01abc"), direct.groups(person(ALICE)))
+        assertEquals(setOf("01abc"), directory(api.client(nestedGroups = false)).groups(person(ALICE)))
 
         val request = api.requests.single()
         assertEquals("searchDirectGroups", request.method)
@@ -69,7 +62,7 @@ class GoogleDirectoryTest {
         api.pageSize = 1
         api.member(ALICE, (0..MAX_PAGES).map { "g$it" })
 
-        assertFailsWith<DirectoryUnavailable> { directory.groups(person(ALICE)) }
+        assertFailsWith<DirectoryOutage> { directory.groups(person(ALICE)) }
         assertEquals(MAX_PAGES, api.requests.size)
     }
 
@@ -79,7 +72,7 @@ class GoogleDirectoryTest {
             val email = "p${name.hashCode()}@example.com"
             api.memberWithResourceNames(email, listOf("groups/ok", name))
 
-            assertFailsWith<DirectoryUnavailable>(name) { directory.groups(person(email)) }
+            assertFailsWith<DirectoryOutage>(name) { directory.groups(person(email)) }
         }
     }
 
@@ -112,7 +105,7 @@ class GoogleDirectoryTest {
     fun `an API failure without a cache entry fails the lookup, and the failure does not stay in the cache`() {
         api.fail(ALICE)
 
-        val failure = assertFailsWith<DirectoryUnavailable> { directory.groups(person(ALICE)) }
+        val failure = assertFailsWith<DirectoryOutage> { directory.groups(person(ALICE)) }
         assertEquals("The Cloud Identity API answered with status 503", failure.message)
 
         api.member(ALICE, listOf("01abc"))
@@ -127,7 +120,7 @@ class GoogleDirectoryTest {
 
         ticker.advance(TTL.plusSeconds(1))
 
-        assertFailsWith<DirectoryUnavailable> { directory.groups(person(ALICE)) }
+        assertFailsWith<DirectoryOutage> { directory.groups(person(ALICE)) }
     }
 
     @Test
@@ -136,10 +129,7 @@ class GoogleDirectoryTest {
         val client = stopped.client()
         stopped.close()
 
-        val failure =
-            assertFailsWith<DirectoryUnavailable> {
-                GoogleDirectory(settings(), client, ticker).groups(person(ALICE))
-            }
+        val failure = assertFailsWith<DirectoryOutage> { directory(client).groups(person(ALICE)) }
         assertContains(failure.message, "did not answer")
     }
 
@@ -151,10 +141,7 @@ class GoogleDirectoryTest {
             }
         val client = CloudIdentity(api.url, credentials, nestedGroups = true)
 
-        val failure =
-            assertFailsWith<DirectoryUnavailable> {
-                GoogleDirectory(settings(), client, ticker).groups(person(ALICE))
-            }
+        val failure = assertFailsWith<DirectoryOutage> { directory(client).groups(person(ALICE)) }
         assertContains(failure.message, "Application Default Credentials gave no access token")
         assertFalse("secret" in failure.message, failure.message)
         assertTrue(api.requests.isEmpty())
@@ -164,7 +151,7 @@ class GoogleDirectoryTest {
     fun `a response that is not JSON fails the lookup`() {
         api.unreadable(ALICE)
 
-        val failure = assertFailsWith<DirectoryUnavailable> { directory.groups(person(ALICE)) }
+        val failure = assertFailsWith<DirectoryOutage> { directory.groups(person(ALICE)) }
         assertContains(failure.message, "The Cloud Identity API gave a response that Folio cannot read")
     }
 
@@ -177,9 +164,9 @@ class GoogleDirectoryTest {
 
         val callers =
             (1..PARALLEL_REQUESTS).map { Thread.ofVirtual().start { results += directory.groups(person(ALICE)) } }
-        // The first request waits at the gate of the fake API, so no lookup can end. A caller that shares the lookup
-        // waits for the lookup. The fake API serves one request at a time. Thus, without a shared lookup, a second
-        // caller waits in its own HTTP call, and the fake API records the second request after the gate opens.
+        // The first request waits at the gate of the fake API, so no lookup can end. The fake API serves one request
+        // at a time. Without a shared lookup, a second caller would send its own request, and the fake API would
+        // record that request after the gate opens.
         awaitUntil("each caller waits for a lookup") {
             api.requests.size == 1 && callers.all { it.state == Thread.State.WAITING }
         }
@@ -253,30 +240,21 @@ class GoogleDirectoryTest {
 
     @Test
     fun `without service account projects, each workload is rejected`() {
-        val peopleOnly = GoogleDirectory(settings(projects = emptySet()), api.client(), ticker)
+        val peopleOnly = directory(projects = emptySet())
 
-        assertFailsWith<InvalidClaims> {
-            peopleOnly.groups(workload("deployer@$PROJECT.iam.gserviceaccount.com"))
-        }
+        assertFailsWith<InvalidClaims> { peopleOnly.groups(workload("deployer@$PROJECT.iam.gserviceaccount.com")) }
     }
 
-    private fun directory() = GoogleDirectory(settings(), api.client(), ticker)
-
-    private fun settings(projects: Set<String> = setOf(PROJECT)) =
-        IdentityProperties.Google(hostedDomain = DOMAIN, serviceAccountProjects = projects, groupCacheTtl = TTL)
+    private fun directory(client: CloudIdentity = api.client(), projects: Set<String> = setOf(PROJECT)) =
+        GoogleDirectory(
+            IdentityProperties.Google(hostedDomain = DOMAIN, serviceAccountProjects = projects, groupCacheTtl = TTL),
+            client,
+            ticker,
+        )
 
     private fun person(email: String): Map<String, Any> = mapOf("sub" to "1234", "hd" to DOMAIN, "email" to email)
 
-    /** Returns the claims of a service account. Service account tokens always have `email_verified: true`. */
     private fun workload(email: String): Map<String, Any> = mapOf("email" to email, "email_verified" to true)
-
-    private fun awaitUntil(what: String, condition: () -> Boolean) {
-        val deadline = System.nanoTime() + TIMEOUT.toNanos()
-        while (!condition()) {
-            check(System.nanoTime() < deadline) { "Timed out: $what" }
-            Thread.sleep(POLL_MILLIS)
-        }
-    }
 
     /** The ticker moves only when a test moves it. Caffeine reads the ticker from several threads, so it is atomic. */
     private class TestTicker : Ticker {
@@ -294,14 +272,9 @@ class GoogleDirectoryTest {
         const val ALICE = "alice@example.com"
         const val PROJECT = "workloads"
         const val PARALLEL_REQUESTS = 10
-        const val POLL_MILLIS = 10L
-        val TIMEOUT: Duration = Duration.ofSeconds(10)
         val TTL: Duration = Duration.ofMinutes(5)
 
-        /**
-         * A lookup reads a maximum of 100 pages (design 6.5). The test repeats the value, so a change of the limit
-         * makes the test fail.
-         */
+        /** A copy of the page limit of [CloudIdentity]. A change of the limit makes the test fail. */
         const val MAX_PAGES = 100
     }
 }

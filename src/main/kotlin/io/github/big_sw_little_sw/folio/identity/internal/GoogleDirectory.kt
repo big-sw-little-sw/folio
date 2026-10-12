@@ -6,23 +6,22 @@ import com.github.benmanes.caffeine.cache.Ticker
 import java.util.concurrent.Executors
 
 /**
- * The `google` directory (design 6.5). The Google issuer signs tokens for all Google accounts, so this directory first
- * restricts the accounts (step 5). A token that matches neither restriction gives [InvalidClaims], so Folio rejects the
- * token with status 401 and logs the cause.
+ * The `google` directory. The Google issuer signs tokens for all Google accounts, so this directory accepts only two
+ * kinds of account. Any other token gives [InvalidClaims].
  *
  * - A person has `folio.security.google.hosted-domain` in the `hd` claim. The Cloud Identity API gives the groups of
  *   the person for the `email` claim.
  * - A workload has a verified `email` claim that ends with `@<project>.iam.gserviceaccount.com`, for a configured
  *   project. A workload gets no groups. Rules name it as `application:<id>`.
  *
- * The groups of each person stay in a cache for `folio.security.google.group-cache-ttl`. After that time, the entry is
- * gone. If the API then fails, the caller gets [DirectoryUnavailable], not the old groups. Thus the time limit on the
- * groups of a person who left a group always holds. A failed lookup does not stay in the cache.
+ * The cache keeps the groups of a person for `folio.security.google.group-cache-ttl`. After that time, a failed lookup
+ * gives [DirectoryOutage], never the old groups. Thus a person who leaves a group loses the access of the group
+ * within that time.
  */
 class GoogleDirectory(
     google: IdentityProperties.Google,
     private val cloudIdentity: CloudIdentity,
-    /** Tests give a ticker that they move forward, so the tests do not wait for the time to live to end. */
+    /** Tests move this ticker forward, so they do not wait for the time to live to end. */
     ticker: Ticker = Ticker.systemTicker(),
 ) : Directory {
     // IdentityProperties requires a hosted domain for the google directory. Without a hosted domain, a token without
@@ -34,8 +33,8 @@ class GoogleDirectory(
      * Each lookup runs on its own virtual thread, so a slow call holds no lock of the cache. Requests of one person
      * share one lookup, so a burst of requests causes one API call.
      *
-     * A lookup returns a failure as a value, not as an exception. Caffeine logs each exception of a lookup with its
-     * causes. Without this choice, the log could get a response of the token endpoint.
+     * A lookup returns a failure as a value, because Caffeine logs each exception of a lookup with its causes. Without
+     * this choice, the log could get a response of the token endpoint.
      */
     private val cache: AsyncLoadingCache<String, Result<Set<String>>> =
         Caffeine
@@ -49,7 +48,7 @@ class GoogleDirectory(
     override fun groups(claims: Map<String, Any>): Set<String> {
         val email = claims[EMAIL]
         return when {
-            // Domain names are not case-sensitive, so the comparison ignores case.
+            // Domain names are not case-sensitive.
             (claims[HOSTED_DOMAIN] as? String).equals(hostedDomain, ignoreCase = true) -> {
                 if (email !is String || email.isBlank()) {
                     throw InvalidClaims("Claim '$EMAIL' must be a non-blank string for a person")
@@ -76,9 +75,9 @@ class GoogleDirectory(
     private fun lookUp(email: String): Set<String> {
         val lookup = cache.get(email)
         val result = lookup.join()
-        // The requests that wait for this lookup share its failure. Then this function removes the failed lookup from
-        // the cache, so the next request of the person calls the API again. The removal names the lookup, so the
-        // function never removes a newer lookup that another request started.
+        // All requests that wait for this lookup get its failure. Then the failed lookup leaves the cache, so the next
+        // request of the person calls the API again. The removal names the lookup, so it never removes a newer lookup
+        // that another request started.
         if (result.isFailure) cache.asMap().remove(email, lookup)
         return result.getOrThrow()
     }

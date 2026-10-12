@@ -14,20 +14,10 @@ import java.net.http.HttpClient
 import java.time.Duration
 
 /**
- * The client of the Cloud Identity Groups API (design 6.5, 19). It finds the groups of a person by email address, and
- * hides the HTTP calls, the access token, the query syntax and the pages of the API.
- *
- * Each call has a connect timeout and a read timeout. Thus a slow API cannot hold a request thread for long.
+ * Finds the groups of a person in the Cloud Identity Groups API by email address. Each call has a connect timeout and
+ * a read timeout, so a slow API cannot hold a request for long.
  */
-class CloudIdentity(
-    baseUrl: String,
-    credentials: GoogleCredentials,
-    /**
-     * If true, the client calls `searchTransitiveGroups`, and transitive memberships count. If false, the client calls
-     * `searchDirectGroups`, and only direct memberships count.
-     */
-    private val nestedGroups: Boolean,
-) {
+class CloudIdentity(baseUrl: String, credentials: GoogleCredentials, private val nestedGroups: Boolean) {
     private val client =
         RestClient
             .builder()
@@ -37,8 +27,8 @@ class CloudIdentity(
                     setReadTimeout(READ_TIMEOUT)
                 },
             ).requestInterceptor { request, body, execution ->
-                // GoogleCredentials refreshes the access token when the token expires. The request metadata can also
-                // contain a quota project header, so the interceptor adds each header, not only Authorization.
+                // GoogleCredentials refreshes an expired access token. The metadata can also have a quota project
+                // header, so the interceptor adds each header, not only Authorization.
                 accessMetadata(credentials, request.uri).forEach { (name, values) ->
                     request.headers.addAll(name, values)
                 }
@@ -46,23 +36,21 @@ class CloudIdentity(
             }.build()
 
     // A failed refresh is a fault of the credentials, not of the API. Without this catch, RestClient reports the
-    // failure as an API that did not answer. The message of the IOException can contain a response of the token
-    // endpoint, so the exception type is the only value that is safe to log.
+    // failure as an API that did not answer. The IOException message can contain a response of the token endpoint, so
+    // the new message keeps only the exception type.
     @Suppress("SwallowedException")
     private fun accessMetadata(credentials: GoogleCredentials, uri: URI): Map<String, List<String>> = try {
         credentials.getRequestMetadata(uri)
     } catch (exception: IOException) {
-        throw DirectoryUnavailable(
+        throw DirectoryOutage(
             "Application Default Credentials gave no access token: ${exception.javaClass.name}",
         )
     }
 
     /**
-     * Returns the IDs of the groups of the person with [email]. The ID of the group `groups/<id>` is `<id>`, which
-     * rules name as `group:<id>`.
-     *
-     * Throws [DirectoryUnavailable] if a call fails or if the result has more than [MAX_PAGES] pages. This function
-     * never returns a part of the groups, because a missing group can change a decision.
+     * Returns the group IDs of the person with [email]. The group `groups/<id>` has the ID `<id>`, which rules name as
+     * `group:<id>`. Throws [DirectoryOutage] if a call fails or if the result has more than [MAX_PAGES] pages.
+     * This function never returns a part of the groups (see [Directory.groups]).
      */
     fun groups(email: String): Set<String> {
         val method = if (nestedGroups) "searchTransitiveGroups" else "searchDirectGroups"
@@ -76,30 +64,30 @@ class CloudIdentity(
             if (next.isEmpty()) return groups
             pageToken = next
         }
-        throw DirectoryUnavailable("The Cloud Identity API gave more than $MAX_PAGES pages of groups")
+        throw DirectoryOutage("The Cloud Identity API gave more than $MAX_PAGES pages of groups")
     }
 
     // A RestClientException can contain the response body, the request URL with the email address, or a response of
-    // the token endpoint. The log must never get these values. Thus this function does not keep the original exception
-    // as the cause. The new message keeps only the status or the exception types.
+    // the token endpoint. The log must never get these values, so the new exception has no cause. Its message keeps
+    // only the status or the exception types.
     @Suppress("SwallowedException")
     private fun page(method: String, query: String, pageToken: String?): JsonNode = try {
         client
             .get()
             .uri { builder ->
-                // The values are URI variables, so the builder encodes each character that has a meaning in a URI.
-                // Thus an email address cannot change the path or add a query parameter.
+                // The builder encodes each character of a URI variable that has a meaning in a URI. Thus an email
+                // address cannot change the path or add a query parameter.
                 builder.path("/v1/groups/-/memberships:{method}").queryParam("query", "{query}")
                 if (pageToken != null) builder.queryParam("pageToken", "{pageToken}")
                 builder.build(mapOf("method" to method, "query" to query, "pageToken" to pageToken))
             }.retrieve()
-            .body<JsonNode>() ?: throw DirectoryUnavailable("The Cloud Identity API gave an empty response")
+            .body<JsonNode>() ?: throw DirectoryOutage("The Cloud Identity API gave an empty response")
     } catch (exception: RestClientResponseException) {
-        throw DirectoryUnavailable("The Cloud Identity API answered with status ${exception.statusCode.value()}")
+        throw DirectoryOutage("The Cloud Identity API answered with status ${exception.statusCode.value()}")
     } catch (exception: ResourceAccessException) {
-        throw DirectoryUnavailable("The Cloud Identity API did not answer: ${exception.cause?.javaClass?.name}")
+        throw DirectoryOutage("The Cloud Identity API did not answer: ${exception.cause?.javaClass?.name}")
     } catch (exception: RestClientException) {
-        throw DirectoryUnavailable(
+        throw DirectoryOutage(
             "The Cloud Identity API gave a response that Folio cannot read: ${exception.javaClass.name} " +
                 "(${exception.cause?.javaClass?.name})",
         )
@@ -108,7 +96,7 @@ class CloudIdentity(
     private fun groupId(resourceName: String): String {
         val id = resourceName.removePrefix(GROUP_PREFIX)
         if (id == resourceName || id.isEmpty() || '/' in id) {
-            throw DirectoryUnavailable("The Cloud Identity API gave a group that is not $GROUP_PREFIX<id>")
+            throw DirectoryOutage("The Cloud Identity API gave a group that is not $GROUP_PREFIX<id>")
         }
         return id
     }
@@ -120,8 +108,8 @@ class CloudIdentity(
         private val READ_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /**
-         * The limit stops a lookup if the API never ends the result. With the default page size of 200, the limit is
-         * 20,000 groups.
+         * Without a limit, an API that never ends the result would never end the lookup. With the default page size
+         * of 200, the limit is 20,000 groups.
          */
         private const val MAX_PAGES = 100
         private const val GROUP_PREFIX = "groups/"
@@ -133,8 +121,8 @@ class CloudIdentity(
         private const val GROUP_LABEL = "cloudidentity.googleapis.com/groups.discussion_forum"
 
         /**
-         * Makes a client with the credentials of the deployment from Application Default Credentials (design 6.5 step
-         * 6). Throws [IllegalStateException] if the credentials are not available, so Folio does not start.
+         * Makes a client with the Application Default Credentials of the deployment. Throws [IllegalStateException] if
+         * the credentials are not available, so Folio does not start.
          */
         fun withApplicationDefaultCredentials(nestedGroups: Boolean): CloudIdentity {
             val credentials =

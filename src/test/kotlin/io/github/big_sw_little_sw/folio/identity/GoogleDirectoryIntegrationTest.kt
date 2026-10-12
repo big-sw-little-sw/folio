@@ -2,16 +2,8 @@ package io.github.big_sw_little_sw.folio.identity
 
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
 import io.github.big_sw_little_sw.folio.catalog.Action
-import io.github.big_sw_little_sw.testing.FakeCloudIdentity
-import io.github.big_sw_little_sw.testing.FakeCloudIdentityConfiguration
-import io.github.big_sw_little_sw.testing.NoSyncSchedule
-import io.github.big_sw_little_sw.testing.TestCatalog
-import io.github.big_sw_little_sw.testing.TestIssuer
-import io.github.big_sw_little_sw.testing.TestIssuerConfiguration
-import io.github.big_sw_little_sw.testing.TestRoutes
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestRoutes.Companion.CALLER
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
@@ -20,17 +12,13 @@ import org.springframework.boot.test.system.CapturedOutput
 import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.*
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.*
 
 /**
- * These tests check bearer tokens with the google directory (design 6.5). [TestIssuer] signs the tokens with the claims
- * of Google tokens, and [FakeCloudIdentity] gives the groups. Each test uses its own person, because the application
+ * These tests check bearer tokens with the google directory. [TestIssuer] signs the tokens with the claims of Google
+ * tokens, and [FakeCloudIdentity] gives the groups. Each test uses its own person, because the application
  * context keeps the group cache from test to test. This test class has its own application context, because it sets
  * the google directory.
  */
@@ -144,30 +132,23 @@ class GoogleDirectoryIntegrationTest(
         assertEquals(1, api.requestsFor(email).size)
     }
 
-    /** Returns the email address of a new person in the hosted domain. */
     private fun person(): String = "p-${UUID.randomUUID()}@$DOMAIN"
 
-    /** Returns a Google ID token of a person, as the CLI gets it with the device flow (design 6.5 step 2). */
+    /** A Google ID token of a person, as the CLI gets it with the device flow. */
     private fun personToken(email: String): String =
         TestIssuer.token(mapOf("sub" to "1001", "hd" to DOMAIN, "email" to email, "azp" to CLI))
 
-    /**
-     * Returns a Google ID token of a service account (design 6.5 step 7). In this token, `azp` is the unique ID of the
-     * service account.
-     */
+    /** A Google ID token of a service account. In this token, `azp` is the unique ID of the service account. */
     private fun workloadToken(email: String): String = TestIssuer.token(
         mapOf("sub" to WORKLOAD_ID, "azp" to WORKLOAD_ID, "email" to email, "email_verified" to true),
     )
-
-    private companion object {
-        const val DOMAIN = "example.com"
-        const val PROJECT = "workloads"
-        const val CLI = "cli-client-id"
-        const val WORKLOAD_ID = "104729"
-    }
 }
 
+private const val DOMAIN = "example.com"
+private const val PROJECT = "workloads"
+private const val CLI = "cli-client-id"
+private const val WORKLOAD_ID = "104729"
 private const val DIRECTORY = "folio.security.directory=google"
-private const val HOSTED_DOMAIN = "folio.security.google.hosted-domain=example.com"
-private const val PROJECTS = "folio.security.google.service-account-projects=workloads"
+private const val HOSTED_DOMAIN = "folio.security.google.hosted-domain=$DOMAIN"
+private const val PROJECTS = "folio.security.google.service-account-projects=$PROJECT"
 private const val SCOPE = "spring.security.oauth2.client.registration.folio.scope=openid,email"
