@@ -410,6 +410,9 @@ A Folio administrator does these steps.
    - A "Web application" client for the web UI, with the redirect URI `https://<folio-host>/login/oauth2/code/folio`.
      Give its ID and secret to Folio in `spring.security.oauth2.client.registration.folio`. Set
      `spring.security.oauth2.client.provider.folio.issuer-uri` to the same issuer as `issuer-uri` (step 3).
+   - The web client uses the scopes `openid` and `email`. Google puts the `email` claim in an ID token only for the
+     `email` scope, and the group lookup needs the claim (step 5). With the google directory, Folio does not start
+     without `email` in the scope.
    - A "TVs and Limited Input devices" client for the CLI. It uses the device flow with the scopes `openid` and
      `email`. The CLI sends the ID token. The audience of this token is the client ID of the CLI.
 3. **Set the issuer and the audiences.**
@@ -421,28 +424,53 @@ A Folio administrator does these steps.
      is the client ID of the CLI.
 5. **Restrict the accounts.** Set these values in `folio.security.google`. Folio rejects a token that matches neither
    condition, with status 401.
-   - `hosted-domain`: the Workspace domain. A person's token must have this value in its `hd` claim.
+   - `hosted-domain`: the Workspace domain. A person's token must have this value in its `hd` claim. Folio compares
+     the domain without case. A person's token must also have the `email` claim, because the group lookup needs it.
+     This setting is mandatory for the google directory, because the directory and the web UI exist for people.
    - `service-account-projects`: the projects of the workloads. A workload token must have an `email` that ends with
-     `@<project>.iam.gserviceaccount.com`.
+     `@<project>.iam.gserviceaccount.com`. This setting is optional. Without it, Folio rejects each workload. A
+     workload token must also have `email_verified: true`. *Reason:* a Google account can have an unverified address
+     that looks like a service account. Service account tokens always have `email_verified: true`.
+   - The google directory applies the restrictions (section 6.6, step 4), for bearer tokens and for browser sign-in.
+     A rejected bearer token gives `INVALID_TOKEN`, and a rejected sign-in gives `SIGN_IN_FAILED`. The log gets the
+     cause, because the configuration can cause it (section 8.6). The log names the claims and the settings, never
+     their values.
+   - Folio does not start if `folio.security.google` has values but the directory is `token`, or if the issuer is
+     `https://accounts.google.com` and the directory is `token`. *Reason:* only the google directory restricts the
+     accounts. Without these checks, a deployment that forgets the directory accepts each Google account.
 6. **Give Folio access to groups.**
    - Set `folio.security.directory` to `google`.
    - Create a service account for Folio. Give it the "Groups Reader" admin role in the Admin console.
    - Run Folio with this service account through Application Default Credentials. On Google Cloud, attach the service
-     account. Elsewhere, use workload identity federation. Use a key file only if no other way is possible.
+     account. Elsewhere, use workload identity federation. Use a key file only if no other way is possible. Folio gets
+     the credentials at startup with the scope `cloud-identity.groups.readonly`. Without them, Folio does not start.
    - Folio calls `groups.memberships.searchTransitiveGroups` with the email of the person. Thus nested groups count.
      This method needs Workspace Enterprise or Cloud Identity Premium. On other editions, set
      `folio.security.google.nested-groups` to `false`. Folio then uses `searchDirectGroups`, and only direct
      memberships count.
+   - Folio reads all pages of the result. A result with more than 100 pages fails as an outage, because a part of the
+     groups is never a result. Each call has a connect timeout of 5 seconds and a read timeout of 10 seconds. Thus a
+     slow API cannot hold requests for long.
    - Folio caches the groups of each person for `folio.security.google.group-cache-ttl` (default 5 minutes). If the
      API fails and the cache has no entry, Folio gives status 503 with the code `DIRECTORY_UNAVAILABLE`. Folio never
      continues without groups, because a missing group can change a decision.
+     - The time to live is a hard limit. After it, the entry is gone, and an API failure gives 503. Folio never uses
+       older groups. *Reason:* a person who left a group loses access through bearer tokens within the time to live,
+       also during an outage of the API. A UI session keeps the groups from sign-in until the session ends (section
+       6.2).
+     - A failed lookup does not stay in the cache, so the next request tries the API again.
+     - Requests of one person at the same time share one API call. The cache keeps a maximum of 10,000 people.
+     - A browser sign-in also uses the directory. If the API fails, the sign-in shows `DIRECTORY_UNAVAILABLE` with
+       status 503. The session keeps the groups from sign-in (section 6.2), so a later outage does not change it.
+     - The log gets the HTTP status or the exception type of a failure, never a response body or a token.
    - Folio looks up groups only for people. Rules name workloads as `application:<service-account-unique-id>`.
 7. **Configure workloads.** Each workload runs as a service account in a configured project. It requests an ID token
    with the workload audience, and with the `email` claim. On Google Cloud, use the metadata server with
    `format=full`.
 8. **Set the super admins.** Put a small group in `folio.super-admins`, for example `group:<group-id>`. Rules name a
    Google group by its stable group ID from Cloud Identity, not by its email address. *Reason:* an administrator can
-   change the email of a group.
+   change the email of a group. The Cloud Identity API names a group `groups/<group-id>`, for example
+   `groups/01ksv4uv2d0o9jq`. The rule then names `group:01ksv4uv2d0o9jq`. The `/me` page shows these IDs.
 9. **Give access to a new ConfigSet.** This step is the same as step 9 for Entra ID.
 
 ### 6.6 Add an identity provider
@@ -807,7 +835,8 @@ the body never contains the exception message.
   status as the code, for example `NOT_FOUND` or `METHOD_NOT_ALLOWED`.
 - The security filters give their failures to the advice. A bearer token that is not valid gives `INVALID_TOKEN`. If
   Folio cannot get the discovery document or the signing keys of the issuer, a bearer token gives status 503 with
-  `ISSUER_UNAVAILABLE`. A UI request without a valid CSRF token gives `CSRF_TOKEN_INVALID`. A failed browser sign-in
+  `ISSUER_UNAVAILABLE`. If the directory cannot give the groups, a bearer token and a browser sign-in give status 503
+  with `DIRECTORY_UNAVAILABLE` (section 6.5). A UI request without a valid CSRF token gives `CSRF_TOKEN_INVALID`. A failed browser sign-in
   gives status 401 with `SIGN_IN_FAILED`.
 - The log gets the cause of a failure that the configuration can cause: each failed sign-in, and a bearer token that
   the issuer signed for Folio but whose claims give no caller. The client gets only the code. Folio does not log
@@ -1514,8 +1543,9 @@ slice by hand during development.
   `frame-ancestors 'none'`.
 - The UI shows errors with the same `code` and `detail` as the API (section 8.6).
 - `/sign-in` starts the sign-in, and a `POST` to `/sign-out` ends the session. The layout links to them. A failed
-  sign-in shows the error page with `SIGN_IN_FAILED` (section 8.6). It does not start a new sign-in, because that
-  could fail in the same way.
+  sign-in shows the error page with `SIGN_IN_FAILED` (section 8.6). If the directory cannot give the groups, the
+  error page shows `DIRECTORY_UNAVAILABLE` with status 503 (section 6.5). The error page does not start a new
+  sign-in, because that could fail in the same way.
 - The start page `/` is the tree browser of the catalog. It shows the top-most Namespaces and ConfigSets that the
   caller can read, each with its full path (section 7.4), and a form that opens a ConfigSet by path. In a path and in
   the breadcrumbs, only the resources that the caller can read are links. The catalog service `StartService.entries`
@@ -1739,11 +1769,14 @@ so no other table changes. Section 5.3 gives the rules.
   CSRF protection. v1 has no browser tests.
 - **Local development.** `bootTestRun` starts PostgreSQL, the SSH Git server and a mock OIDC provider in
   Testcontainers. Thus a developer can sign in to the UI and test each slice without a real identity provider. The
-  mock provider is `ghcr.io/navikt/mock-oauth2-server` at a pinned version. One test signs in through it. The SSH Git
+  mock provider is `ghcr.io/navikt/mock-oauth2-server` at a pinned version. The local sign-in tests and the Google
+  sign-in tests sign in through it. The SSH Git
   server has the Git instance `test-server` and the repository `repos/sample.git`. The log gives the command that
   authorizes the public key of a credential on the server.
 - **Tokens in tests.** The other integration tests use an issuer in the test process. Thus a test can sign a token
   with any claims, key, issuer or expiry time, and Folio validates it with its production decoder.
+- **Google directory** tests use a fake Cloud Identity API in the test process, with fixed credentials. A test
+  post-processor removes the real client, so tests need no Application Default Credentials and make no Google calls.
 - Tests that need Docker have `@Tag("integration")`.
 - A modularity test verifies the module boundaries. It also verifies that no class in a `web` package and no
   controller depends on `CredentialKeys`.
@@ -1958,3 +1991,14 @@ decision here with its reason.
 | A sync that ends with an exception after the stop of the poller logs `INFO`, not `ERROR`. | The stop interrupts the remaining syncs. A planned shutdown must not write lines that alert operators. | 10.6 |
 | The cache sweep examines only directories whose name is a ConfigSet UUID, and asks `git_source` which ConfigSets exist. | The sweep never deletes `ssh-home`, a symbolic link or another entry. The `git` module reads only its own tables. | 10.5 |
 | The integration tests remove the schedule of sync. They run polls, syncs and sweeps themselves. | A scheduled poll would claim the ConfigSets of a test while the test runs. A post-processor of the tests needs no production flag. | 10.6, 17 |
+| The google directory applies the account restrictions in `Directory.groups`. The directory interface does not change. | Section 6.6 puts the restriction in the adapter. Each token gets its groups through the directory, so no token can skip the restriction. | 6.5, 6.6 |
+| A rejected Google account gives `INVALID_TOKEN` or `SIGN_IN_FAILED`, not a new code. The log names the claims and the settings. | The detail of a token failure never says which check failed. The configuration can cause the rejection, so the log gets the cause (section 8.6). | 6.5, 8.6 |
+| `hosted-domain` is mandatory for the google directory. `service-account-projects` is optional. | The directory and the web UI exist for people. A deployment can have no workloads. | 6.5 |
+| Folio does not start with Google settings and the `token` directory, or with the Google issuer and the `token` directory. | Only the google directory restricts accounts. A forgotten directory setting would accept each Google account. | 6.5 |
+| A rule names a Google group as `group:<id>`, the ID from the resource name `groups/<id>`. | The ID is stable. The email of a group can change. | 6.5 |
+| The group cache has a hard time to live. After it, an API failure gives 503, not the old groups. | A person who left a group loses access through bearer tokens within the time to live, also during an outage. A UI session keeps the groups from sign-in until the session ends. | 6.2, 6.5 |
+| The group cache shares one lookup among the requests of one person, and keeps a maximum of 10,000 people. A failed lookup leaves the cache. | A burst of requests causes one API call. Memory has a limit. The next request after a failure tries the API again. | 6.5 |
+| The Cloud Identity calls have a 5-second connect timeout and a 10-second read timeout. A lookup reads a maximum of 100 pages. | A slow API cannot hold requests for long. Each value from outside has a limit, and a part of the groups is never a result. | 6.5 |
+| A sign-in during an outage of the directory gives `DIRECTORY_UNAVAILABLE` (503), not `SIGN_IN_FAILED`. | The person did nothing wrong, and the API gives the same code. | 6.5, 8.6, 12.3 |
+| With the google directory, the web UI client must have the scope `email`, or Folio does not start. | Google puts the `email` claim in an ID token only for the `email` scope. Without the claim, each sign-in of a person fails. | 6.5 |
+| A Google workload token must have `email_verified: true`. | A Google account can have an unverified address that looks like a service account. Service account tokens always have the claim. | 6.5 |

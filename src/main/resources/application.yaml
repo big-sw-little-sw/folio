@@ -14,7 +14,8 @@ spring:
   #   security.oauth2.resourceserver.jwt.issuer-uri: the one trusted issuer. Folio does not start without it.
   #   security.oauth2.resourceserver.jwt.audiences: Folio's audiences. Folio does not start without them.
   #   security.oauth2.client.registration.folio: client-id, client-secret and scope (openid and more) of the web UI
-  #     client. Its redirect URI is https://<folio-host>/login/oauth2/code/folio.
+  #     client. With folio.security.directory google, the scope must also contain email. Its redirect URI is
+  #     https://<folio-host>/login/oauth2/code/folio.
   #   security.oauth2.client.provider.folio.issuer-uri: the same issuer. Folio does not start if the two differ.
 server:
   # Each deployment puts Folio behind a TLS proxy on an internal address. The proxy sets X-Forwarded-Proto and
@@ -52,7 +53,24 @@ management:
 # Folio has these settings of its own. The default of each setting is in parentheses.
 #   folio.security.claims.subject (sub), .groups (groups) and .application-id (azp) name the claims that give the
 #     caller.
-#   folio.security.directory (token) selects the directory, which gives the groups of a caller.
+#   folio.security.directory (token) selects the directory, which gives the groups of a caller: token reads the
+#     groups claim, and google reads the Cloud Identity Groups API. The google directory gets its access token from
+#     Application Default Credentials, and Folio does not start without them. With the issuer
+#     https://accounts.google.com, the directory must be google, because only the google directory restricts the
+#     accounts.
+#   folio.security.google.hosted-domain (none) is the Workspace domain. A person's token must have this domain in the
+#     hd claim. The token must also have an email claim, because the group lookup needs it. The google directory needs
+#     this setting. Without it, Folio does not start.
+#   folio.security.google.service-account-projects (none) lists the projects of the workloads. A workload token must
+#     have an email that ends with @<project>.iam.gserviceaccount.com. Without projects, Folio rejects each workload.
+#     A token that matches neither restriction gets status 401.
+#   folio.security.google.nested-groups (true) selects searchTransitiveGroups, which needs Workspace Enterprise or
+#     Cloud Identity Premium. With false, Folio uses searchDirectGroups, and only direct memberships count.
+#   folio.security.google.group-cache-ttl (5m) is how long Folio keeps the groups of a person. After this time, Folio
+#     asks the API again. If the API then fails, the request gets status 503 with DIRECTORY_UNAVAILABLE. Folio never
+#     uses the old groups.
+#   The folio.security.google settings apply only to the google directory. Folio does not start if they are set for
+#     the token directory.
 #   folio.ui.session-timeout (1h) is the time without use after which a UI session ends.
 #   folio.audit.retention (90d) is the age at which Folio deletes an audit record. Each instance deletes old records
 #     one time each day.

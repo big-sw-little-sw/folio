@@ -41,8 +41,8 @@ class SignedInUser(user: OidcUser, caller: Caller.Authenticated) :
 }
 
 /**
- * Makes the [SignedInUser] from the ID token at sign-in. An ID token that gives no caller stops the sign-in with
- * [InvalidClaims], and the failure handler of sign-in logs it.
+ * Makes the [SignedInUser] from the ID token at sign-in. Failures of [CallerFactory.toCaller] stop the sign-in, and the
+ * failure handler of sign-in logs them.
  */
 class SignedInUserService(private val callerFactory: CallerFactory) : OAuth2UserService<OidcUserRequest, OidcUser> {
     private val delegate = OidcUserService()

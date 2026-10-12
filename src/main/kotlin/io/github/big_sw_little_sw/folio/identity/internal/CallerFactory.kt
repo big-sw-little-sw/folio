@@ -13,7 +13,10 @@ class CallerFactory(
     private val directory: Directory,
     private val superAdmins: SuperAdmins,
 ) {
-    /** Throws [InvalidClaims] if the subject is missing or a claim has the wrong type. */
+    /**
+     * Throws [InvalidClaims] if the claims give no subject or give an application ID that is not a string.
+     * [Directory.groups] gives the other failures.
+     */
     fun toCaller(claims: Map<String, Any>): Caller.Authenticated {
         val subject = claims[names.subject]
         if (subject !is String || subject.isBlank()) {

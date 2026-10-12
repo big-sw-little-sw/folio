@@ -24,7 +24,7 @@ import java.util.UUID
  */
 @RestController
 class TestRoutes(private val currentCaller: CurrentCaller) {
-    @GetMapping("/api/test/caller")
+    @GetMapping(CALLER)
     fun caller(): Map<String, Any?> = when (val caller = currentCaller.get()) {
         is Caller.Authenticated -> {
             mapOf(
@@ -86,6 +86,8 @@ class TestRoutes(private val currentCaller: CurrentCaller) {
     value class TestId(val value: UUID)
 
     companion object {
+        /** The route that gives the caller of the request as JSON. */
+        const val CALLER = "/api/test/caller"
         const val SECRET = "secret internal detail"
         const val NOTICE = "Namespace created."
         const val RETRY_AFTER_SECONDS = 5L

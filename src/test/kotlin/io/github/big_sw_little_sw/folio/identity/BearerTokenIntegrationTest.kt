@@ -3,6 +3,8 @@ package io.github.big_sw_little_sw.folio.identity
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.PlainJWT
 import io.github.big_sw_little_sw.testing.*
+import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
+import io.github.big_sw_little_sw.testing.TestRoutes.Companion.CALLER
 import org.junit.jupiter.api.Named
 import org.junit.jupiter.api.Named.named
 import org.junit.jupiter.api.extension.ExtendWith
@@ -12,7 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.system.CapturedOutput
 import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.http.HttpHeaders
-import org.springframework.http.MediaType
+import org.springframework.http.HttpMethod
 import org.springframework.test.web.servlet.*
 import java.time.Duration
 import java.time.Instant
@@ -89,19 +91,13 @@ class BearerTokenIntegrationTest(@Autowired private val mvc: MockMvc) {
 
     @Test
     fun `the API sets no session cookie and needs no CSRF token`() {
-        mvc
-            .post("/api/test/echo") {
-                bearer(TestIssuer.token())
-                contentType = MediaType.APPLICATION_JSON
-                content = """{"text": "hello"}"""
-            }.andExpect {
-                status { isOk() }
-                header { doesNotExist(HttpHeaders.SET_COOKIE) }
-            }
+        mvc.send(HttpMethod.POST, "/api/test/echo", SUPER_ADMIN, """{"text": "hello"}""").andExpect {
+            status { isOk() }
+            header { doesNotExist(HttpHeaders.SET_COOKIE) }
+        }
     }
 
     private companion object {
-        const val CALLER = "/api/test/caller"
         const val REFUSED = "A bearer token was refused"
 
         @JvmStatic
