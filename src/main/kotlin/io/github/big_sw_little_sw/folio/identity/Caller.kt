@@ -1,6 +1,6 @@
 package io.github.big_sw_little_sw.folio.identity
 
-/** The identity that makes a request (design 6.1). Services get it as an explicit parameter. */
+/** The identity that makes a request. Services get it as an explicit parameter (see [CurrentCaller]). */
 sealed interface Caller {
     data object Anonymous : Caller
 

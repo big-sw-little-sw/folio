@@ -9,18 +9,19 @@ spring-modulith = "2.1.1"
 springdoc = "3.1.0"
 jte = "3.2.4"
 jgit = "7.8.0.202609011348-r"
-# Apache sshd's Ed25519 provider for Git SSH only; Folio's own crypto stays JDK-only (design 10.4).
+# Apache sshd uses this provider for Ed25519 keys in Git SSH. Folio's own crypto uses only the JDK.
 bouncycastle = "1.86"
 ktlintGradle = "14.2.0"
 ktlint = "1.8.0"
-# Pre-release: detekt 1.23.x does not support Kotlin 2.3. Move to 2.0.0 once it is final.
+# A pre-release, because detekt 1.23.x does not support Kotlin 2.3. Move to 2.0.0 when it is final.
 detekt = "2.0.0-alpha.6"
-# Kotlin version detekt was compiled with (see the detekt-core POM). Update together with detekt.
+# The Kotlin version that detekt was compiled with, from the detekt-core POM. Update it together with detekt.
 detektKotlin = "2.4.10"
 
 [libraries]
 spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
-# The OpenAPI document only. Swagger UI needs inline styles, which the UI content security policy blocks.
+# The OpenAPI document only. Folio serves no Swagger UI, because it needs inline styles and the UI content security
+# policy blocks them.
 springdoc-openapi-webmvc-api = { module = "org.springdoc:springdoc-openapi-starter-webmvc-api", version.ref = "springdoc" }
 jte-kotlin = { module = "gg.jte:jte-kotlin", version.ref = "jte" }
 jte-spring-boot-starter = { module = "gg.jte:jte-spring-boot-starter-4", version.ref = "jte" }

@@ -1,11 +1,11 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 import io.github.big_sw_little_sw.folio.identity.Caller
+import org.springframework.security.core.AuthenticationException
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest
 import org.springframework.security.oauth2.client.registration.ClientRegistration
 import org.springframework.security.oauth2.core.AuthorizationGrantType
 import org.springframework.security.oauth2.core.OAuth2AccessToken
-import org.springframework.security.oauth2.core.OAuth2AuthenticationException
 import org.springframework.security.oauth2.core.oidc.OidcIdToken
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -13,14 +13,11 @@ import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.time.Duration
 import java.time.Instant
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertIs
+import kotlin.test.*
 
 class SignedInUserServiceTest {
     private val names = IdentityProperties.ClaimNames(subject = "oid")
-    private val service = SignedInUserService(CallerClaims(names, TokenDirectory(names.groups)), names.subject)
+    private val service = SignedInUserService(CallerFactory(names, TokenDirectory(names.groups)))
 
     @Test
     fun `sign-in makes the caller from the ID token with the configured claim names`() {
@@ -34,7 +31,7 @@ class SignedInUserServiceTest {
 
     @Test
     fun `an ID token that gives no caller stops the sign-in`() {
-        assertFailsWith<OAuth2AuthenticationException> { service.loadUser(request(mapOf("sub" to "pairwise"))) }
+        assertFailsWith<AuthenticationException> { service.loadUser(request(mapOf("sub" to "pairwise"))) }
     }
 
     @Test

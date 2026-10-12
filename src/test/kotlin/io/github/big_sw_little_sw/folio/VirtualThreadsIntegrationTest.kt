@@ -1,21 +1,15 @@
 package io.github.big_sw_little_sw.folio
 
-import io.github.big_sw_little_sw.testing.FolioServerTest
+import io.github.big_sw_little_sw.testing.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.TaskScheduler
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/** Requests and scheduled tasks run on virtual threads (design 8.7). MockMvc runs handlers on the test thread. */
+/** This test uses a real port, because MockMvc runs handlers on the test thread. */
 @FolioServerTest
 class VirtualThreadsIntegrationTest(
     @Value("\${local.server.port}") private val serverPort: Int,
@@ -23,11 +17,7 @@ class VirtualThreadsIntegrationTest(
 ) {
     @Test
     fun `requests run on virtual threads`() {
-        val response =
-            HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create("http://localhost:$serverPort/api/test/thread")).build(),
-                HttpResponse.BodyHandlers.ofString(),
-            )
+        val response = httpGet(serverPort, "/api/test/thread")
 
         assertEquals("true", response.body())
     }

@@ -649,8 +649,8 @@ operations. Thus a new audited operation changes one module only.
   subclass for each expected failure.
 - Each subclass has a kind and a stable `code`. The kinds are `NOT_FOUND`, `CONFLICT`, `INVALID`, `FORBIDDEN`,
   `UNAUTHENTICATED`, `UNAVAILABLE`, `UPSTREAM_FAILED`, `UPSTREAM_TIMEOUT` and `TOO_LARGE`.
-- The one advice in `web` changes each kind to a status: 404, 409, 400, 403, 401, 503, 502, 504 and 422. It writes an
-  RFC 9457 problem detail with the `code`. Modules never select HTTP statuses.
+- `ErrorKind` gives each kind one status: 404, 409, 400, 403, 401, 503, 502, 504 and 422. Modules never select HTTP
+  statuses. The one advice in `web` writes an RFC 9457 problem detail with the status of the kind and the `code`.
 - Some unique and foreign-key violations have a domain meaning. The repository that owns the constraint changes them
   to the related exception.
 - Do not catch an exception of another module in your transaction. Spring already marked the transaction for

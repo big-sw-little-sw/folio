@@ -11,10 +11,9 @@ import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
 /**
- * Hides the cookies of API requests. The API accepts only bearer tokens, never the session cookie (design 6.2).
- *
- * Spring Session runs before the filter chains, so `STATELESS` does not stop it. Without this filter, an API request
- * with the session cookie would load the UI session and keep it alive. Thus this filter runs before Spring Session.
+ * Hides the cookies of API requests, because the API accepts only bearer tokens. Spring Session runs before the filter
+ * chains, so `STATELESS` does not stop it. Without this filter, an API request with the session cookie would load the
+ * UI session and keep it alive.
  */
 @Component
 class ApiWithoutCookies :

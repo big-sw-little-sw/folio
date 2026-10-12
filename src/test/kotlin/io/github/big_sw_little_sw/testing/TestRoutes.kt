@@ -18,8 +18,9 @@ import java.time.Duration
 import java.util.UUID
 
 /**
- * Routes for tests of the shared HTTP behaviour: the caller, errors, API IDs and notices. Slice 1 has no product routes
- * under `/api` yet. This package is outside the application package, so only tests that import these routes have them.
+ * Routes for tests of the shared HTTP behaviour: the caller, errors, API IDs and notices. With these routes, the tests
+ * do not depend on a product module. This package is outside the application package, so only tests that import
+ * [TestRoutes] have these routes.
  */
 @RestController
 class TestRoutes(private val currentCaller: CurrentCaller) {

@@ -1,9 +1,7 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 class UiPropertiesTest {
     @Test

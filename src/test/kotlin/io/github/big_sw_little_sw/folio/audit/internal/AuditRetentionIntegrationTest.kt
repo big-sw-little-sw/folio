@@ -1,6 +1,6 @@
 package io.github.big_sw_little_sw.folio.audit.internal
 
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
+import io.github.big_sw_little_sw.testing.*
 import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -10,14 +10,9 @@ import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.Executors
 import javax.sql.DataSource
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.*
 
-/**
- * Deletion of audit records after the default retention of 90 days (design 14). Test classes share the table, so each
- * test writes records under its own resource ID and counts only those.
- */
+/** Each test writes records under its own resource ID and counts only those. */
 @FolioIntegrationTest
 class AuditRetentionIntegrationTest(
     @Autowired private val retention: AuditRetention,
@@ -47,7 +42,7 @@ class AuditRetentionIntegrationTest(
         assertEquals(mapOf(1 to 1), countsByAgeInDays())
     }
 
-    /** Only the end state. The test below shows that a run does not wait for another one. */
+    /** This test checks only the end state. The test of locked records shows that a run does not wait for a lock. */
     @Test
     fun `parallel runs together delete each old record and nothing else`() {
         insert(count = 3 * AuditRetention.BATCH_SIZE, age = Duration.ofDays(100))

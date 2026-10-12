@@ -1,16 +1,14 @@
 package io.github.big_sw_little_sw.folio.web
 
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestRoutes
-import org.hamcrest.Matchers.containsString
+import io.github.big_sw_little_sw.testing.*
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.*
 import java.security.MessageDigest
 import java.util.Base64
-import kotlin.test.Test
+import kotlin.test.*
 
-/** The shared layout of the UI (design 12.3), through the start page. */
+/** The tests examine the shared layout through the start page. */
 @FolioIntegrationTest
 class LayoutIntegrationTest(@Autowired private val mvc: MockMvc) {
     @Test

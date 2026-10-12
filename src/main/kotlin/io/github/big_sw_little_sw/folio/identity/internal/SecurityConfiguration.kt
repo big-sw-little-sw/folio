@@ -10,6 +10,8 @@ import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OA
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
+import org.springframework.core.convert.converter.Converter
+import org.springframework.security.authentication.AbstractAuthenticationToken
 import org.springframework.security.authentication.AuthenticationServiceException
 import org.springframework.security.config.ObjectPostProcessor
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
@@ -21,6 +23,7 @@ import org.springframework.security.oauth2.client.web.DefaultOAuth2Authorization
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter
 import org.springframework.security.oauth2.core.oidc.OidcScopes
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.security.oauth2.jwt.JwtDecoder
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter
 import org.springframework.security.web.AuthenticationEntryPoint
@@ -35,8 +38,7 @@ import org.springframework.session.jdbc.JdbcIndexedSessionRepository
 import org.springframework.web.servlet.HandlerExceptionResolver
 
 /**
- * Two filter chains (design 6.1, 6.2). The services authorize each operation, so both chains let anonymous callers
- * through.
+ * Two filter chains. The services authorize each operation, so both chains let anonymous callers through.
  *
  * - `/api/` accepts only bearer tokens. It is stateless, ignores the session cookie and has no CSRF protection.
  * - All other routes are the UI. People sign in with the authorization code flow and PKCE. The session is in
@@ -77,7 +79,7 @@ class SecurityConfiguration(
     }
 
     @Bean
-    fun callerClaims(properties: IdentityProperties): CallerClaims = CallerClaims(
+    fun callerFactory(properties: IdentityProperties): CallerFactory = CallerFactory(
         properties.claims,
         when (properties.directory) {
             IdentityProperties.DirectoryType.TOKEN -> TokenDirectory(properties.claims.groups)
@@ -86,8 +88,9 @@ class SecurityConfiguration(
 
     @Bean
     @Order(1)
-    fun apiFilterChain(http: HttpSecurity, callerClaims: CallerClaims, decoder: JwtDecoder): SecurityFilterChain {
-        // Anonymous requests never get to the entry point, so each call is a token that Folio did not accept.
+    fun apiFilterChain(http: HttpSecurity, callerFactory: CallerFactory, decoder: JwtDecoder): SecurityFilterChain {
+        // Spring calls this entry point only for a bearer token that it did not accept. All API routes permit all
+        // callers, so a request without a token stays anonymous and never gets here.
         val bearerFailure =
             AuthenticationEntryPoint { request, response, exception -> failToken(request, response, exception) }
         http {
@@ -95,15 +98,19 @@ class SecurityConfiguration(
             authorizeHttpRequests { authorize(anyRequest, permitAll) }
             oauth2ResourceServer {
                 jwt {
-                    jwtDecoder = IssuerOutages(decoder)
-                    jwtAuthenticationConverter = BearerTokenConverter(callerClaims)
+                    jwtDecoder = OutageReportingJwtDecoder(decoder)
+                    jwtAuthenticationConverter =
+                        Converter<Jwt, AbstractAuthenticationToken> { jwt ->
+                            BearerAuthentication(callerFactory.toCaller(jwt.claims))
+                        }
                 }
                 authenticationEntryPoint = bearerFailure
             }
             sessionManagement { sessionCreationPolicy = SessionCreationPolicy.STATELESS }
             csrf { disable() }
         }
-        // By default the filter rethrows an issuer outage, and the container makes it a 500. The DSL has no setting.
+        // By default, the filter rethrows an issuer outage, and the container then sends a 500. The Kotlin DSL has no
+        // setting for this, so a post-processor changes the failure handler of the filter.
         http.oauth2ResourceServer {
             it.withObjectPostProcessor(
                 object : ObjectPostProcessor<BearerTokenAuthenticationFilter> {
@@ -121,17 +128,13 @@ class SecurityConfiguration(
 
     @Bean
     @Order(2)
-    fun uiFilterChain(
-        http: HttpSecurity,
-        callerClaims: CallerClaims,
-        properties: IdentityProperties,
-    ): SecurityFilterChain {
+    fun uiFilterChain(http: HttpSecurity, callerFactory: CallerFactory): SecurityFilterChain {
         http {
             authorizeHttpRequests { authorize(anyRequest, permitAll) }
             oauth2Login {
                 loginPage = "/sign-in"
                 authorizationEndpoint { authorizationRequestResolver = withPkce() }
-                userInfoEndpoint { oidcUserService = SignedInUserService(callerClaims, properties.claims.subject) }
+                userInfoEndpoint { oidcUserService = SignedInUserService(callerFactory) }
                 authorizedClientRepository = NoAuthorizedClients
             }
             logout {
@@ -163,7 +166,10 @@ class SecurityConfiguration(
         }
     }
 
-    /** The decoder gives [AuthenticationServiceException] when the issuer is not available (see [IssuerOutages]). */
+    /**
+     * Spring gives [AuthenticationServiceException] when the decoder cannot get the discovery document or the signing
+     * keys of the issuer (see [OutageReportingJwtDecoder]).
+     */
     private fun failToken(
         request: HttpServletRequest,
         response: HttpServletResponse,
@@ -177,7 +183,10 @@ class SecurityConfiguration(
         }
     }
 
-    /** If no handler wrote a response, the container sends a 5xx. A rejected request must never look like a success. */
+    /**
+     * Without the throw, a request that no resolver handles would get an empty response with status 200. The throw
+     * makes the container send a 5xx, so a rejected request never looks like a success.
+     */
     private fun fail(request: HttpServletRequest, response: HttpServletResponse, exception: IdentityException) {
         errors.resolveException(request, response, null, exception) ?: throw exception
     }

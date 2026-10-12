@@ -19,7 +19,7 @@ class IdentityPages(private val currentCaller: CurrentCaller) {
     @GetMapping("/sign-in")
     fun signIn(): String = "redirect:$AUTHORIZATION_PATH"
 
-    /** Spring Security sends a failed sign-in here. A new redirect could repeat the failure, so a page explains it. */
+    /** Spring Security sends a failed sign-in here. A page explains the failure, because a new redirect could loop. */
     @GetMapping("/sign-in", params = ["error"])
     fun signInFailed(): String = "identity/web/signInFailed"
 

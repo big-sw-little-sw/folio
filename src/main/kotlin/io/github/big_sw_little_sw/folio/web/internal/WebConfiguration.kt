@@ -53,9 +53,10 @@ private object PageContextInterceptor : HandlerInterceptor {
 }
 
 /**
- * The principal name of a signed-in caller is its subject. The security context has it also before Spring Security
- * wraps the request, for example when the CSRF filter rejects a request. The CSRF token is deferred: a read stores it
- * in the session, so only signed-in callers read it.
+ * Reads the caller from the security context, not from the request. The context has the caller also before Spring
+ * Security wraps the request, for example when the CSRF filter rejects a request. The principal name of a signed-in
+ * caller is its subject. The first read of the CSRF token stores the token in the session, so only a signed-in caller
+ * reads it.
  */
 fun pageContextOf(request: HttpServletRequest): PageContext {
     val authentication = SecurityContextHolder.getContext().authentication

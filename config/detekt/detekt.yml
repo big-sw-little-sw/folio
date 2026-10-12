@@ -1,5 +1,5 @@
 # These settings change the default detekt configuration (buildUponDefaultConfig = true).
-# Any finding fails the build, and no baseline exists. failOnSeverity in build.gradle.kts sets this behaviour.
+# No baseline exists, so each finding fails the build (see failOnSeverity in build.gradle.kts).
 #
 # LongMethod, LargeClass and LongParameterList keep their defaults. Lower size limits push code into shallow methods
 # and classes that only pass the check.
@@ -36,3 +36,12 @@ style:
         value: 'STOPSHIP'
   ReturnCount:
     max: 3
+  WildcardImport:
+    # The test sources use wildcard imports for these packages. ktlint permits them only in src/test (see
+    # .editorconfig), so main sources keep explicit imports.
+    excludeImports:
+      - 'java.util.*'
+      - 'kotlin.test.*'
+      - 'io.github.big_sw_little_sw.testing.*'
+      - 'org.springframework.test.web.servlet.*'
+      - 'org.hamcrest.Matchers.*'

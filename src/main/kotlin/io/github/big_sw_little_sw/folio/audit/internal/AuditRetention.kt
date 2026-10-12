@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.time.Duration
 
-/** `folio.audit`: how long Folio keeps audit records (design 14). */
+/** `folio.audit`: how long Folio keeps audit records. */
 @ConfigurationProperties("folio.audit")
 data class AuditProperties(val retention: Duration = Duration.ofDays(DEFAULT_RETENTION_DAYS)) {
     init {
@@ -21,21 +21,20 @@ data class AuditProperties(val retention: Duration = Duration.ofDays(DEFAULT_RET
 
 /**
  * Deletes audit records older than the retention, one time each day on each instance. Each batch is a statement of
- * its own, without a transaction, so a large first run never holds many locks for a long time. `SKIP LOCKED` lets
+ * its own, without a transaction, so a large first run never holds many locks for a long time. With `SKIP LOCKED`,
  * the instances share the work and never wait for each other.
  */
 @Component
 class AuditRetention(private val jdbc: JdbcClient, private val properties: AuditProperties) {
-    /** The first run comes soon after start, so that instances which restart more often than daily still delete. */
+    /** Without the short first delay, an instance that restarts more often than once a day never deletes records. */
     @Scheduled(initialDelayString = "PT10M", fixedDelayString = "P1D")
-    fun deleteExpired(): Int {
+    fun deleteExpired() {
         var total = 0
         do {
             val deleted = deleteBatch()
             total += deleted
         } while (deleted == BATCH_SIZE)
         log.info("Deleted {} audit records older than {}", total, properties.retention)
-        return total
     }
 
     private fun deleteBatch(): Int = jdbc

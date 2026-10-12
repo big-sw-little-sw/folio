@@ -4,8 +4,8 @@ import org.springframework.boot.fromApplication
 import org.springframework.boot.with
 
 /**
- * Runs Folio for local development with `./gradlew bootTestRun` (design 17). Testcontainers starts PostgreSQL and a
- * mock OIDC provider, so no real identity provider is necessary.
+ * Runs Folio for local development with `./gradlew bootTestRun`. Testcontainers starts PostgreSQL and a mock OIDC
+ * provider, so no real identity provider is necessary.
  *
  * - UI: open http://localhost:8080, select "Sign in", and enter any user name. Optional claims JSON, for example
  *   `{"groups": ["team-a"]}`, gives groups.

@@ -1,8 +1,8 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 /**
- * Gives the groups of an authenticated caller (design 6.3). `folio.security.directory` selects one adapter. Only the
- * identity module knows the directory: other modules see the groups in the caller.
+ * Gives the groups of an authenticated caller. `folio.security.directory` selects one adapter. Only the identity module
+ * knows the directory, so other modules see only the groups in the caller.
  */
 interface Directory {
     /** Throws [InvalidClaims] if the claims do not give groups in the form that this directory expects. */

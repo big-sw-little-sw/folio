@@ -3,13 +3,14 @@ spring:
     name: folio
   threads:
     virtual:
-      # Requests, scheduled tasks and async work run on virtual threads (design 8.7).
+      # Requests, scheduled tasks and async work run on virtual threads. Git and database calls block, and virtual
+      # threads make blocking calls cheap.
       enabled: true
   session:
     jdbc:
       # Flyway owns the session tables (V1__spring_session.sql).
       initialize-schema: never
-  # Deployments set the identity provider (design 6):
+  # Deployments set the identity provider:
   #   security.oauth2.resourceserver.jwt.issuer-uri: the one trusted issuer. Folio does not start without it.
   #   security.oauth2.resourceserver.jwt.audiences: Folio's audiences. Folio does not start without them.
   #   security.oauth2.client.registration.folio: client-id, client-secret and scope (openid and more) of the web UI
@@ -32,7 +33,7 @@ springdoc:
   paths-to-match: /api/**
 management:
   server:
-    # The application port never serves the actuator (design 15.2). Keep this port off public networks: health and
+    # The application port never serves the actuator. Keep this port off public networks, because health and
     # prometheus need no token. Probes use this port.
     port: 8081
   endpoints:

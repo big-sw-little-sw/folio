@@ -3,7 +3,7 @@ package io.github.big_sw_little_sw.folio.identity
 import io.github.big_sw_little_sw.folio.MockOidcProvider
 import io.github.big_sw_little_sw.folio.MockOidcProviderConfiguration
 import io.github.big_sw_little_sw.folio.TestcontainersConfiguration
-import io.github.big_sw_little_sw.testing.TestRoutes
+import io.github.big_sw_little_sw.testing.*
 import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
@@ -18,14 +18,11 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * The local setup of `bootTestRun` (design 17): Folio with the mock OIDC provider. A person signs in through the real
- * authorization code flow, and a workload calls the API with a client credentials token.
+ * The local setup of `bootTestRun`: Folio with the mock OIDC provider. A person signs in through the real authorization
+ * code flow, and a workload calls the API with a client credentials token.
  */
 @Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -140,7 +137,10 @@ class LocalSignInIntegrationTest(
         val CSRF_FIELD = Regex("<input type=\"hidden\" name=\"_csrf\" value=\"([^\"]+)\">")
         const val SIGN_IN_LINK = """<a href="/sign-in">Sign in</a>"""
 
-        /** Spring Session stores the time of the last access in milliseconds. */
+        /**
+         * Spring Session stores the time of the last access with millisecond precision. The test waits more than one
+         * millisecond, so an access through the API would change the stored time.
+         */
         const val SESSION_CLOCK_STEP_MILLIS = 20L
     }
 }

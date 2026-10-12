@@ -7,12 +7,12 @@ import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.json.JsonMapper
 
-/** Writes audit records. Folio never changes a record. Retention deletes it after `folio.audit.retention`. */
+/** Writes audit records. Folio never changes a record, and retention deletes it after `folio.audit.retention`. */
 @Service
 class AuditLog(private val jdbc: JdbcClient, private val json: JsonMapper) {
     /**
      * Writes the record in the transaction of the operation. Thus the record commits with its operation, and a failed
-     * insert rolls the operation back. The database clock gives the time.
+     * insert rolls the operation back.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     fun record(entry: AuditEntry) {

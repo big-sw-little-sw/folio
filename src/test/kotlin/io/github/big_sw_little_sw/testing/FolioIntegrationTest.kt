@@ -6,17 +6,28 @@ import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfig
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 
 /**
  * A test of the full application through MockMvc, with PostgreSQL in Testcontainers and [TestIssuer] as the identity
- * provider. All classes with this annotation share one application context.
+ * provider. [HtmlCheckConfiguration] examines each HTML response. All classes with this annotation share one
+ * application context and one database. Each test must read only the data that it made, because data from other tests
+ * stays in the database.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
 @Tag("integration")
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(TestcontainersConfiguration::class, TestIssuerConfiguration::class, TestRoutes::class)
+@Import(
+    TestcontainersConfiguration::class,
+    TestIssuerConfiguration::class,
+    TestRoutes::class,
+    HtmlCheckConfiguration::class,
+)
 annotation class FolioIntegrationTest
 
 /**
@@ -34,3 +45,11 @@ annotation class FolioIntegrationTest
 @AutoConfigureMetrics
 @Import(TestcontainersConfiguration::class, TestIssuerConfiguration::class, TestRoutes::class, TestFilter::class)
 annotation class FolioServerTest
+
+private val client = HttpClient.newHttpClient()
+
+/** Sends a GET without cookies to [path] on the [FolioServerTest] port [port]. */
+fun httpGet(port: Int, path: String): HttpResponse<String> = client.send(
+    HttpRequest.newBuilder(URI.create("http://localhost:$port$path")).build(),
+    HttpResponse.BodyHandlers.ofString(),
+)

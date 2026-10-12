@@ -34,14 +34,7 @@ object TestIssuer {
     /** Another key with the same key ID, for tokens with a signature that is not valid. */
     val foreignKey: RSAKey = RSAKeyGenerator(KEY_SIZE).keyID(KEY_ID).generate()
 
-    private val server: HttpServer =
-        HttpServer.create(InetSocketAddress("localhost", 0), 0).apply {
-            createContext("/.well-known/openid-configuration") { respond(it, discovery()) }
-            createContext("/jwks") { respond(it, JWKSet(key.toPublicJWK()).toString()) }
-            start()
-        }
-
-    val uri: String = "http://localhost:${server.address.port}"
+    val uri: String = startIssuer(JWKSet(key.toPublicJWK()).toString())
 
     fun token(
         claims: Map<String, Any> = mapOf("sub" to "alice"),
@@ -65,39 +58,69 @@ object TestIssuer {
             .encode(JwtEncoderParameters.from(header, claimSet))
             .tokenValue
     }
+}
 
-    /** The fields that Spring Security needs for the resource server and for the UI client registration. */
-    private fun discovery() =
-        """
-        {
-          "issuer": "$uri",
-          "authorization_endpoint": "$uri/authorize",
-          "token_endpoint": "$uri/token",
-          "jwks_uri": "$uri/jwks",
-          "response_types_supported": ["code"],
-          "subject_types_supported": ["public"],
-          "id_token_signing_alg_values_supported": ["RS256"],
-          "token_endpoint_auth_methods_supported": ["client_secret_basic"],
-          "code_challenge_methods_supported": ["S256"]
-        }
-        """.trimIndent()
-
-    private fun respond(exchange: HttpExchange, json: String) {
-        val body = json.toByteArray()
-        exchange.responseHeaders.add(HttpHeaders.CONTENT_TYPE, "application/json")
-        exchange.sendResponseHeaders(HTTP_OK, body.size.toLong())
-        exchange.responseBody.use { it.write(body) }
-    }
-
-    private const val HTTP_OK = 200
+/**
+ * An issuer in an outage. It serves its discovery document, but its key set URL fails with status 503. Folio then
+ * cannot validate any token of this issuer.
+ */
+object KeylessIssuer {
+    val uri: String = startIssuer(keys = null)
 }
 
 /** Makes [TestIssuer] the issuer of the API and of the UI client. */
 @TestConfiguration(proxyBeanMethods = false)
 class TestIssuerConfiguration {
     @Bean
-    fun testIssuerProperties() = DynamicPropertyRegistrar { registry ->
-        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", TestIssuer::uri)
-        registry.add("spring.security.oauth2.client.provider.folio.issuer-uri", TestIssuer::uri)
-    }
+    fun testIssuerProperties() = issuerProperties(TestIssuer.uri)
 }
+
+/** Makes [KeylessIssuer] the issuer of the API and of the UI client. */
+@TestConfiguration(proxyBeanMethods = false)
+class KeylessIssuerConfiguration {
+    @Bean
+    fun keylessIssuerProperties() = issuerProperties(KeylessIssuer.uri)
+}
+
+private fun issuerProperties(uri: String) = DynamicPropertyRegistrar { registry ->
+    registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri") { uri }
+    registry.add("spring.security.oauth2.client.provider.folio.issuer-uri") { uri }
+}
+
+/** Starts an issuer on a free port and returns its URI. */
+private fun startIssuer(keys: String?): String {
+    val server = HttpServer.create(InetSocketAddress("localhost", 0), 0)
+    val uri = "http://localhost:${server.address.port}"
+    server.createContext("/.well-known/openid-configuration") { respond(it, discovery(uri)) }
+    server.createContext("/jwks") { exchange ->
+        if (keys == null) exchange.sendResponseHeaders(HTTP_UNAVAILABLE, -1) else respond(exchange, keys)
+    }
+    server.start()
+    return uri
+}
+
+/** The fields that Spring Security needs for the resource server and for the UI client registration. */
+private fun discovery(uri: String) =
+    """
+    {
+      "issuer": "$uri",
+      "authorization_endpoint": "$uri/authorize",
+      "token_endpoint": "$uri/token",
+      "jwks_uri": "$uri/jwks",
+      "response_types_supported": ["code"],
+      "subject_types_supported": ["public"],
+      "id_token_signing_alg_values_supported": ["RS256"],
+      "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+      "code_challenge_methods_supported": ["S256"]
+    }
+    """.trimIndent()
+
+private fun respond(exchange: HttpExchange, json: String) {
+    val body = json.toByteArray()
+    exchange.responseHeaders.add(HttpHeaders.CONTENT_TYPE, "application/json")
+    exchange.sendResponseHeaders(HTTP_OK, body.size.toLong())
+    exchange.responseBody.use { it.write(body) }
+}
+
+private const val HTTP_OK = 200
+private const val HTTP_UNAVAILABLE = 503

@@ -4,12 +4,12 @@ import java.util.UUID
 
 /**
  * The API form of one ID type: a type prefix and the UUID as 32 lowercase hex characters, for example
- * `ns_0192f0c1e8a47c3b9d2e5f6a7b8c9d0e` (design 5.2). The module that owns an ID type declares one instance next to
- * its value class, and its HTTP layer uses it:
+ * `ns_0192f0c1e8a47c3b9d2e5f6a7b8c9d0e`. With the prefix, a person can see the resource type from the ID alone. The
+ * module that owns an ID type declares one instance next to its value class, and its HTTP layer uses it:
  *
  * ```
  * @JvmInline value class NamespaceId(val value: UUID)
- * val NAMESPACE_API_ID = ApiId("ns", ::NamespaceId, NamespaceId::value)
+ * val NAMESPACE_ID = ApiId("ns", ::NamespaceId, NamespaceId::value)
  * ```
  */
 class ApiId<T : Any>(type: String, private val toId: (UUID) -> T, private val toUuid: (T) -> UUID) {

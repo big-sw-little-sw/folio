@@ -3,11 +3,11 @@ package io.github.big_sw_little_sw.folio.identity
 import io.github.big_sw_little_sw.folio.web.ErrorKind
 import io.github.big_sw_little_sw.folio.web.FolioException
 
-/** Failures of the security filters. The filters give them to the web module, so they have the usual error body. */
+/** Failures of the security filters. */
 sealed class IdentityException(kind: ErrorKind, code: String, detail: String) : FolioException(kind, code, detail) {
     /**
      * The bearer token is not valid. For example, its signature, issuer, audience or expiry time is wrong, or it has
-     * no subject. The detail does not say which check failed.
+     * no subject. The detail does not say which check failed, so that it gives no help to an attacker.
      */
     class InvalidToken :
         IdentityException(ErrorKind.UNAUTHENTICATED, "INVALID_TOKEN", "The bearer token is not valid.")

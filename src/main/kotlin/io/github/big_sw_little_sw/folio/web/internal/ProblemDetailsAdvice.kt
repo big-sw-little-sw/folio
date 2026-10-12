@@ -25,9 +25,9 @@ import java.nio.charset.StandardCharsets
 import java.time.Duration
 
 /**
- * The one place that turns failures into responses (design 8.6). API routes get an RFC 9457 problem detail with a
- * `code`. UI routes get an HTML page with the same code and detail. The security filters of `identity` send their
- * 401 and 403 failures here too, so all errors have one format.
+ * The one place that turns failures into responses. API routes get an RFC 9457 problem detail with a `code`. UI routes
+ * get an HTML page with the same code and detail. The security filters of `identity` send their failures here too, so
+ * all errors have one format.
  *
  * The base class handles Spring MVC's own failures, for example JSON that does not parse or a missing parameter.
  */
@@ -38,7 +38,7 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
         val headers = HttpHeaders()
         if (exception.kind == ErrorKind.UNAUTHENTICATED) headers.set(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
         exception.retryAfter?.let { headers.set(HttpHeaders.RETRY_AFTER, retryAfterSeconds(it).toString()) }
-        return respond(request, Problem(statusOf(exception.kind), exception.code, exception.detail), headers)
+        return respond(request, Problem(exception.kind.status, exception.code, exception.detail), headers)
     }
 
     /** The exception message can contain internal details, so only the log gets it. */
@@ -114,27 +114,6 @@ class ProblemDetailsAdvice(private val templates: TemplateEngine) : ResponseEnti
         const val UNEXPECTED = "An unexpected error occurred."
         val HTML = MediaType(MediaType.TEXT_HTML, StandardCharsets.UTF_8)
         val log = LoggerFactory.getLogger(ProblemDetailsAdvice::class.java)
-
-        fun statusOf(kind: ErrorKind): HttpStatus = when (kind) {
-            ErrorKind.NOT_FOUND -> HttpStatus.NOT_FOUND
-
-            ErrorKind.CONFLICT -> HttpStatus.CONFLICT
-
-            ErrorKind.INVALID -> HttpStatus.BAD_REQUEST
-
-            ErrorKind.FORBIDDEN -> HttpStatus.FORBIDDEN
-
-            ErrorKind.UNAUTHENTICATED -> HttpStatus.UNAUTHORIZED
-
-            ErrorKind.UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE
-
-            ErrorKind.UPSTREAM_FAILED -> HttpStatus.BAD_GATEWAY
-
-            ErrorKind.UPSTREAM_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT
-
-            // Not 413, which is about the request: the request is correct, but Folio does not serve the item.
-            ErrorKind.TOO_LARGE -> HttpStatus.UNPROCESSABLE_CONTENT
-        }
 
         /** Whole seconds, rounded up and at least 1, so that a client never retries too early. */
         fun retryAfterSeconds(delay: Duration): Long = delay

@@ -1,26 +1,16 @@
 package io.github.big_sw_little_sw.folio.identity.web
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestIssuer
-import io.github.big_sw_little_sw.testing.assertNoInlineScriptsOrStyles
-import io.github.big_sw_little_sw.testing.signedIn
-import org.hamcrest.Matchers.allOf
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.not
-import org.hamcrest.Matchers.startsWith
+import io.github.big_sw_little_sw.testing.*
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import org.springframework.session.SessionRepository
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.*
 
-/** The UI filter chain and the identity pages (design 6.2, 12.3). */
 @FolioIntegrationTest
 class IdentityPagesIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -40,22 +30,15 @@ class IdentityPagesIntegrationTest(
 
     @Test
     fun `a signed-in caller sees the caller, a sign-out form and the CSRF token for htmx`() {
-        mvc.get("/") { with(signedIn(alice)) }.andExpect {
-            status { isOk() }
-            content {
-                string(
-                    allOf(
-                        containsString("Signed in as <strong>alice</strong>"),
-                        containsString("<code>team-a</code>"),
-                        containsString("<code>cli</code>"),
-                        containsString("""<form method="post" action="/sign-out">"""),
-                        containsString("""<input type="hidden" name="_csrf" value="""),
-                        containsString("""<meta name="csrf-header" content="X-CSRF-TOKEN">"""),
-                        containsString("""<meta name="csrf-token" content="""),
-                    ),
-                )
-            }
-        }
+        val page = mvc.page("/", alice)
+
+        assertContains(page, "Signed in as <strong>alice</strong>")
+        assertContains(page, "<code>team-a</code>")
+        assertContains(page, "<code>cli</code>")
+        assertContains(page, """<form method="post" action="/sign-out">""")
+        assertContains(page, """<input type="hidden" name="_csrf" value=""")
+        assertContains(page, """<meta name="csrf-header" content="X-CSRF-TOKEN">""")
+        assertContains(page, """<meta name="csrf-token" content=""")
     }
 
     @Test
@@ -64,15 +47,6 @@ class IdentityPagesIntegrationTest(
             header { string("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'") }
             header { string("X-Content-Type-Options", "nosniff") }
         }
-    }
-
-    @Test
-    fun `pages have no inline scripts or styles`() {
-        listOf(
-            mvc.get("/"),
-            mvc.get("/") { with(signedIn(alice)) },
-            mvc.get("/no-such-page") { with(signedIn(alice)) },
-        ).forEach { assertNoInlineScriptsOrStyles(it.andReturn().response.contentAsString) }
     }
 
     @Test

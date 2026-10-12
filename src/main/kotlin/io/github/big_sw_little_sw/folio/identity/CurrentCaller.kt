@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component
 
 /**
  * The caller of the current HTTP request. Only HTTP layers use it. They give the caller to services as a parameter,
- * so services and background work never read the security context.
+ * so services, background work and tests need no security context.
  */
 @Component
 class CurrentCaller {
@@ -17,8 +17,8 @@ class CurrentCaller {
     }
 
     /**
-     * An unknown principal is a fault in the sign-in setup. Folio fails the request (500), because an anonymous caller
-     * would hide the fault as a permissions problem.
+     * An unknown principal is a fault in the sign-in setup, so Folio fails the request with status 500. An anonymous
+     * caller would hide the fault as a permissions problem.
      */
     private fun callerOf(principal: Any?): Caller = when (principal) {
         // A bearer token on /api. The token converter made the caller.

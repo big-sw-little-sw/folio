@@ -4,13 +4,12 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import java.util.UUID
 
 /**
- * One audited operation (design 14). The module that does the operation names it, so a new audited operation changes
- * that module only. A record never contains groups, keys, secrets, tokens, transport output or file content. Thus
- * [details] must not contain them either.
+ * One audited operation. The module that does the operation names it, so a new audited operation changes only that
+ * module. [details] must never contain groups, keys, secrets, tokens, transport output or file content.
  */
 data class AuditEntry(
     val caller: Caller,
-    /** True if the caller is a super admin. The catalog decides this. */
+    /** True if the caller is a super admin. The catalog module decides this. */
     val superAdmin: Boolean,
     /** For example `NAMESPACE_RENAMED`. */
     val operation: String,

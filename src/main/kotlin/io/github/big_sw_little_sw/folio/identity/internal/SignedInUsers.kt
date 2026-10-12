@@ -10,18 +10,19 @@ import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository
-import org.springframework.security.oauth2.core.OAuth2AuthenticationException
-import org.springframework.security.oauth2.core.OAuth2Error
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser
 import org.springframework.security.oauth2.core.oidc.user.OidcUser
 
 /**
  * The principal of a browser session. It keeps the caller that sign-in made, so a change of groups takes effect at
- * the next sign-in (design 6.2). Spring Session stores it in PostgreSQL with Java serialization. Thus it keeps plain
- * fields, not a [Caller].
+ * the next sign-in. Spring Session stores the principal in PostgreSQL with Java serialization. [Caller] is not
+ * serializable, so this class keeps plain fields.
+ *
+ * The principal name is the subject of the caller, as for [BearerAuthentication], so the layout shows the subject that
+ * rules name.
  */
-class SignedInUser(user: OidcUser, subjectClaim: String, caller: Caller.Authenticated) :
-    DefaultOidcUser(user.authorities, user.idToken, user.userInfo, subjectClaim) {
+class SignedInUser(user: OidcUser, caller: Caller.Authenticated) :
+    DefaultOidcUser(user.authorities, user.idToken, user.userInfo) {
     private val subject = caller.subject
     private val groups = LinkedHashSet(caller.groups)
     private val applicationId = caller.applicationId
@@ -29,26 +30,27 @@ class SignedInUser(user: OidcUser, subjectClaim: String, caller: Caller.Authenti
     val caller: Caller.Authenticated
         get() = Caller.Authenticated(subject, groups, applicationId)
 
+    override fun getName(): String = subject
+
     private companion object {
         private const val serialVersionUID = 1L
     }
 }
 
 /** Makes the [SignedInUser] from the ID token at sign-in. A token that gives no caller stops the sign-in. */
-class SignedInUserService(private val callerClaims: CallerClaims, private val subjectClaim: String) :
-    OAuth2UserService<OidcUserRequest, OidcUser> {
+class SignedInUserService(private val callerFactory: CallerFactory) : OAuth2UserService<OidcUserRequest, OidcUser> {
     private val delegate = OidcUserService()
 
     override fun loadUser(request: OidcUserRequest): OidcUser {
         val user = delegate.loadUser(request)
         val caller =
             try {
-                callerClaims.toCaller(user.idToken.claims)
+                callerFactory.toCaller(user.idToken.claims)
             } catch (exception: InvalidClaims) {
                 log.warn("Sign-in refused: {}", exception.message)
-                throw OAuth2AuthenticationException(OAuth2Error("invalid_id_token"), exception)
+                throw exception
             }
-        return SignedInUser(user, subjectClaim, caller)
+        return SignedInUser(user, caller)
     }
 
     private companion object {

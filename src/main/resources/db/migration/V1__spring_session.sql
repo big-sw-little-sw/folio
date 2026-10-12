@@ -1,6 +1,6 @@
--- Browser sessions of the web UI (design 6.2), in PostgreSQL so that each instance can serve each session. This is
--- the schema of spring-session-jdbc (schema-postgresql.sql). Flyway owns it: spring.session.jdbc.initialize-schema is
--- never. principal_name is text, not varchar(100), because a subject claim can be longer.
+-- Browser sessions of the web UI, in PostgreSQL so that each instance can serve each session. This is the schema of
+-- spring-session-jdbc (schema-postgresql.sql). Flyway owns it, so spring.session.jdbc.initialize-schema is never.
+-- principal_name is text, not varchar(100), because a subject claim can be longer.
 create table spring_session (
     primary_id char(36) not null,
     session_id char(36) not null,

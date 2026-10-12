@@ -1,18 +1,22 @@
 package io.github.big_sw_little_sw.folio.web
 
+import org.springframework.http.HttpStatus
 import java.time.Duration
 
-/** The kinds of expected failure. The web module gives each kind one HTTP status (design 8.6). */
-enum class ErrorKind {
-    NOT_FOUND,
-    CONFLICT,
-    INVALID,
-    FORBIDDEN,
-    UNAUTHENTICATED,
-    UNAVAILABLE,
-    UPSTREAM_FAILED,
-    UPSTREAM_TIMEOUT,
-    TOO_LARGE,
+/** The kinds of expected failure. Each kind has one HTTP status. */
+enum class ErrorKind(val status: HttpStatus) {
+    NOT_FOUND(HttpStatus.NOT_FOUND),
+    CONFLICT(HttpStatus.CONFLICT),
+    INVALID(HttpStatus.BAD_REQUEST),
+    FORBIDDEN(HttpStatus.FORBIDDEN),
+    UNAUTHENTICATED(HttpStatus.UNAUTHORIZED),
+    UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE),
+    UPSTREAM_FAILED(HttpStatus.BAD_GATEWAY),
+    UPSTREAM_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT),
+
+    // Not 413, because 413 means that the request is too large. Here the request is correct, but the requested content
+    // is larger than Folio serves.
+    TOO_LARGE(HttpStatus.UNPROCESSABLE_CONTENT),
 }
 
 /**

@@ -9,8 +9,8 @@ import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 
 /**
- * A mock OIDC provider for local runs (design 17). It is the issuer of the API and of the UI client. Its sign-in page
- * accepts any user name and optional claims as JSON, for example `{"groups": ["team-a"]}`.
+ * A mock OIDC provider for local runs. It is the issuer of the API and of the UI client. Its sign-in page accepts any
+ * user name and optional claims as JSON, for example `{"groups": ["team-a"]}`.
  */
 @TestConfiguration(proxyBeanMethods = false)
 class MockOidcProviderConfiguration {

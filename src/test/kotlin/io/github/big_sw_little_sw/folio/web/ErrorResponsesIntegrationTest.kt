@@ -1,21 +1,15 @@
 package io.github.big_sw_little_sw.folio.web
 
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestRoutes
-import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.not
+import io.github.big_sw_little_sw.testing.*
+import org.hamcrest.Matchers.*
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
-import kotlin.test.Test
+import org.springframework.test.web.servlet.*
+import kotlin.test.*
 
-/** The error format of design 8.6, through the routes in [TestRoutes]. */
 @FolioIntegrationTest
 class ErrorResponsesIntegrationTest(@Autowired private val mvc: MockMvc) {
     @ParameterizedTest

@@ -11,7 +11,7 @@ class PageContext(
     val signedInAs: String?,
     /** A message from the previous request, for example after a redirect. Set it as the flash attribute [NOTICE]. */
     val notice: String?,
-    /** The CSRF token for forms and htmx. Null for anonymous callers, so that a page view makes no session. */
+    /** The CSRF token for forms and htmx. Null for an anonymous caller, so that a page view makes no session. */
     val csrf: CsrfToken?,
 ) {
     companion object {

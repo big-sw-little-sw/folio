@@ -5,8 +5,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository
 import org.springframework.security.oauth2.core.AuthorizationGrantType
 import org.springframework.web.servlet.HandlerExceptionResolver
-import kotlin.test.Test
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 class SecurityConfigurationTest {
     private val errors = HandlerExceptionResolver { _, _, _, _ -> null }

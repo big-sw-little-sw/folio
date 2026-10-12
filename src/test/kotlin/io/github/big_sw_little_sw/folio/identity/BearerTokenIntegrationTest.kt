@@ -2,8 +2,7 @@ package io.github.big_sw_little_sw.folio.identity
 
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.PlainJWT
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestIssuer
+import io.github.big_sw_little_sw.testing.*
 import org.junit.jupiter.api.Named
 import org.junit.jupiter.api.Named.named
 import org.junit.jupiter.params.ParameterizedTest
@@ -11,16 +10,13 @@ import org.junit.jupiter.params.provider.MethodSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
-import org.springframework.test.web.servlet.MockHttpServletRequestDsl
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.time.Duration
 import java.time.Instant
 import java.util.Date
-import kotlin.test.Test
+import kotlin.test.*
 
-/** Bearer tokens on /api (design 6.1), validated by the production decoder against [TestIssuer]. */
+/** The production decoder validates each token against [TestIssuer]. */
 @FolioIntegrationTest
 class BearerTokenIntegrationTest(@Autowired private val mvc: MockMvc) {
     @Test
@@ -71,10 +67,6 @@ class BearerTokenIntegrationTest(@Autowired private val mvc: MockMvc) {
                 status { isOk() }
                 header { doesNotExist(HttpHeaders.SET_COOKIE) }
             }
-    }
-
-    private fun MockHttpServletRequestDsl.bearer(token: String) {
-        header(HttpHeaders.AUTHORIZATION, "Bearer $token")
     }
 
     private companion object {

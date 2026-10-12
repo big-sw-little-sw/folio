@@ -1,4 +1,4 @@
-<%-- The page layout of the UI (design 12.3). Each page gives its title and content. --%>
+<%-- The page layout of the UI. Each page gives its title and content. --%>
 @import gg.jte.Content
 @import io.github.big_sw_little_sw.folio.web.PageContext
 @param page: PageContext
@@ -20,7 +20,7 @@
     <%--
         htmx 2.0.11 from https://registry.npmjs.org/htmx.org/-/htmx.org-2.0.11.tgz (dist/htmx.min.js).
         SHA-256: d6fdc75f204e6bdefa99b69bf1e6d4ac69b8a364f77929f45c13476b4000f717.
-        The integrity attribute makes the browser refuse a different file. Change both together.
+        The integrity attribute makes the browser refuse a different file. Change the file and the attribute together.
     --%>
     <script src="/js/htmx-2.0.11.min.js" integrity="sha384-2OatzQy1H+Zd/IIrjr1TcuDGqLXeHhbooAyJY1KdQMKnr4LZ22k31GBLdYKHmVjg" defer></script>
     <script src="/js/folio.js" defer></script>

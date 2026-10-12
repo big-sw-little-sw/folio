@@ -1,12 +1,10 @@
 package io.github.big_sw_little_sw.folio.identity.internal
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
-class CallerClaimsTest {
-    private val defaults = callerClaims(IdentityProperties.ClaimNames())
+class CallerFactoryTest {
+    private val defaults = callerFactory(IdentityProperties.ClaimNames())
 
     @Test
     fun `maps the default claims to a caller`() {
@@ -23,7 +21,7 @@ class CallerClaimsTest {
     @Test
     fun `uses the configured claim names`() {
         val entra =
-            callerClaims(IdentityProperties.ClaimNames(subject = "oid", groups = "roles", applicationId = "appid"))
+            callerFactory(IdentityProperties.ClaimNames(subject = "oid", groups = "roles", applicationId = "appid"))
         val claims = mapOf("sub" to "pairwise", "oid" to "object-id", "roles" to listOf("g"), "appid" to "app")
 
         assertEquals(Caller.Authenticated("object-id", setOf("g"), "app"), entra.toCaller(claims))
@@ -48,5 +46,5 @@ class CallerClaimsTest {
         assertFailsWith<IllegalArgumentException> { IdentityProperties.ClaimNames(subject = "") }
     }
 
-    private fun callerClaims(names: IdentityProperties.ClaimNames) = CallerClaims(names, TokenDirectory(names.groups))
+    private fun callerFactory(names: IdentityProperties.ClaimNames) = CallerFactory(names, TokenDirectory(names.groups))
 }

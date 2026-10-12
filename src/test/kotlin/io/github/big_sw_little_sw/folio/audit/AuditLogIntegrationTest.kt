@@ -1,21 +1,15 @@
 package io.github.big_sw_little_sw.folio.audit
 
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
+import io.github.big_sw_little_sw.testing.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.transaction.IllegalTransactionStateException
 import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/**
- * Test classes share the table, so each test reads only the records of its own resource ID. That read also shows that
- * the record keeps the resource ID.
- */
+/** Each test reads only the records of its own resource ID, which also shows that a record keeps its resource ID. */
 @FolioIntegrationTest
 class AuditLogIntegrationTest(
     @Autowired private val auditLog: AuditLog,

@@ -2,9 +2,7 @@ package io.github.big_sw_little_sw.folio.audit
 
 import io.github.big_sw_little_sw.folio.identity.Caller
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 class AuditEntryTest {
     private val alice = Caller.Authenticated("alice", emptySet(), null)

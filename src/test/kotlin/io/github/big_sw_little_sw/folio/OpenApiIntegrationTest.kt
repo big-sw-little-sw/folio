@@ -1,13 +1,11 @@
 package io.github.big_sw_little_sw.folio
 
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
+import io.github.big_sw_little_sw.testing.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.MediaType
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import kotlin.test.Test
+import org.springframework.test.web.servlet.*
+import kotlin.test.*
 
-/** The OpenAPI document covers the /api routes only, and Folio serves no Swagger UI (design 12.2). */
 @FolioIntegrationTest
 class OpenApiIntegrationTest(@Autowired private val mvc: MockMvc) {
     @Test

@@ -70,7 +70,7 @@ kotlin {
     }
 }
 
-// The build generates Kotlin sources from the .kte templates, so a template error stops the build (design 12.3).
+// The build generates Kotlin sources from the .kte templates, so a template error stops the build.
 // The package puts each template class in the module of its directory, for example `web/layout.kte` in `web`.
 jte {
     sourceDirectory = file("src/main/jte").toPath()
@@ -98,12 +98,12 @@ tasks.withType<org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask>().config
 detekt {
     buildUponDefaultConfig = true
     config.setFrom("config/detekt/detekt.yml")
-    // Any finding fails the build, whatever its severity (detekt 1.x: maxIssues: 0).
+    // Any finding fails the build, whatever its severity.
     failOnSeverity = FailOnSeverity.Info
 }
 
 // The Spring dependency-management plugin pins Kotlin artifacts to the project's Kotlin version in every
-// configuration. Detekt must run with the Kotlin version it was compiled with.
+// configuration. Without this override, detekt runs with a Kotlin version that it was not compiled with and fails.
 configurations.named("detekt") {
     resolutionStrategy.eachDependency {
         if (requested.group == "org.jetbrains.kotlin") {
@@ -112,7 +112,7 @@ configurations.named("detekt") {
     }
 }
 
-// Compact object headers in every JVM that runs Folio (design 15.3).
+// Each JVM that runs Folio uses compact object headers. Smaller objects use less memory and cache.
 val folioJvmArgs = listOf("-XX:+UseCompactObjectHeaders")
 
 tasks.bootRun {
