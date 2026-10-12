@@ -14,7 +14,6 @@ import org.eclipse.jgit.transport.TagOpt
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.security.KeyPair
-import java.time.Duration
 
 /**
  * Fetches the branch of a Git source into the cache, within the [FetchDeadline]. Each failure of the source throws
@@ -34,68 +33,25 @@ class Fetcher(
      * failures of the source, so they throw [GitFailure]. A wrong request throws the error of the credential module:
      * `CredentialNotFound` (404), or `KeyNotPending` (409) if [pendingKey] is not the pending key.
      *
+     * The [deadline] starts before the fetch lock, so it includes the wait for another fetch of the same ConfigSet.
+     * A caller can already hold the fetch lock ([RepositoryCache.withFetchLock]).
+     *
      * The caller must not be in a transaction. Without this rule, a fetch holds a database connection for minutes.
      */
-    fun fetch(configSet: ConfigSetId, source: GitSourceDefinition, pendingKey: KeyId? = null): ObjectId =
-        logged(configSet) {
-            // The deadline starts here, so it includes the wait for another fetch of the same ConfigSet.
-            val deadline = FetchDeadline(properties.fetchDeadline)
-            withInstanceKey(source, pendingKey) { instance, key ->
-                cache.withFetchLock(configSet, deadline.remaining()) {
-                    fetchLocked(configSet, source, instance, key, deadline)
-                } ?: throw GitFailure(FailureCode.DEADLINE_EXCEEDED)
-            }
-        }
-
-    /**
-     * The fetch on demand of a read. These steps run in this order:
-     *
-     * 1. It waits a maximum of [LOCK_WAIT] for another fetch of the same ConfigSet.
-     * 2. With the fetch lock, it examines the cache again. A read that waited usually finds [commit] there, so it does
-     *    not fetch.
-     * 3. Only then does it run the fetch inside [withPermit]. The caller owns the limit of fetches on demand, so only
-     *    a fetch that runs holds a permit. [withPermit] returns false, and runs nothing, if no permit is free.
-     * 4. The fetch opens the key. Thus a read that finds the commit, or that gets no permit, never decrypts a key.
-     *
-     * Returns [OnDemand.FOUND] if the cache has [commit] at the end, [OnDemand.MISSING] if the branch no longer has
-     * the commit, and [OnDemand.BUSY] if the lock or a permit was not free. Throws [GitFailure] as [fetch] does.
-     */
-    fun fetchMissing(
+    fun fetch(
         configSet: ConfigSetId,
         source: GitSourceDefinition,
-        commit: ObjectId,
-        withPermit: (fetch: () -> Unit) -> Boolean,
-    ): OnDemand = logged(configSet) {
-        val deadline = FetchDeadline(properties.fetchDeadline)
-        cache.withFetchLock(configSet, minOf(LOCK_WAIT, deadline.remaining())) {
-            when {
-                hasCommit(configSet, commit) -> OnDemand.FOUND
-                !withPermit { fetchWithKey(configSet, source, deadline) } -> OnDemand.BUSY
-                hasCommit(configSet, commit) -> OnDemand.FOUND
-                else -> OnDemand.MISSING
-            }
-        } ?: OnDemand.BUSY
-    }
-
-    private fun fetchWithKey(configSet: ConfigSetId, source: GitSourceDefinition, deadline: FetchDeadline) {
-        withInstanceKey(source, null) { instance, key -> fetchLocked(configSet, source, instance, key, deadline) }
-    }
-
-    private fun hasCommit(configSet: ConfigSetId, commit: ObjectId): Boolean =
-        cache.reading(configSet, { false }) { commitOrNull(it, commit) != null }
-
-    /** The result of [fetchMissing]. */
-    enum class OnDemand { FOUND, MISSING, BUSY }
-
-    /** Runs [fetch] and logs each [GitFailure] of [fetch] one time, with the duration since the start. */
-    private fun <T> logged(configSet: ConfigSetId, fetch: () -> T): T {
-        val started = System.nanoTime()
-        try {
-            return fetch()
-        } catch (failure: GitFailure) {
-            logFailure(log, "fetch", configSet, failure, started)
-            throw failure
+        pendingKey: KeyId? = null,
+        deadline: FetchDeadline = FetchDeadline(properties.fetchDeadline),
+    ): ObjectId = try {
+        withInstanceKey(source, pendingKey) { instance, key ->
+            cache.withFetchLock(configSet, deadline.remaining()) {
+                fetchLocked(configSet, source, instance, key, deadline)
+            } ?: throw GitFailure(FailureCode.DEADLINE_EXCEEDED)
         }
+    } catch (failure: GitFailure) {
+        logFailure(log, "fetch", configSet, failure, deadline.started)
+        throw failure
     }
 
     /** Opens the key of the credential and finds the Git instance of the key, then runs [block] with both. */
@@ -190,8 +146,5 @@ class Fetcher(
 
         /** The connect timeout of JGit and its timeout for each idle read. [FetchDeadline] limits the full fetch. */
         const val TIMEOUT_SECONDS = 30
-
-        /** How long a fetch on demand waits for another fetch of the same ConfigSet. */
-        val LOCK_WAIT: Duration = Duration.ofSeconds(5)
     }
 }

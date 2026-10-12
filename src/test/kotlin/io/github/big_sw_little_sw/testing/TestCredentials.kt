@@ -48,7 +48,7 @@ class TestCredentials(
 
     /**
      * Replaces the ciphertext of the active key with one byte, so the key no longer decrypts. The credential module
-     * then throws `IllegalStateException`, which is an unexpected error for its callers (design 8.3).
+     * then throws `IllegalStateException`, and its callers treat that exception as an unexpected error.
      */
     fun corruptActiveKey(id: CredentialId) {
         jdbc

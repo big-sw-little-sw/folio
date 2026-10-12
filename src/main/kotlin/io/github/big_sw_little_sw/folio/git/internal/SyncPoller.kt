@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
 
 /**
- * Starts the syncs of due ConfigSets on each poll (design 10.6, 8.7). Each sync runs on its own virtual thread, and the
+ * Starts the syncs of due ConfigSets on each poll. Each sync runs on its own virtual thread, and the
  * fetch semaphore limits the syncs of this instance to `folio.sync.max-concurrent-fetches`. A poll claims only as
  * many ConfigSets as the semaphore has free permits. Thus a claimed ConfigSet never waits in a queue while its lease
  * runs, and other instances can claim the other due ConfigSets. A poll never claims a ConfigSet that this instance
@@ -23,7 +23,10 @@ class SyncPoller(private val synchronizer: Synchronizer, private val properties:
     @Volatile
     private var stopped = false
 
-    /** [SyncSchedule] calls this method on one thread, so polls run one at a time. */
+    /**
+     * [SyncSchedule] calls this method on one thread, so polls run one at a time. Without this order, two polls could
+     * read the same free permits and claim more ConfigSets than the permits allow.
+     */
     fun poll() {
         if (stopped) return
         synchronizer.claim(fetches.availablePermits(), running.keys.toSet()).forEach(::start)
@@ -37,10 +40,9 @@ class SyncPoller(private val synchronizer: Synchronizer, private val properties:
     }
 
     /**
-     * Stops the poller when the application stops (design 10.6). The poller waits [SHUTDOWN_WAIT] for the running
-     * syncs. Then it releases the leases of the remaining syncs, so the ConfigSets are due immediately on another
-     * instance, and interrupts the syncs. A sync that loses its lease records nothing, so no failure and no backoff
-     * follow. An interrupted sync logs one `INFO` line, not an error.
+     * Stops the poller when the application stops. The poller waits [SHUTDOWN_WAIT] for the running syncs. Then it
+     * releases the leases of the remaining syncs, so the ConfigSets are due immediately on another instance, and
+     * interrupts the syncs. A sync that loses its lease records nothing, so no failure and no backoff follow.
      */
     @PreDestroy
     fun stop() {
@@ -64,8 +66,7 @@ class SyncPoller(private val synchronizer: Synchronizer, private val properties:
             Thread
                 .ofVirtual()
                 .name("folio-sync-$id")
-                // The message of an exception can contain server output, so the log gives only the exception types
-                // (design 10.4).
+                // The message of an exception can contain server output, so the log gives only the exception types.
                 .uncaughtExceptionHandler { _, e -> logEnd(id, e) }
                 .unstarted { run(lease) }
         running[lease.configSet] = Running(lease, thread)
@@ -73,10 +74,9 @@ class SyncPoller(private val synchronizer: Synchronizer, private val properties:
     }
 
     /**
-     * Runs one sync. An unexpected error records no attempt (design 10.6). The poller releases the lease, and the
-     * ConfigSet is due after one interval. Thus a defect does not cause a sync on each poll. If [stop] already
-     * released the lease, the release changes nothing. The error then goes to the handler of the thread, which logs
-     * its types ([logEnd]).
+     * Runs one sync. An unexpected error records no attempt. The poller releases the lease, and the ConfigSet is due
+     * after one interval. Without the interval, a defect would cause a sync on each poll. If [stop] already released
+     * the lease, the release changes nothing. The error then goes to the handler of the thread, which logs its types.
      *
      * The method always releases the permit and removes the entry from [running]. Without this rule, each failed sync
      * would keep one permit, and the instance would slowly stop its syncs.

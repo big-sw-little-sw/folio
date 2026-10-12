@@ -86,7 +86,6 @@ class GitPages(
         }
     }
 
-    /** The notice of the next page says that the next poll syncs the ConfigSet. */
     @PostMapping("/configsets/{id}/git/sync")
     fun sync(@PathVariable id: String, redirect: RedirectAttributes): ModelAndView {
         val configSet = CONFIG_SET_ID.parse(id)

@@ -7,8 +7,8 @@ import io.github.big_sw_little_sw.folio.identity.Caller
 import org.springframework.stereotype.Component
 
 /**
- * Writes the audit records of the `git` module (design 14): the create of a Git source, the manual sync requests and
- * the sync results. Each record has the resource type `GIT_SOURCE`, with the UUID and the path of the ConfigSet.
+ * Writes the audit records of the `git` module. Each record has the resource type `GIT_SOURCE`, with the UUID and the
+ * path of the ConfigSet.
  */
 @Component
 class GitAudit(private val auditLog: AuditLog) {

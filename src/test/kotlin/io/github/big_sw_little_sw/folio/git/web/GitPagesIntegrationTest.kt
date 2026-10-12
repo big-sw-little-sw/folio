@@ -178,10 +178,8 @@ class GitPagesIntegrationTest(
         catalog.rule(namespace, Action.MANAGE, "user:alice")
         val configSet = git.connected(namespace)
         val page = "/configsets/${configSet.toApiId()}/git"
-        git.parkAll()
-        git.makeDue(configSet)
 
-        val lease = synchronizer.claim(CLAIM_LIMIT).single()
+        val lease = git.claim(configSet)
         assertContains(mvc.page(page, alice), "Syncing now")
         synchronizer.sync(lease)
 

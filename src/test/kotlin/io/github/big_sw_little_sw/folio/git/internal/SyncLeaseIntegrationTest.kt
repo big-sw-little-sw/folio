@@ -1,51 +1,37 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.SshGitServer
-import io.github.big_sw_little_sw.testing.TestAudit
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestGit
-import io.github.big_sw_little_sw.testing.TestSyncInstances
-import io.github.big_sw_little_sw.testing.bearer
 import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.delete
+import org.springframework.test.web.servlet.*
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the leases of sync across instances (design 10.6). Each [Synchronizer] is one instance with its
- * own lease owner. Each test first makes all Git sources not due, so a claim takes only the ConfigSets of the test.
+ * These tests check the leases of sync across instances. Each [Synchronizer] is one instance with its own lease owner.
+ * Each test first makes all Git sources not due, so a claim takes only the ConfigSets of the test.
  */
 @GitIntegrationTest
+@FreshGitRepository
 class SyncLeaseIntegrationTest(
     @Autowired private val synchronizer: Synchronizer,
     @Autowired private val git: TestGit,
     @Autowired private val audit: TestAudit,
     @Autowired private val jdbc: JdbcClient,
     @Autowired private val transactions: TransactionTemplate,
-    @Autowired private val syncs: SyncRepository,
     @Autowired private val mvc: MockMvc,
     @Autowired instances: TestSyncInstances,
 ) {
     private val other = instances.synchronizer()
-    private lateinit var commits: List<String>
 
     @BeforeEach
     fun setUp() {
-        SshGitServer.revokeAll()
-        commits = SshGitServer.createRepository("configs")
         git.parkAll()
     }
 
@@ -65,7 +51,7 @@ class SyncLeaseIntegrationTest(
                         }
                     }
                 start.countDown()
-                futures.map { it.get(TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+                futures.map { it.await() }
             }
 
         assertEquals(emptySet(), claims[0] intersect claims[1])
@@ -82,36 +68,24 @@ class SyncLeaseIntegrationTest(
         val credential = git.authorizedCredential().id
         val locked = git.configSet(credential)
         val free = git.configSet(credential)
-        val held = CountDownLatch(1)
-        val claimed = CountDownLatch(1)
-
-        Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-            val holder =
-                executor.submit {
-                    transactions.executeWithoutResult {
-                        jdbc
-                            .sql("select 1 from git_source where config_set_id = :id for update")
-                            .param("id", locked.value)
-                            .query()
-                            .listOfRows()
-                        held.countDown()
-                        claimed.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    }
-                }
-            try {
-                assertTrue(held.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
-                assertEquals(listOf(free), other.claim(CONFIG_SETS).map { it.configSet })
-            } finally {
-                claimed.countDown()
-                holder.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        val lockRow = { held: () -> Unit ->
+            transactions.executeWithoutResult {
+                jdbc
+                    .sql("select 1 from git_source where config_set_id = :id for update")
+                    .param("id", locked.value)
+                    .query()
+                    .listOfRows()
+                held()
             }
         }
+
+        whileHolding(lockRow) { assertEquals(listOf(free), other.claim(CONFIG_SETS).map { it.configSet }) }
         assertEquals(listOf(locked), other.claim(CONFIG_SETS).map { it.configSet })
     }
 
     @Test
     fun `a lease lasts the fetch deadline and three minutes, and the ConfigSet is due again at its end`() {
-        val configSet = git.configSet(git.authorizedCredential().id)
+        val configSet = git.connected()
 
         val lease = synchronizer.claim(1).single()
 
@@ -135,8 +109,8 @@ class SyncLeaseIntegrationTest(
     }
 
     @Test
-    fun `an instance takes over an ended lease, and the earlier owner records nothing`() {
-        val configSet = git.configSet(git.authorizedCredential().id)
+    fun `an instance takes over an ended lease, and the earlier owner records nothing`(commits: Commits) {
+        val configSet = git.connected()
         val lost = synchronizer.claim(1).single()
         git.expireLease(configSet)
         val taken = other.claim(1).single()
@@ -147,14 +121,14 @@ class SyncLeaseIntegrationTest(
         assertEquals(emptyList(), syncRecords(configSet))
 
         assertTrue(other.sync(taken))
-        assertEquals(commits.last(), git.state(configSet).lastSeenCommit)
+        assertEquals(commits.tip, git.state(configSet).lastSeenCommit)
         assertNull(git.leaseOwner(configSet))
         assertEquals(listOf("SYNC_REVISION_PUBLISHED"), syncRecords(configSet))
     }
 
     @Test
     fun `a lease that the same instance claims again replaces the earlier lease`() {
-        val configSet = git.configSet(git.authorizedCredential().id)
+        val configSet = git.connected()
         val earlier = synchronizer.claim(1).single()
         git.expireLease(configSet)
         val later = synchronizer.claim(1).single()
@@ -175,10 +149,10 @@ class SyncLeaseIntegrationTest(
     /** A manual sync during a lease moves the due time before the lease end. The release keeps that due time. */
     @Test
     fun `a manual sync during a sync makes the ConfigSet due again when the sync ends`() {
-        val configSet = git.configSet(git.authorizedCredential().id)
+        val configSet = git.connected()
         val lease = synchronizer.claim(1).single()
 
-        syncs.requestSync(configSet)
+        git.makeDue(configSet)
         assertEquals(emptyList(), other.claim(1))
         assertTrue(synchronizer.sync(lease))
 
@@ -187,7 +161,7 @@ class SyncLeaseIntegrationTest(
 
     @Test
     fun `a release without an attempt makes the ConfigSet due after the delay and records nothing`() {
-        val configSet = git.configSet(git.authorizedCredential().id)
+        val configSet = git.connected()
         val lease = synchronizer.claim(1).single()
 
         synchronizer.release(lease, Duration.ZERO)
@@ -203,7 +177,7 @@ class SyncLeaseIntegrationTest(
      */
     @Test
     fun `a sync of a ConfigSet that a delete removed during the sync records nothing`() {
-        val configSet = git.configSet(git.authorizedCredential().id)
+        val configSet = git.connected()
         val lease = synchronizer.claim(1).single()
 
         mvc.delete("/api/v1/admin/configsets/${configSet.toApiId()}") { bearer(SUPER_ADMIN) }.andExpect {
@@ -226,7 +200,6 @@ class SyncLeaseIntegrationTest(
 
     private companion object {
         const val CONFIG_SETS = 6
-        const val TIMEOUT_SECONDS = 20L
 
         /** The default fetch deadline of 5 minutes and the margin of 3 minutes. */
         const val LEASE_SECONDS = 8 * 60L

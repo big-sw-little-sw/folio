@@ -68,7 +68,8 @@ class RepositoryCache(properties: GitProperties) {
 
     /**
      * Runs [block] with the fetch lock of the ConfigSet, so fetches of one ConfigSet run one at a time in this process.
-     * Returns null, and does not run [block], if another fetch holds the lock for longer than [wait].
+     * Returns null, and does not run [block], if another fetch holds the lock for longer than [wait]. The lock is
+     * reentrant, so a thread that holds it already gets it again at once and does not wait.
      */
     fun <T : Any> withFetchLock(id: ConfigSetId, wait: Duration, block: () -> T): T? =
         withLock(locksOf(id).fetch, wait, block)
@@ -117,7 +118,7 @@ class RepositoryCache(properties: GitProperties) {
     }
 
     /**
-     * Deletes the repositories of the ConfigSets that no longer exist (design 10.5). [existing] returns the ConfigSets
+     * Deletes the repositories of the ConfigSets that no longer exist. [existing] returns the ConfigSets
      * of its argument that exist. The sweep lists the directory before it calls [existing]. Thus a ConfigSet that the
      * listing finds and that exists is always in the answer, and the sweep never deletes its repository.
      *
@@ -125,9 +126,9 @@ class RepositoryCache(properties: GitProperties) {
      * it never deletes [sshHome] or another entry.
      *
      * The sweep does not wait. It skips a repository that a fetch or a read holds, and a later sweep deletes it. A
-     * deleted ConfigSet gets no new reads or syncs, so the repository becomes free. The sweep shares the one thread
-     * of the fixed-delay tasks with the poll. Without this rule, a slow read of a deleted ConfigSet would stop the
-     * polls of this instance for up to the fetch deadline.
+     * deleted ConfigSet gets no new reads or syncs, so the repository becomes free. The sweep runs on the scheduler
+     * thread of the polls ([SyncSchedule]). Without the skip, a slow read of a deleted ConfigSet would stop the polls
+     * for up to the fetch deadline.
      */
     fun sweep(existing: (Set<ConfigSetId>) -> Set<ConfigSetId>) {
         val cached =
@@ -149,7 +150,7 @@ class RepositoryCache(properties: GitProperties) {
     /**
      * Deletes the repository of the ConfigSet, and does not follow symbolic links. The delete waits a maximum of [wait]
      * for the reads of the repository. Returns false if the reads did not end in that time. The repository then stays
-     * until a later delete. For example, the size check of the next fetch deletes a repository that is too large.
+     * until a later delete.
      */
     fun delete(id: ConfigSetId, wait: Duration): Boolean =
         withLock(locksOf(id).cache.writeLock(), wait) { deleteEntry(id) } != null

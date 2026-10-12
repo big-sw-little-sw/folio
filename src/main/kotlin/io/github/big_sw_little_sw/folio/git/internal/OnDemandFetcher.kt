@@ -11,9 +11,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
 
 /**
- * The settings of the fetch on demand (design 10.8). [maxConcurrentFetches] is `folio.content.max-concurrent-fetches`:
- * the maximum number of fetches on demand that run at the same time on this instance. The name is in `folio.content`,
- * because the limit protects reads. The Git adapter enforces it, so the `git` module binds it.
+ * The setting `folio.content.max-concurrent-fetches` of [OnDemandFetcher]. The name is in `folio.content`, because the
+ * limit protects reads. The Git adapter enforces the limit, so the `git` module binds it.
  */
 @ConfigurationProperties("folio.content")
 data class OnDemandProperties(val maxConcurrentFetches: Int = DEFAULT_MAX_CONCURRENT_FETCHES) {
@@ -27,23 +26,23 @@ data class OnDemandProperties(val maxConcurrentFetches: Int = DEFAULT_MAX_CONCUR
 }
 
 /**
- * Fetches a published commit that the cache of this instance does not have (design 10.8). Reads can come from
- * anonymous callers, so these limits stop reads from causing too many fetches:
+ * Fetches a published commit that the cache of this instance does not have. Reads can come from anonymous callers, so
+ * these limits stop reads from causing too many fetches:
  *
  * - A maximum of `folio.content.max-concurrent-fetches` fetches on demand run at the same time. Above the limit, a
- *   read fails immediately with `SourceBusy`. It does not wait in a queue. Only a fetch that runs holds a permit. A
- *   read that waits for another fetch of the same ConfigSet holds none.
+ *   read fails immediately with `SourceBusy`. It does not wait in a queue.
  * - A read waits a maximum of 5 seconds for another fetch of the same ConfigSet, then fails with `SourceBusy`.
- *   [Fetcher.fetchMissing] owns that wait.
  * - A commit that is still missing after a fetch, for example after a force push, stays missing for one sync interval.
  *   During that time, reads of the commit fail with `RevisionUnavailable` and do not fetch.
  * - If the last sync failed with `REPOSITORY_TOO_LARGE`, a read that needs a fetch fails immediately with that code,
  *   because the fetch would fail in the same way.
  */
 @Component
-class OnDemandFetches(
+class OnDemandFetcher(
     private val fetcher: Fetcher,
-    private val syncs: SyncRepository,
+    private val cache: RepositoryCache,
+    private val syncRepository: SyncRepository,
+    private val gitProperties: GitProperties,
     properties: OnDemandProperties,
     syncProperties: SyncProperties,
 ) {
@@ -54,28 +53,52 @@ class OnDemandFetches(
     private val missing = ConcurrentHashMap<MissingCommit, Long>()
 
     /**
-     * Makes sure that the cache has the published [revision] of [configSet]. Throws `RevisionUnavailable` if the
-     * commit is missing, `SourceBusy` if the fetch cannot run now, and `SourceFailed` or `SourceTimedOut` with the
-     * failure code of a failed fetch.
+     * Makes sure that the cache has [commit], the commit of the published [revision] of [configSet]. Throws
+     * `RevisionUnavailable` if the commit is missing, `SourceBusy` if the fetch cannot run now, and `SourceFailed` or
+     * `SourceTimedOut` with the failure code of a failed fetch.
      */
-    fun fetch(configSet: ConfigSetId, source: GitSourceDefinition, revision: RevisionId) {
+    fun fetch(configSet: ConfigSetId, source: GitSourceDefinition, revision: RevisionId, commit: ObjectId) {
         val key = MissingCommit(configSet, revision)
         requireFetchable(key)
-        when (fetchMissing(configSet, source, revision)) {
-            Fetcher.OnDemand.FOUND -> {
-                missing.remove(key)
-            }
-
-            Fetcher.OnDemand.MISSING -> {
-                remember(key)
-                throw ContentException.RevisionUnavailable(revision)
-            }
-
-            Fetcher.OnDemand.BUSY -> {
-                throw ContentException.SourceBusy(RETRY_AFTER)
-            }
+        // As in [Fetcher.fetch], the deadline starts before the lock wait. Thus a fetch on demand never ends later than
+        // a sync fetch that starts at the same time.
+        val deadline = FetchDeadline(gitProperties.fetchDeadline)
+        val found =
+            cache.withFetchLock(configSet, minOf(LOCK_WAIT, deadline.remaining())) {
+                fetchLocked(configSet, source, commit, deadline)
+            } ?: throw busy()
+        if (!found) {
+            remember(key)
+            throw ContentException.RevisionUnavailable(revision)
         }
+        missing.remove(key)
     }
+
+    /**
+     * Runs with the fetch lock and returns true if the cache has [commit] at the end. A read that waited for the lock
+     * usually finds [commit] at the first look, so it does not fetch. Only a fetch that runs holds a permit, and only
+     * the fetch opens the key. Thus a read that finds the commit, or that gets no permit, never decrypts a key.
+     */
+    private fun fetchLocked(
+        configSet: ConfigSetId,
+        source: GitSourceDefinition,
+        commit: ObjectId,
+        deadline: FetchDeadline,
+    ): Boolean {
+        if (hasCommit(configSet, commit)) return true
+        if (!permits.tryAcquire()) throw busy()
+        try {
+            fetcher.fetch(configSet, source, deadline = deadline)
+        } catch (failure: GitFailure) {
+            throw failure.toContentException()
+        } finally {
+            permits.release()
+        }
+        return hasCommit(configSet, commit)
+    }
+
+    private fun hasCommit(configSet: ConfigSetId, commit: ObjectId): Boolean =
+        cache.reading(configSet, { false }) { commitOrNull(it, commit) != null }
 
     /** Refuses a fetch that would fail again: a commit that is still missing, or a repository that is too large. */
     private fun requireFetchable(key: MissingCommit) {
@@ -84,29 +107,7 @@ class OnDemandFetches(
             throw ContentException.RevisionUnavailable(key.revision)
         }
         val tooLarge = FailureCode.REPOSITORY_TOO_LARGE
-        if (syncs.failure(key.configSet) == tooLarge) throw tooLarge.toContentException()
-    }
-
-    private fun fetchMissing(
-        configSet: ConfigSetId,
-        source: GitSourceDefinition,
-        revision: RevisionId,
-    ): Fetcher.OnDemand = try {
-        // A published revision is always a commit ID, so fromString does not fail.
-        fetcher.fetchMissing(configSet, source, ObjectId.fromString(revision.value), ::withPermit)
-    } catch (failure: GitFailure) {
-        throw failure.toContentException()
-    }
-
-    /** Runs [fetch] with a permit. Without a free permit, it returns false at once and does not wait in a queue. */
-    private fun withPermit(fetch: () -> Unit): Boolean {
-        if (!permits.tryAcquire()) return false
-        try {
-            fetch()
-        } finally {
-            permits.release()
-        }
-        return true
+        if (syncRepository.state(key.configSet)?.failure == tooLarge) throw tooLarge.toContentException()
     }
 
     /** Remembers a missing commit. The map keeps only entries whose time has not ended, so it stays small. */
@@ -119,7 +120,12 @@ class OnDemandFetches(
     private data class MissingCommit(val configSet: ConfigSetId, val revision: RevisionId)
 
     private companion object {
+        /** How long a read waits for another fetch of the same ConfigSet. */
+        val LOCK_WAIT: Duration = Duration.ofSeconds(5)
+
         /** The `Retry-After` time of `SourceBusy`. A fetch usually ends in seconds. */
         val RETRY_AFTER: Duration = Duration.ofSeconds(5)
+
+        fun busy() = ContentException.SourceBusy(RETRY_AFTER)
     }
 }

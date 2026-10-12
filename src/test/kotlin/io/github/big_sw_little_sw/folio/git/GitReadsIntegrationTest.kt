@@ -27,7 +27,7 @@ class GitReadsIntegrationTest(
     @Autowired private val mvc: MockMvc,
     @Autowired private val git: TestGit,
     @Autowired private val source: ConfigSource,
-    @Autowired private val repository: GitSourceRepository,
+    @Autowired private val gitSourceRepository: GitSourceRepository,
     @Autowired private val jdbc: JdbcClient,
 ) {
     @Test
@@ -116,15 +116,14 @@ class GitReadsIntegrationTest(
 
     /**
      * Trees that share subtrees name 100,000 files in a small pack. The list stops at its limit, so a small repository
-     * cannot make Folio build a large list in memory. The publish step of sync refuses such a revision
-     * (SyncIntegrationTest), but the list keeps its own limit. Thus this test publishes the commit with
-     * [GitSourceRepository.publish] directly, without the publish step of sync.
+     * cannot make Folio build a large list in memory. The publish step of sync refuses such a revision, but the list
+     * keeps its own limit. Thus this test publishes the commit directly with [GitSourceRepository.publish].
      */
     @Test
     fun `a revision with too many files below the root path fails the file list with TOO_MANY_FILES`() {
         val commit = SshGitServer.createSharedTreeRepository("shared")
         val configSet = git.configSet(git.authorizedCredential().id, repository = "shared")
-        repository.publish(configSet, git.fetchTip(configSet))
+        gitSourceRepository.publish(configSet, git.fetchTip(configSet))
 
         val failure = assertFailsWith<ContentException.SourceFailed> { source.list(configSet, RevisionId(commit)) }
 

@@ -10,15 +10,12 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.util.UUID
 
-/** The lease owner of one sync instance (design 10.6). Each start of the process gets a new owner. */
 @JvmInline
 value class LeaseOwner(val value: UUID)
 
 /**
- * A claim on the sync of one ConfigSet (design 10.6). [owner] and [end] together identify the claim. A new claim after
- * the end of a lease has a later [end], also when the same instance makes the claim. Thus a sync with the old lease
- * records nothing. The claim also gives what the sync needs: the Source definition, the number of consecutive failures
- * and the last published commit.
+ * A claim on the sync of one ConfigSet. [owner] and [end] together identify the claim. A new claim after the end of a
+ * lease has a later [end], also when the same instance makes the claim.
  */
 data class SyncLease(
     val configSet: ConfigSetId,
@@ -30,7 +27,7 @@ data class SyncLease(
 )
 
 /**
- * The sync state of a Git source (design 10.6). [failure] is the code of the last attempt, or null after a success.
+ * The sync state of a Git source. [failure] is the code of the last attempt, or null after a success.
  * [syncing] is true while an instance holds a lease.
  */
 data class SyncState(
@@ -44,8 +41,8 @@ data class SyncState(
 )
 
 /**
- * Reads and writes the sync state and the lease columns of `git_source` (design 10.6, 16). All times come from the
- * database clock, so instances with different clocks agree on due times and leases.
+ * Reads and writes the sync state and the lease columns of `git_source`. All times come from the database clock, so
+ * instances with different clocks agree on due times and leases.
  *
  * A write of a result or a release changes the row only if the lease still belongs to the claim. Thus an instance
  * whose lease ended and that another instance claimed records nothing.
@@ -63,8 +60,8 @@ class SyncRepository(private val jdbc: JdbcClient) {
         val parameters =
             mapOf("owner" to owner.value, "lengthMillis" to length.toMillis(), "limit" to limit) +
                 if (excluding.isEmpty()) emptyMap() else mapOf("excluding" to excluding.map { it.value })
-        // now() is the same for the full statement, so the lease end and the due time are equal. Thus the ConfigSet
-        // is due again when the lease ends.
+        // now() is the same for the full statement, so the lease end and the due time are equal. Thus, if this instance
+        // stops, the ConfigSet is due again when the lease ends.
         return jdbc
             .sql(
                 """
@@ -87,40 +84,27 @@ class SyncRepository(private val jdbc: JdbcClient) {
     }
 
     /**
-     * Records a successful attempt that fetched [seen], and releases the lease. The ConfigSet is due after [delay].
-     * Returns the previous attempt, or null if the lease no longer belongs to the claim. Then nothing changes.
+     * Records an attempt and releases the lease. A null [code] records a success, and a [code] records a failure. A
+     * failure that got the tip [seen], because only its publish step failed, also changes the last seen commit. The
+     * ConfigSet is due after [delay]. Returns the previous attempt, or null if the lease no longer belongs to the
+     * claim. Then nothing changes.
      */
-    fun recordSuccess(lease: SyncLease, seen: ObjectId, delay: Duration): PreviousAttempt? = jdbc
+    fun record(lease: SyncLease, code: FailureCode?, seen: ObjectId?, delay: Duration): PreviousAttempt? = jdbc
         .sql(
             """
                 update git_source
-                set last_attempt_at = now(), last_success_at = now(), last_seen_commit = :seen, failure_code = null,
-                    consecutive_failures = 0, $RELEASE
-                where $LEASE_MATCH
-                returning old.failure_code as previous_failure
-            """.trimIndent(),
-        ).param("seen", seen.name)
-        .params(leaseParameters(lease, delay))
-        .query { rs, _ -> rs.toPreviousAttempt() }
-        .optional()
-        .orElse(null)
-
-    /**
-     * Records a failed attempt with [code], and releases the lease. A fetch that got the tip [seen] but whose publish
-     * step failed changes the last seen commit. The ConfigSet is due after [delay]. Returns the previous attempt, or
-     * null if the lease no longer belongs to the claim. Then nothing changes.
-     */
-    fun recordFailure(lease: SyncLease, code: FailureCode, seen: ObjectId?, delay: Duration): PreviousAttempt? = jdbc
-        .sql(
-            """
-                update git_source
-                set last_attempt_at = now(), last_seen_commit = coalesce(cast(:seen as text), last_seen_commit),
-                    failure_code = :code, consecutive_failures = consecutive_failures + 1, $RELEASE
+                set last_attempt_at = now(),
+                    last_success_at = case when cast(:code as text) is null then now() else last_success_at end,
+                    last_seen_commit = coalesce(cast(:seen as text), last_seen_commit),
+                    failure_code = cast(:code as text),
+                    consecutive_failures =
+                        case when cast(:code as text) is null then 0 else consecutive_failures + 1 end,
+                    $RELEASE
                 where $LEASE_MATCH
                 returning old.failure_code as previous_failure
             """.trimIndent(),
         ).param("seen", seen?.name)
-        .param("code", code.name)
+        .param("code", code?.name)
         .params(leaseParameters(lease, delay))
         .query { rs, _ -> rs.toPreviousAttempt() }
         .optional()
@@ -135,10 +119,7 @@ class SyncRepository(private val jdbc: JdbcClient) {
         .params(leaseParameters(lease, delay))
         .update() == 1
 
-    /**
-     * Makes the ConfigSet due now (design 10.6). During a lease, the new due time is before the lease end. The release
-     * of the lease keeps that due time, so the ConfigSet syncs again at the next poll.
-     */
+    /** Makes the ConfigSet due now. During a lease, the release of the lease keeps this due time. */
     fun requestSync(configSet: ConfigSetId) {
         jdbc
             .sql("update git_source set next_due_at = least(next_due_at, now()) where config_set_id = :id")
@@ -158,17 +139,9 @@ class SyncRepository(private val jdbc: JdbcClient) {
         .optional()
         .orElse(null)
 
-    /** The failure code of the last attempt, or null after a success or before the first attempt. */
-    fun failure(configSet: ConfigSetId): FailureCode? = jdbc
-        .sql("select failure_code from git_source where config_set_id = :id")
-        .param("id", configSet.value)
-        .query { rs, _ -> rs.getString("failure_code")?.let(FailureCode::valueOf) }
-        .optional()
-        .orElse(null)
-
     /**
      * Returns the ConfigSets of [ids] that exist. Each Git ConfigSet has one `git_source` row, and a delete of the
-     * ConfigSet deletes the row (design 10.5).
+     * ConfigSet deletes the row.
      */
     fun existing(ids: Set<ConfigSetId>): Set<ConfigSetId> = if (ids.isEmpty()) {
         emptySet()
@@ -217,8 +190,8 @@ class SyncRepository(private val jdbc: JdbcClient) {
         const val LEASE_MATCH = "config_set_id = :id and lease_owner = :owner and lease_end = :end"
 
         /**
-         * Releases the lease. A manual sync during the lease moved the due time before the lease end. That due time
-         * stays, so the ConfigSet syncs again at the next poll. Otherwise the ConfigSet is due after `:delayMillis`.
+         * Releases the lease. A due time other than the lease end comes from a manual sync during the lease. That due
+         * time stays, so the ConfigSet syncs again at the next poll. Otherwise the ConfigSet is due after the delay.
          */
         const val RELEASE =
             "next_due_at = case when next_due_at = lease_end then now() + :delayMillis * interval '1 millisecond' " +
@@ -227,7 +200,7 @@ class SyncRepository(private val jdbc: JdbcClient) {
 }
 
 /**
- * The previous attempt, as the record of a new attempt read it before the update. [failure] is null after a success
- * or before the first attempt.
+ * The previous attempt, as the row held it before [SyncRepository.record] changed it. [failure] is null after a
+ * success or before the first attempt.
  */
 data class PreviousAttempt(val failure: FailureCode?)

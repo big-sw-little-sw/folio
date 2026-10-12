@@ -1,17 +1,15 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 /**
- * These tests check the settings under `folio.sync` and the limit of the fetch on demand (design 10.6, 10.8), and the
- * backoff of sync. A value that is not valid stops the start of Folio, and the message names the property.
+ * These tests check the settings under `folio.sync`, the limit of the fetch on demand and the backoff of sync. A value
+ * that is not valid stops the start of Folio, and the message names the property.
  */
 class SyncPropertiesTest {
     @Test
-    fun `the defaults are the values of the design`() {
+    fun `the defaults are 1 minute, 10 seconds, 30 minutes, 4 fetches and 2 fetches on demand`() {
         val properties = SyncProperties()
 
         assertEquals(Duration.ofMinutes(1), properties.interval)

@@ -1,11 +1,7 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.SshGitServer
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.TestGit
-import io.github.big_sw_little_sw.testing.TestSyncInstances
+import io.github.big_sw_little_sw.testing.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
@@ -13,19 +9,15 @@ import org.springframework.boot.test.system.CapturedOutput
 import org.springframework.boot.test.system.OutputCaptureExtension
 import org.springframework.jdbc.core.simple.JdbcClient
 import java.time.Duration
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the poller (design 10.6, 8.7): the fetch semaphore, the running syncs, unexpected errors and the
- * shutdown. Each test makes a poller of its own and runs its polls. A test that must keep a sync running holds the
- * fetch lock of the ConfigSet, so the sync waits and the result does not depend on timing.
+ * These tests check the poller: the fetch semaphore, the running syncs, unexpected errors and the shutdown. Each test
+ * makes a poller of its own and runs its polls. A test that must keep a sync running holds the fetch lock of the
+ * ConfigSet, so the sync waits and the result does not depend on timing.
  */
 @GitIntegrationTest
+@FreshGitRepository
 @ExtendWith(OutputCaptureExtension::class)
 class SyncPollerIntegrationTest(
     @Autowired private val synchronizer: Synchronizer,
@@ -39,8 +31,6 @@ class SyncPollerIntegrationTest(
 
     @BeforeEach
     fun setUp() {
-        SshGitServer.revokeAll()
-        SshGitServer.createRepository("configs")
         git.parkAll()
     }
 
@@ -52,7 +42,7 @@ class SyncPollerIntegrationTest(
 
         poller.poll()
 
-        assertTrue(poller.awaitSyncs(WAIT))
+        assertTrue(poller.awaitSyncs(TIMEOUT))
         configSets.forEach {
             assertNotNull(git.state(it).lastSuccessAt)
             assertNull(git.leaseOwner(it))
@@ -73,7 +63,7 @@ class SyncPollerIntegrationTest(
             assertEquals(synchronizer.owner, git.leaseOwner(first))
             assertNull(git.leaseOwner(second))
         }
-        assertTrue(poller.awaitSyncs(WAIT))
+        assertTrue(poller.awaitSyncs(TIMEOUT))
     }
 
     /**
@@ -82,7 +72,7 @@ class SyncPollerIntegrationTest(
      */
     @Test
     fun `a poll never claims a ConfigSet that the instance syncs now`() {
-        val configSet = git.configSet(git.authorizedCredential().id)
+        val configSet = git.connected()
         val poller = SyncPoller(synchronizer, properties)
 
         val taken =
@@ -96,15 +86,14 @@ class SyncPollerIntegrationTest(
                 other.claim(1).single()
             }
 
-        assertTrue(poller.awaitSyncs(WAIT))
+        assertTrue(poller.awaitSyncs(TIMEOUT))
         assertNull(git.state(configSet).lastAttemptAt)
         assertTrue(other.sync(taken))
     }
 
     /**
-     * The key does not decrypt, so the credential module throws an `IllegalStateException` (design 8.3). The poller has
-     * one permit, so a second sync shows that the permit came back. The message names the key, so it must not reach
-     * the log (design 10.4).
+     * The key does not decrypt, so the credential module throws an `IllegalStateException`. The poller has one permit,
+     * so a second sync shows that the permit came back. The message names the key, so it must not reach the log.
      */
     @Test
     fun `an unexpected error releases the lease, records no failure and logs the ConfigSet and the exception type`(
@@ -117,7 +106,7 @@ class SyncPollerIntegrationTest(
 
         poller.poll()
 
-        assertTrue(poller.awaitSyncs(WAIT))
+        assertTrue(poller.awaitSyncs(TIMEOUT))
         assertNull(git.leaseOwner(configSet))
         val state = git.state(configSet)
         assertNull(state.lastAttemptAt)
@@ -130,9 +119,9 @@ class SyncPollerIntegrationTest(
         assertTrue(line in output.all, output.all)
         assertFalse("does not decrypt" in output.all, output.all)
 
-        val next = git.configSet(git.authorizedCredential().id)
+        val next = git.connected()
         poller.poll()
-        assertTrue(poller.awaitSyncs(WAIT))
+        assertTrue(poller.awaitSyncs(TIMEOUT))
         assertNotNull(git.state(next).lastSuccessAt)
     }
 
@@ -145,7 +134,7 @@ class SyncPollerIntegrationTest(
     fun `a stop waits ten seconds, then releases the leases of the running syncs and interrupts them`(
         output: CapturedOutput,
     ) {
-        val configSet = git.configSet(git.authorizedCredential().id)
+        val configSet = git.connected()
         val poller = SyncPoller(synchronizer, properties)
 
         val seconds =
@@ -177,7 +166,6 @@ class SyncPollerIntegrationTest(
         .single()
 
     private companion object {
-        val WAIT: Duration = Duration.ofSeconds(60)
         const val INTERVAL_SECONDS = 60L
         const val SHUTDOWN_SECONDS = 10L
         const val MARGIN_SECONDS = 5L

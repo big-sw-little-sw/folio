@@ -1181,10 +1181,10 @@ Sync uses polling. The state is in the database, so several instances can share 
 - **Fetch.** `Fetcher.fetch` is the fetch step. It opens the active key of the credential, or the pending key for a
   check, finds the Git instance of the key, and fetches under the deadline and the fetch lock. Each failure of the
   source, also `CREDENTIAL_DISABLED` and `GIT_INSTANCE_NOT_CONFIGURED`, is a `GitFailure` with its code, and the fetch
-  step logs it one time. Sync and the check call `Fetcher.fetch`. The fetch on demand calls `Fetcher.fetchMissing`
-  (section 10.8). It waits a maximum of 5 seconds for the fetch lock, and then looks at the cache again. Only if the
-  commit is still missing does it take a permit of the fetch on demand and open the key. Thus a read that finds the
-  commit, or that gets no permit, never decrypts a key.
+  step logs it one time. Sync, the check and the fetch on demand call `Fetcher.fetch`. `OnDemandFetcher` (section
+  10.8) waits a maximum of 5 seconds for the fetch lock, and then looks at the cache again. Only if the commit is
+  still missing does it take a permit of the fetch on demand and call `Fetcher.fetch`, which opens the key. Thus a
+  read that finds the commit, or that gets no permit, never decrypts a key.
 - **Publish.** `GitSourceRepository.publish` writes the `git_revision` row. Sync calls it in the transaction that
   records its result. A commit that the branch returns to, for example after a force push, is already in
   `git_revision`. Its row then gets a new `published_at`. Thus the newest row is always the last published commit,
@@ -1942,7 +1942,7 @@ decision here with its reason.
 | JGit streams blobs above 3 MB. The git module sets the stream threshold of JGit when the cache starts. | The default threshold of JGit is 50 MiB, so each read below it would hold the full file in memory (section 9). | 9, 10.5 |
 | The Git file list visits a maximum of 10,000 tree entries, and fails with `TOO_MANY_FILES` above it. | Shared subtrees let a small commit name billions of files. Each value from outside has a limit. | 9 |
 | The publish step of sync logs the number of skipped file names at `INFO`, one time for each published revision. The file list does not log it. | Any reader of a public ConfigSet can repeat a list, so the line must not alert. One line for each revision is enough. | 9 |
-| `Fetcher` is the one fetch step. It opens the key, finds the Git instance and fetches. `fetchMissing` adds the short lock wait and the second look at the cache of the fetch on demand. | Sync, the check and the fetch on demand need the same order and the same failure codes. Each failure gets one log line. | 10.6, 10.8 |
+| `Fetcher` is the one fetch step. It opens the key, finds the Git instance and fetches. `OnDemandFetcher` adds the short lock wait, the second look at the cache and the permit of the fetch on demand. | Sync, the check and the fetch on demand need the same order and the same failure codes. Each failure gets one log line. | 10.6, 10.8 |
 | A delete or a new start of a cache repository waits for reads only until the fetch deadline. | A slow download would otherwise hold a fetch past its deadline, and new reads would wait behind the delete. | 10.5, 10.7 |
 | The cache sweep does not wait. It skips a repository that a fetch or a read holds, and a later sweep deletes it. | The sweep and the poll share the single thread of the fixed-delay tasks. A wait for a slow read would stop the polls for up to the fetch deadline. | 10.5, 10.6 |
 | A timeout of a connect or of an idle read gives `UNREACHABLE`. | Exception types do not show which timeout occurred, so the summary names both causes. | 10.3 |

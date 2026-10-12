@@ -1,6 +1,6 @@
 <%--
-    The Git source of a ConfigSet, its sync state, the check and the manual sync. The notice of the page gives the result
-    of the last check or sync request.
+    The Git source of a ConfigSet, its sync state, the check and the manual sync. The notice of the page gives the
+    result of the last check or sync request.
 --%>
 @import io.github.big_sw_little_sw.folio.git.internal.GitSourceView
 @import io.github.big_sw_little_sw.folio.web.FolioException

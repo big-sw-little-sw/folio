@@ -25,7 +25,7 @@ import java.io.InputStream
 class GitConfigSource(
     private val gitSourceRepository: GitSourceRepository,
     private val cache: RepositoryCache,
-    private val onDemand: OnDemandFetches,
+    private val onDemandFetcher: OnDemandFetcher,
 ) : ConfigSource {
     override val type = SourceType.GIT
 
@@ -66,7 +66,7 @@ class GitConfigSource(
     /**
      * Runs [read] with the commit of a published revision. The repository stays open until [read] returns. If the
      * cache of this instance does not have the commit, the read fetches it on demand, with the limits of
-     * [OnDemandFetches], and then reads again.
+     * [OnDemandFetcher], and then reads again.
      */
     private fun <T> reading(
         configSet: ConfigSetId,
@@ -78,7 +78,7 @@ class GitConfigSource(
         // A published revision is always a commit ID, so fromString does not fail.
         val commit = ObjectId.fromString(revision.value)
         readCached(configSet, commit, source, read)?.let { return it.value }
-        onDemand.fetch(configSet, source, revision)
+        onDemandFetcher.fetch(configSet, source, revision, commit)
         // A sweep or a size check can delete the repository after the fetch. Then the read fails with
         // RevisionUnavailable.
         return readCached(configSet, commit, source, read)?.value

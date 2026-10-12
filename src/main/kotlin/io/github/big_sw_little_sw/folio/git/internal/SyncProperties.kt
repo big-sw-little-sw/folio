@@ -4,12 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
 /**
- * The settings under `folio.sync` (design 10.6):
- *
- * - [interval] is the time from an attempt to the next due time. Each consecutive failure doubles it, to a maximum of
- *   [maxBackoff].
- * - Every [pollInterval], each instance claims due ConfigSets for the free permits of its fetch semaphore. The
- *   semaphore has [maxConcurrentFetches] permits.
+ * The settings under `folio.sync`. [maxConcurrentFetches] is the number of permits of the fetch semaphore of
+ * [SyncPoller]. A value that is not valid stops the start of Folio.
  */
 @ConfigurationProperties("folio.sync")
 data class SyncProperties(

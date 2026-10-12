@@ -97,7 +97,7 @@ class GitFailureTest {
         assertEquals("TransportException < TransportException < ConnectException", types)
     }
 
-    /** A read maps a failed fetch or file list to 504 for the deadline and to 502 for each other code (design 10.8). */
+    /** A read maps a failed fetch or file list to 504 for the deadline and to 502 for each other code. */
     @Test
     fun `a read error keeps the code and its summary, and only the deadline is a timeout`() {
         FailureCode.entries.forEach { code ->

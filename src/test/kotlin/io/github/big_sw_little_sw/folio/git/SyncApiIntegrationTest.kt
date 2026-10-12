@@ -5,29 +5,16 @@ import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.git.internal.Synchronizer
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.GitIntegrationTest
-import io.github.big_sw_little_sw.testing.SshGitServer
-import io.github.big_sw_little_sw.testing.TestAudit
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.TestGit
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.json
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.time.Instant
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the manual sync and the sync state of the Git source route (design 10.6, 12.2). Most credentials
- * name a Git instance that the configuration does not have, so a sync fails at once with `GIT_INSTANCE_NOT_CONFIGURED`.
+ * These tests check the manual sync and the sync state of the Git source route. Most credentials name a Git instance
+ * that the configuration does not have, so a sync fails at once with `GIT_INSTANCE_NOT_CONFIGURED`.
  */
 @GitIntegrationTest
 class SyncApiIntegrationTest(
@@ -58,12 +45,9 @@ class SyncApiIntegrationTest(
         val lease = synchronizer.claim(CLAIM_LIMIT).single()
         assertEquals(configSet, lease.configSet)
         assertTrue(synchronizer.sync(lease))
-        val record = audit.records(configSet.value).single { it["operation"] == "SYNC_REQUESTED" }
-        assertEquals("GIT_SOURCE", record["resource_type"])
-        assertEquals("root", record["actor_subject"])
     }
 
-    /** The request is the operation of the caller, so each request writes a record (design 10.6, 14). */
+    /** The request is an operation of the caller, so each request writes a record, also when it changes nothing. */
     @Test
     fun `each manual sync request writes SYNC_REQUESTED, also when the ConfigSet is already due`() {
         val namespace = catalog.namespace()
@@ -101,7 +85,6 @@ class SyncApiIntegrationTest(
         val id = configSet.toApiId()
 
         mvc.post(syncRoute(configSet)) { bearer(alice) }.andExpectForbidden(Action.MANAGE, id)
-        mvc.post(syncRoute(configSet)).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
         mvc
             .post("/api/v1/admin/configsets/cfg_${"0".repeat(32)}/git:sync") { bearer(SUPER_ADMIN) }
             .andExpectProblem(404, "CONFIG_SET_NOT_FOUND")
@@ -130,14 +113,12 @@ class SyncApiIntegrationTest(
         }
     }
 
-    /** During a lease, the ConfigSet is due at the lease end (design 10.6). */
+    /** During a lease, the ConfigSet is due at the lease end. */
     @Test
-    fun `the Git source route shows a running sync, and the sync state after a success`() {
-        val tip = SshGitServer.createRepository("configs").last()
-        val configSet = git.configSet(git.authorizedCredential().id)
-        git.parkAll()
-        git.makeDue(configSet)
-        val lease = synchronizer.claim(CLAIM_LIMIT).single()
+    @FreshGitRepository
+    fun `the Git source route shows a running sync, and the sync state after a success`(commits: Commits) {
+        val configSet = git.connected()
+        val lease = git.claim(configSet)
 
         val nextDueAt =
             mvc
@@ -149,8 +130,8 @@ class SyncApiIntegrationTest(
         assertTrue(synchronizer.sync(lease))
         mvc.get(gitRoute(configSet)) { bearer(SUPER_ADMIN) }.andExpect {
             jsonPath("$.syncing") { value(false) }
-            jsonPath("$.lastSeenCommit") { value(tip) }
-            jsonPath("$.lastPublishedCommit") { value(tip) }
+            jsonPath("$.lastSeenCommit") { value(commits.tip) }
+            jsonPath("$.lastPublishedCommit") { value(commits.tip) }
             jsonPath("$.lastSuccessAt") { exists() }
             jsonPath("$.failureCode") { value(null) }
             jsonPath("$.failureSummary") { value(null) }

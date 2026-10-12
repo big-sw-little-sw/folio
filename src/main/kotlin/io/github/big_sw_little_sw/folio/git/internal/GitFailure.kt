@@ -27,11 +27,7 @@ enum class FailureCode(val summary: String) {
     BRANCH_NOT_FOUND("The repository has no branch with this name."),
     ROOT_PATH_NOT_FOUND("The root path is not a directory at the tip of the branch."),
 
-    /**
-     * The file list of a revision visits a maximum of [MAX_LIST_ENTRIES] tree entries (design 9). Sync gives this
-     * code at the publish step. A file list gives it as `SourceFailed`. [Locale.ROOT] keeps the summary the same on
-     * each JVM.
-     */
+    /** [Locale.ROOT] keeps the number format of the summary the same on each JVM. */
     TOO_MANY_FILES(
         "The revision has more than ${"%,d".format(Locale.ROOT, MAX_LIST_ENTRIES)} files and directories below the " +
             "root path.",
@@ -52,8 +48,9 @@ enum class FailureCode(val summary: String) {
 class GitFailure(val code: FailureCode, val exceptionTypes: String = "") : RuntimeException(code.summary)
 
 /**
- * The read error for a failed Git operation (design 10.8). A deadline failure is a timeout of the Source (504). Each
- * other code is a failure of the Source (502). The detail is the fixed, safe summary of the code.
+ * Returns the read error for a failed Git operation. A deadline failure is a timeout of the Source (504). Each other
+ * code is a failure of the Source (502). The detail is the fixed summary of the code, so a read never shows transport
+ * output.
  */
 fun FailureCode.toContentException(): ContentException = if (this == FailureCode.DEADLINE_EXCEEDED) {
     ContentException.SourceTimedOut(name, summary)

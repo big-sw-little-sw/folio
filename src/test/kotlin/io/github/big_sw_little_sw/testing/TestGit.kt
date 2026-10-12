@@ -17,6 +17,7 @@ import io.github.big_sw_little_sw.folio.git.internal.LeaseOwner
 import io.github.big_sw_little_sw.folio.git.internal.RepositoryCache
 import io.github.big_sw_little_sw.folio.git.internal.RepositoryPath
 import io.github.big_sw_little_sw.folio.git.internal.RootPath
+import io.github.big_sw_little_sw.folio.git.internal.SyncLease
 import io.github.big_sw_little_sw.folio.git.internal.SyncRecorder
 import io.github.big_sw_little_sw.folio.git.internal.SyncRepository
 import io.github.big_sw_little_sw.folio.git.internal.SyncState
@@ -29,21 +30,16 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.context.DynamicPropertyRegistrar
-import java.time.Duration
 import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 /**
  * Creates Git sources for tests, as a super admin, and syncs them. [sync] runs one sync of one ConfigSet as a poll
- * does: the claim, the fetch, the publish and the record. [TestSyncInstances] builds the fetch step and the sync of
- * another instance.
+ * does. [TestSyncInstances] builds the fetch step and the sync of another instance.
  */
 @TestComponent
 class TestGit(
     private val sources: GitSourceService,
-    private val syncs: SyncRepository,
+    private val syncRepository: SyncRepository,
     private val fetcher: Fetcher,
     private val synchronizer: Synchronizer,
     private val cache: RepositoryCache,
@@ -83,14 +79,18 @@ class TestGit(
         fetcher.fetch(configSet, sources.get(SUPER_ADMIN, configSet).source)
 
     /**
-     * Makes [configSet] the only due ConfigSet, then claims and syncs it with [synchronizer], as a poll does. The Git
-     * sources of earlier tests then stay out of the claims of a test. Returns the result of [Synchronizer.sync].
+     * Makes [configSet] the only due ConfigSet, then claims it with [synchronizer], as a poll does. Without the
+     * [parkAll], the claim could take a Git source of an earlier test.
      */
-    fun sync(configSet: ConfigSetId, synchronizer: Synchronizer = this.synchronizer): Boolean {
+    fun claim(configSet: ConfigSetId, synchronizer: Synchronizer = this.synchronizer): SyncLease {
         parkAll()
         makeDue(configSet)
-        return synchronizer.sync(synchronizer.claim(1).single())
+        return synchronizer.claim(1).single()
     }
+
+    /** Claims and syncs [configSet] with [synchronizer]. Returns the result of [Synchronizer.sync]. */
+    fun sync(configSet: ConfigSetId, synchronizer: Synchronizer = this.synchronizer): Boolean =
+        synchronizer.sync(claim(configSet, synchronizer))
 
     /** Syncs [configSet], requires a success, and returns the last published commit. */
     fun publishTip(configSet: ConfigSetId): String {
@@ -100,7 +100,7 @@ class TestGit(
         return checkNotNull(sources.get(SUPER_ADMIN, configSet).lastPublished).id.value
     }
 
-    fun state(configSet: ConfigSetId): SyncState = checkNotNull(syncs.state(configSet))
+    fun state(configSet: ConfigSetId): SyncState = checkNotNull(syncRepository.state(configSet))
 
     /** Makes each Git source not due, so a claim of a test takes only the Git sources that the test makes due. */
     fun parkAll() {
@@ -109,7 +109,7 @@ class TestGit(
 
     /** Makes [configSet] due now, as a manual sync does. */
     fun makeDue(configSet: ConfigSetId) {
-        syncs.requestSync(configSet)
+        syncRepository.requestSync(configSet)
     }
 
     /** True if the due time of [configSet] has come, by the database clock. */
@@ -140,41 +140,20 @@ class TestGit(
 
     /** Deletes the cached repository of [configSet] on this instance, so the next read fetches it. */
     fun dropCache(configSet: ConfigSetId) {
-        check(cache.delete(configSet, WAIT)) { "Reads held the repository" }
+        check(cache.delete(configSet, TIMEOUT)) { "Reads held the repository" }
     }
 
     /**
-     * Runs [block] while another thread holds the fetch lock of [configSet], so a fetch of it waits. When [block]
-     * counts down its latch, the holder runs [beforeRelease] with the lock, then releases the lock. The holder also
-     * releases the lock when [block] ends.
+     * Runs [test] while another thread holds the fetch lock of [configSet], so a fetch of it waits. After [test], the
+     * holder runs [beforeRelease] with the lock, then releases the lock.
      */
-    fun <T> whileFetchLockHeld(
-        configSet: ConfigSetId,
-        beforeRelease: () -> Unit = {},
-        block: (release: CountDownLatch) -> T,
-    ): T {
-        val holding = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        return Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-            executor.execute {
-                cache.withFetchLock(configSet, WAIT) {
-                    holding.countDown()
-                    release.await(WAIT.seconds, TimeUnit.SECONDS)
-                    beforeRelease()
-                }
+    fun <T> whileFetchLockHeld(configSet: ConfigSetId, beforeRelease: () -> Unit = {}, test: () -> T): T =
+        whileHolding({ held ->
+            cache.withFetchLock(configSet, TIMEOUT) {
+                held()
+                beforeRelease()
             }
-            check(holding.await(WAIT.seconds, TimeUnit.SECONDS)) { "The holder did not take the fetch lock" }
-            try {
-                block(release)
-            } finally {
-                release.countDown()
-            }
-        }
-    }
-
-    private companion object {
-        val WAIT: Duration = Duration.ofSeconds(60)
-    }
+        }, test)
 }
 
 /**
@@ -188,14 +167,14 @@ class TestSyncInstances(
     private val instances: GitInstances,
     private val cache: RepositoryCache,
     private val ssh: IsolatedSsh,
-    private val syncs: SyncRepository,
+    private val syncRepository: SyncRepository,
     private val recorder: SyncRecorder,
     private val properties: GitProperties,
 ) {
     fun fetcher(limits: GitProperties = properties): Fetcher = Fetcher(keys, instances, cache, ssh, limits)
 
     fun synchronizer(limits: GitProperties = properties): Synchronizer =
-        Synchronizer(syncs, fetcher(limits), cache, recorder, limits)
+        Synchronizer(syncRepository, fetcher(limits), cache, recorder, limits)
 }
 
 /** Registers the Git instances of [SshGitServer] in the context. */

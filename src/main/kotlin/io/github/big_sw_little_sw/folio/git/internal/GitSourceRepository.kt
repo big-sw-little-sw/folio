@@ -1,6 +1,5 @@
 package io.github.big_sw_little_sw.folio.git.internal
 
-import io.github.big_sw_little_sw.folio.catalog.Access
 import io.github.big_sw_little_sw.folio.catalog.ConfigSetId
 import io.github.big_sw_little_sw.folio.content.Revision
 import io.github.big_sw_little_sw.folio.content.RevisionId
@@ -16,9 +15,10 @@ import java.util.UUID
 class GitSourceRepository(private val jdbc: JdbcClient) {
     /**
      * Inserts the Source definition. No constraint of `git_source` can fail here. The ConfigSet row is new in this
-     * transaction, and the value classes are stricter than the check constraints. Because of the lock order in
-     * [Access], a credential delete that commits first makes the create fail with `CredentialNotFound` before this
-     * insert. A later delete sees this row and fails with `CredentialInUse`.
+     * transaction, and [RepositoryPath], [Branch] and [RootPath] are stricter than the check constraints. The caller
+     * holds the exclusive tree lock, and a credential delete takes the shared tree lock before it locks the credential
+     * row. Thus a delete that commits first makes the create fail with `CredentialNotFound` before this insert. A later
+     * delete sees this row and fails with `CredentialInUse`.
      */
     fun insert(configSet: ConfigSetId, source: GitSourceDefinition) {
         jdbc
@@ -106,8 +106,8 @@ class GitSourceRepository(private val jdbc: JdbcClient) {
 const val SOURCE_COLUMNS = "credential_id, repository_path, branch, root_path"
 
 /**
- * The order of published revisions, newest first. The newest row of `git_revision` is the last published commit. Sync
- * and reads use this one order, so the change detection of sync and `latest` always agree.
+ * The order of published revisions, newest first. Sync and reads use this one order, so the change detection of sync
+ * and `latest` always agree.
  */
 private const val NEWEST_FIRST = "order by published_at desc"
 
