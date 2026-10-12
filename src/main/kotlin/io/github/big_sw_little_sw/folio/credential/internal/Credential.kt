@@ -6,7 +6,6 @@ import io.github.big_sw_little_sw.folio.catalog.Slug
 import io.github.big_sw_little_sw.folio.credential.CredentialId
 import io.github.big_sw_little_sw.folio.credential.KeyId
 
-/** Disable is permanent in v1 (design 11.1). No operation changes `DISABLED` back to `ENABLED`. */
 enum class CredentialStatus {
     ENABLED,
     DISABLED,
@@ -26,11 +25,13 @@ data class CredentialRow(
     val gitInstance: Slug,
     val status: CredentialStatus,
 ) {
+    val enabled: Boolean get() = status == CredentialStatus.ENABLED
+
     fun toCredential(namespacePath: Path, keys: List<Key>) =
         Credential(id, namespaceId, namespacePath, name, gitInstance, status, keys)
 }
 
-/** A key without its private key. Folio never gives a private key, so this class has none (design 11.1). */
+/** A key without its private key. Pages and HTTP responses show this class, so it must never hold a private key. */
 data class Key(
     val id: KeyId,
     val status: KeyStatus,
@@ -58,6 +59,5 @@ data class Credential(
 ) {
     val enabled: Boolean get() = status == CredentialStatus.ENABLED
 
-    /** The pending key, or null if no key is pending. A partial unique index permits a maximum of one pending key. */
     val pendingKey: Key? get() = keys.firstOrNull { it.status == KeyStatus.PENDING }
 }

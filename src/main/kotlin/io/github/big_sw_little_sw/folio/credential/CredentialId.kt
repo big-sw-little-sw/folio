@@ -9,7 +9,6 @@ value class CredentialId(val value: UUID) {
     fun toApiId(): String = CREDENTIAL_ID.format(this)
 }
 
-/** The ID of a key of a credential. The comment of the OpenSSH line of a key is its API ID (design 11.1). */
 @JvmInline
 value class KeyId(val value: UUID) {
     /** The API form, for example `key_0192f0c1e8a47c3b9d2e5f6a7b8c9d0e`. */

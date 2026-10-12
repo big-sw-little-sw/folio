@@ -1,17 +1,13 @@
 package io.github.big_sw_little_sw.folio.credential.internal
 
-import org.springframework.beans.factory.SmartInitializingSingleton
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.stereotype.Component
 import java.util.Base64
 
 /**
- * `folio.crypto`: the master-key ring (design 11.3). [masterKeys] maps a positive integer version to a base64 secret
- * of 32 bytes or more. [activeKeyVersion] names the version for new encryptions.
- *
- * This class only binds the values. [MasterKeyRing] parses and validates them. Spring Boot can show the value of a
- * property in the report of a failed binding. A failed conversion of a version key reports the previous entry, which
- * is a secret. Thus the versions bind as strings, and a map of strings cannot fail to bind.
+ * The `folio.crypto` properties. This class only binds the values, and [MasterKeyRing] validates them. Spring Boot can
+ * show a property value in the report of a failed binding. A failed conversion of a version key reports the previous
+ * entry, which is a secret. Thus the versions bind as strings, and a map of strings cannot fail to bind.
  */
 @ConfigurationProperties("folio.crypto")
 data class CryptoProperties(val masterKeys: Map<String, String> = emptyMap(), val activeKeyVersion: Int? = null) {
@@ -20,8 +16,8 @@ data class CryptoProperties(val masterKeys: Map<String, String> = emptyMap(), va
 }
 
 /**
- * The decoded master secrets. Folio does not start if the ring is empty, if a version is not a positive integer, if the
- * active version is missing or if a secret is not valid. The messages name versions and never secrets.
+ * The decoded master secrets. Folio does not start if the configuration is not valid. The failure messages name
+ * versions and never secrets, because a startup failure goes to the log.
  */
 @Component
 class MasterKeyRing(properties: CryptoProperties) {
@@ -56,7 +52,7 @@ class MasterKeyRing(properties: CryptoProperties) {
         }
 
         fun decode(version: Int, secret: String): ByteArray {
-            // The message of the decoder can quote a character of the secret, so this message replaces it.
+            // The decoder message can quote a character of the secret, so this message replaces it.
             val bytes =
                 try {
                     Base64.getDecoder().decode(secret.trim())
@@ -67,22 +63,6 @@ class MasterKeyRing(properties: CryptoProperties) {
                 "folio.crypto.master-keys.$version has fewer than $MIN_SECRET_BYTES bytes."
             }
             return bytes
-        }
-    }
-}
-
-/**
- * Stops the startup if a stored key uses a master-key version that the ring does not have (design 11.3). Without the
- * check, Folio would fail later, at the first sync with that key. The check runs after all singletons exist, so
- * Flyway has already migrated the schema. The web server starts after the check, so no request comes before it.
- */
-@Component
-class MasterKeyCheck(private val keys: KeyRepository, private val ring: MasterKeyRing) : SmartInitializingSingleton {
-    override fun afterSingletonsInstantiated() {
-        val missing = keys.countByVersion().keys - ring.versions
-        check(missing.isEmpty()) {
-            "Stored keys use the master-key versions ${missing.sorted()}, but folio.crypto.master-keys does not have " +
-                "them. Add these versions again, run the re-encryption, and then remove them."
         }
     }
 }

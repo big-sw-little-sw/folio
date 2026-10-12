@@ -13,6 +13,7 @@ import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.sql.ResultSet
 import java.util.UUID
 
@@ -30,14 +31,15 @@ class TreeRepository(private val jdbc: JdbcClient) {
     }
 
     /**
-     * Takes the shared form of the tree lock until the transaction ends. `Access` calls this method in a write outside
-     * the catalog, before it reads the ancestry (design 8.1). The shared form waits for a catalog write to commit and
-     * blocks the next catalog write. Thus the ancestry and the rules of the decision come from one committed tree
-     * state. PostgreSQL never blocks a transaction on its own locks, so a catalog write that already holds [lock] does
-     * not wait here.
+     * Takes the shared form of the tree lock until the transaction ends. The shared form waits for a running catalog
+     * write and blocks the next one. Thus a write outside the catalog reads the ancestry and the rules from one
+     * committed tree. PostgreSQL does not block a transaction on its own locks, so a catalog write that holds [lock]
+     * does not wait here. A read-only transaction is a [SnapshotRead], and its snapshot already covers the reads, so
+     * the method takes no lock there.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     fun lockShared() {
+        if (TransactionSynchronizationManager.isCurrentTransactionReadOnly()) return
         jdbc.sql("select pg_advisory_xact_lock_shared($TREE_LOCK)").query().listOfRows()
     }
 

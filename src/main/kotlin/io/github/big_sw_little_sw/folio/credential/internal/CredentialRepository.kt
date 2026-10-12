@@ -13,9 +13,8 @@ import java.sql.ResultSet
 import java.util.UUID
 
 /**
- * Reads and writes the `credential` rows. [KeyRepository] owns the `credential_key` rows. This repository owns the
- * unique constraint on names and the foreign key to `namespace`, so it changes their violations to domain errors
- * (design 8.6).
+ * Reads and writes the `credential` rows. This repository owns the unique constraint on names and the foreign key to
+ * `namespace`, so it changes their violations to domain errors.
  */
 @Repository
 class CredentialRepository(private val jdbc: JdbcClient) {
@@ -47,13 +46,12 @@ class CredentialRepository(private val jdbc: JdbcClient) {
 
     /**
      * Locks the credential row until the transaction ends, and returns the row. Each change of a credential or of its
-     * keys calls this method first (design 11.1). Thus changes of one credential run one at a time. For example, two
-     * regenerations cannot both see that no key is pending.
+     * keys calls this method first. Thus changes of one credential run one at a time. Without the lock, two
+     * regenerations could both see that no key is pending.
      */
     fun lock(id: CredentialId): CredentialRow? =
         findRow("select $COLUMNS from credential where id = :id for update", id)
 
-    /** The credentials of the Namespace, in name order. */
     fun inNamespace(namespace: NamespaceId): List<CredentialRow> = jdbc
         .sql("select $COLUMNS from credential where namespace_id = :namespaceId order by name")
         .param("namespaceId", namespace.value)
@@ -64,10 +62,7 @@ class CredentialRepository(private val jdbc: JdbcClient) {
         jdbc.sql("update credential set status = 'DISABLED' where id = :id").param("id", id.value).update()
     }
 
-    /**
-     * Deletes the credential. A foreign key that cascades deletes its keys. The Git slice adds a foreign key from
-     * `git_source` that does not cascade. This method then changes its violation to `CREDENTIAL_IN_USE` (design 11.1).
-     */
+    /** Deletes the credential. A foreign key that cascades deletes its keys. */
     fun delete(id: CredentialId) {
         jdbc.sql("delete from credential where id = :id").param("id", id.value).update()
     }

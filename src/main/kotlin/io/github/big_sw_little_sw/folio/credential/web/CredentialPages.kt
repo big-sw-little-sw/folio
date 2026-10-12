@@ -24,11 +24,10 @@ import org.springframework.web.servlet.ModelAndView
 import org.springframework.web.servlet.mvc.support.RedirectAttributes
 
 /**
- * The credential pages (design 12.3). The catalog does not depend on this module, so this module serves the
- * credential list of a Namespace at `/namespaces/{id}/credentials`. The Namespace page links to that URL. Each page
- * and each form needs `MANAGE` on the Namespace that owns the credential, as the operations do (design 7.3). `MANAGE`
- * does not include `READ`, so the path of the Namespace is a link only for a caller that can read the Namespace
- * (design 12.3).
+ * The credential pages. This module serves the credential list of a Namespace at `/namespaces/{id}/credentials`,
+ * because the catalog does not depend on this module. [CredentialService] authorizes each page and form. A caller can
+ * have `MANAGE` on a Namespace without `READ`, so the path of the Namespace is a link only for a caller that can read
+ * the Namespace.
  */
 @Controller
 class CredentialPages(
@@ -139,7 +138,6 @@ class CredentialPages(
     private fun credentialsUrl(namespace: NamespaceId) = "/namespaces/${namespace.toApiId()}/credentials"
 }
 
-/** The master-key page for super admins (design 12.3): the key counts for each version and the re-encryption. */
 @Controller
 class CryptoPages(private val currentCaller: CurrentCaller, private val masterKeys: MasterKeyService) {
     @GetMapping("/crypto")

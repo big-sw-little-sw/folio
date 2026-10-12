@@ -3,16 +3,11 @@ package io.github.big_sw_little_sw.folio.credential.internal
 import org.springframework.boot.context.properties.bind.Binder
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource
 import java.util.Base64
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the startup checks of the master-key ring (design 11.3). Spring creates the ring at startup, so a
- * failure here stops the startup. The messages name versions and never secrets.
+ * These tests check the startup checks of the master-key ring. Spring creates the ring at startup, so a failure here
+ * stops the startup.
  */
 class MasterKeyRingTest {
     private val secret = ByteArray(32) { it.toByte() }
@@ -67,11 +62,7 @@ class MasterKeyRingTest {
         }
     }
 
-    /**
-     * Spring Boot reports a failed binding with a property and its value. A failed conversion of a version key once
-     * reported the previous entry, which is a secret. Thus `folio.crypto` binds versions as strings. The ring then
-     * rejects the version, and its failure message contains no secret.
-     */
+    /** This test checks the reason that [CryptoProperties] binds versions as strings. */
     @Test
     fun `a binding with a version that is not a number shows no secret`() {
         val other = Base64.getEncoder().encodeToString(ByteArray(32) { 9 })

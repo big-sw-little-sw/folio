@@ -87,9 +87,9 @@ class NamespaceRepository(private val jdbc: JdbcClient) {
 
     /**
      * Deletes the Namespace, and a foreign key that cascades deletes its rules. The service must call [isEmpty] first,
-     * under the tree lock. The tree lock stops a parallel create of a child Namespace or a ConfigSet. A credential
-     * create takes only the shared form of the tree lock, so a credential can appear after [isEmpty]. The foreign key
-     * from `credential` then stops the delete, and this method changes that violation to
+     * under the tree lock. The tree lock stops a parallel create of a child Namespace, a ConfigSet or a credential,
+     * because a credential create holds the shared form of the lock. The foreign key from `credential` is a second
+     * check: if a credential row exists after [isEmpty], the delete fails, and this method changes that violation to
      * [CatalogException.NamespaceNotEmpty].
      */
     fun delete(id: NamespaceId) {

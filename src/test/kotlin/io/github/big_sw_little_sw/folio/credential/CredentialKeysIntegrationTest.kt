@@ -6,24 +6,17 @@ import io.github.big_sw_little_sw.folio.catalog.Slug
 import io.github.big_sw_little_sw.folio.credential.internal.Credential
 import io.github.big_sw_little_sw.folio.credential.internal.OpenSshPublicKey
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.signsFor
+import io.github.big_sw_little_sw.testing.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.security.PublicKey
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the public interface of the credential module for other modules (design 8.3): `Credentials` and
- * `CredentialKeys`. The keys come from the database, so the tests also show that the stored encryption works.
+ * These tests check `Credentials` and `CredentialKeys`, the interface of the credential module for other modules. The
+ * keys come from the database, so the tests also show that the stored encryption works.
  */
 @FolioIntegrationTest
 class CredentialKeysIntegrationTest(
@@ -80,10 +73,7 @@ class CredentialKeysIntegrationTest(
         }
         assertFailsWith<CredentialException.CredentialNotFound> { keys.withActiveKey(missing) {} }
         assertFailsWith<CredentialException.CredentialNotFound> {
-            keys.withPendingKey(
-                missing,
-                KeyId(UUID.randomUUID()),
-            ) {}
+            keys.withPendingKey(missing, KeyId(UUID.randomUUID())) {}
         }
     }
 
@@ -120,7 +110,7 @@ class CredentialKeysIntegrationTest(
         }
     }
 
-    /** A long Git fetch in the block must hold no database connection (design 8.3). */
+    /** Without this guarantee, a long Git fetch in the block would hold a database connection. */
     @Test
     fun `the block runs outside a transaction`() {
         val credential = fixture.credential()

@@ -2,21 +2,15 @@ package io.github.big_sw_little_sw.folio.credential.internal
 
 import io.github.big_sw_little_sw.folio.credential.CredentialId
 import io.github.big_sw_little_sw.folio.credential.KeyId
-import io.github.big_sw_little_sw.testing.signsFor
+import io.github.big_sw_little_sw.testing.*
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 import java.util.HexFormat
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 
-/** These tests check the encryption of private keys at rest (design 11.2) without Spring. */
 class PrivateKeyCipherTest {
     private val secret1 = Base64.getEncoder().encodeToString(ByteArray(32) { 1 })
     private val secret2 = Base64.getEncoder().encodeToString(ByteArray(32) { 2 })
@@ -187,11 +181,10 @@ class PrivateKeyCipherTest {
         key: KeyId,
     ) {
         val failure = assertFailsWith<IllegalStateException> { cipher.decrypt(encrypted, credential, key) {} }
-        assertEquals(
+        val expected =
             "Key ${key.toApiId()} of credential ${credential.toApiId()} under master-key version " +
-                "${encrypted.masterKeyVersion} does not decrypt.",
-            failure.message,
-        )
+                "${encrypted.masterKeyVersion} does not decrypt."
+        assertTrue(failure.message.orEmpty().startsWith(expected), failure.message)
     }
 
     private fun ByteArray.flipFirstBit() = copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() }

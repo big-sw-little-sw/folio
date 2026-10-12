@@ -1,6 +1,6 @@
 <%--
-    The credential module serves the credentials page of a Namespace. The catalog must not depend on the credential
-    module, so this template builds that link from the URL of the Namespace only.
+    The credential module serves the credentials page of a Namespace. The credential module depends on the catalog, not
+    the reverse, so this template builds that link from the URL of the Namespace only.
 --%>
 @import io.github.big_sw_little_sw.folio.catalog.web.Operations
 @import io.github.big_sw_little_sw.folio.catalog.web.ResourceView

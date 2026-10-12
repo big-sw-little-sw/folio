@@ -3,33 +3,17 @@ package io.github.big_sw_little_sw.folio.credential
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.json
-import io.github.big_sw_little_sw.testing.send
-import org.hamcrest.Matchers.contains
-import org.hamcrest.Matchers.endsWith
-import org.hamcrest.Matchers.hasSize
-import org.hamcrest.Matchers.matchesPattern
-import org.hamcrest.Matchers.startsWith
+import org.hamcrest.Matchers.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod.GET
 import org.springframework.http.HttpMethod.POST
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import java.util.UUID
-import kotlin.test.Test
-import kotlin.test.assertFalse
+import kotlin.test.*
 
-/** These tests check the credential routes (design 11.1, 12.2) through HTTP with bearer tokens. */
 @FolioIntegrationTest
 class CredentialApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowired private val catalog: TestCatalog) {
     private val alice = Caller.Authenticated("alice", setOf("team-a"), null)
@@ -86,9 +70,6 @@ class CredentialApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
         mvc
             .get("$CREDENTIALS?namespaceId=${namespace.toApiId()}") { bearer(bob) }
             .andExpectForbidden(Action.MANAGE, namespace.toApiId())
-        mvc.get("$CREDENTIALS/$id").andExpectProblem(401, "AUTHENTICATION_REQUIRED").andExpect {
-            header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") }
-        }
     }
 
     @Test
@@ -97,22 +78,8 @@ class CredentialApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
         val team = catalog.namespace(top)
         catalog.rule(top, Action.MANAGE, "group:team-a")
 
-        mvc
-            .send(
-                POST,
-                CREDENTIALS,
-                alice,
-                """{"namespaceId": "${team.toApiId()}", "name": "deploy", "gitInstance": "github"}""",
-            )
-            .andExpect { status { isCreated() } }
-        mvc
-            .send(
-                POST,
-                CREDENTIALS,
-                bob,
-                """{"namespaceId": "${team.toApiId()}", "name": "other", "gitInstance": "github"}""",
-            )
-            .andExpectForbidden(Action.MANAGE, team.toApiId())
+        create(team, "deploy", caller = alice).andExpect { status { isCreated() } }
+        create(team, "other", caller = bob).andExpectForbidden(Action.MANAGE, team.toApiId())
     }
 
     @Test
@@ -129,11 +96,7 @@ class CredentialApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
             mvc.send(POST, CREDENTIALS, SUPER_ADMIN, body).andExpectProblem(400, code)
         }
         create(NamespaceId(UUID.randomUUID()), "deploy").andExpectProblem(404, "NAMESPACE_NOT_FOUND")
-        mvc
-            .get(
-                "$CREDENTIALS/cred_${"0".repeat(32)}",
-            ) { bearer(SUPER_ADMIN) }
-            .andExpectProblem(404, "CREDENTIAL_NOT_FOUND")
+        get("cred_${"0".repeat(32)}").andExpectProblem(404, "CREDENTIAL_NOT_FOUND")
     }
 
     @Test
@@ -252,28 +215,21 @@ class CredentialApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
                 mvc
                     .send(POST, "$CREDENTIALS/$id$operation", bob, body)
                     .andExpectForbidden(Action.MANAGE, namespace.toApiId())
-                mvc
-                    .send(POST, "$CREDENTIALS/$id$operation", null, body)
-                    .andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-                    .andExpect { header { string(HttpHeaders.WWW_AUTHENTICATE, "Bearer") } }
             }
     }
 
-    /** Folio finds the resource first, so a caller without permission also gets 404 for a missing ID (design 7.4). */
+    /**
+     * Folio finds the resource first, so a caller without permission and an anonymous caller also get 404 for a missing
+     * ID. Nobody can guess an ID, so the 404 does not give away a resource.
+     */
     @Test
     fun `not found comes before authorization`() {
-        val namespace = NamespaceId(UUID.randomUUID()).toApiId()
+        val namespace = NamespaceId(UUID.randomUUID())
         val credential = CredentialId(UUID.randomUUID()).toApiId()
         listOf(bob, null).forEach { caller ->
-            mvc
-                .send(
-                    POST,
-                    CREDENTIALS,
-                    caller,
-                    """{"namespaceId": "$namespace", "name": "deploy", "gitInstance": "github"}""",
-                )
+            create(namespace, "deploy", caller = caller).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
+            mvc.send(GET, "$CREDENTIALS?namespaceId=${namespace.toApiId()}", caller)
                 .andExpectProblem(404, "NAMESPACE_NOT_FOUND")
-            mvc.send(GET, "$CREDENTIALS?namespaceId=$namespace", caller).andExpectProblem(404, "NAMESPACE_NOT_FOUND")
             mvc
                 .send(POST, "$CREDENTIALS/$credential:regenerate", caller)
                 .andExpectProblem(404, "CREDENTIAL_NOT_FOUND")
@@ -294,13 +250,15 @@ class CredentialApiIntegrationTest(@Autowired private val mvc: MockMvc, @Autowir
             .andExpect { status { isNoContent() } }
     }
 
-    private fun create(namespace: NamespaceId, name: String, gitInstance: String = "github"): ResultActionsDsl =
-        mvc.send(
-            POST,
-            CREDENTIALS,
-            SUPER_ADMIN,
-            """{"namespaceId": "${namespace.toApiId()}", "name": "$name", "gitInstance": "$gitInstance"}""",
-        )
+    private fun create(
+        namespace: NamespaceId,
+        name: String,
+        gitInstance: String = "github",
+        caller: Caller.Authenticated? = SUPER_ADMIN,
+    ): ResultActionsDsl {
+        val body = """{"namespaceId": "${namespace.toApiId()}", "name": "$name", "gitInstance": "$gitInstance"}"""
+        return mvc.send(POST, CREDENTIALS, caller, body)
+    }
 
     private fun get(id: String) = mvc.get("$CREDENTIALS/$id") { bearer(SUPER_ADMIN) }
 

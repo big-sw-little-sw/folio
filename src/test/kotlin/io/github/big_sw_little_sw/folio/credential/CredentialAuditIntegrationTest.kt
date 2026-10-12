@@ -3,30 +3,15 @@ package io.github.big_sw_little_sw.folio.credential
 import io.github.big_sw_little_sw.folio.catalog.Action
 import io.github.big_sw_little_sw.folio.catalog.NamespaceId
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestAudit
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.json
-import io.github.big_sw_little_sw.testing.send
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpMethod.POST
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActionsDsl
-import org.springframework.test.web.servlet.delete
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import tools.jackson.databind.JsonNode
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import java.util.UUID
+import kotlin.test.*
 
-/**
- * These tests check the audit records of the credential module (design 14) through the HTTP routes. Test classes share
- * the database, so each test reads only the records of its own credentials.
- */
 @FolioIntegrationTest
 class CredentialAuditIntegrationTest(
     @Autowired private val mvc: MockMvc,
@@ -48,14 +33,12 @@ class CredentialAuditIntegrationTest(
         assertEquals(catalog.pathOf(namespace), record["path"])
         assertEquals("alice", record["actor_subject"])
         assertEquals(false, record["actor_super_admin"])
-        assertEquals(
-            audit.json(
-                """
-                {"namespaceId": "${namespace.toApiId()}", "name": "deploy", "gitInstance": "github",
-                 "keys": [${change(created, 0, "ACTIVE", null)}]}
-                """,
-            ),
-            audit.json(record["details"]),
+        audit.assertDetails(
+            """
+            {"namespaceId": "${namespace.toApiId()}", "name": "deploy", "gitInstance": "github",
+             "keys": [${change(created, 0, "ACTIVE", null)}]}
+            """,
+            record,
         )
     }
 
@@ -69,9 +52,16 @@ class CredentialAuditIntegrationTest(
         val discarded = post("$CREDENTIALS/$id:discard", """{"keyId": "${regeneratedAgain.json("$.keys[2].id")}"}""")
         val replaced = post("$CREDENTIALS/$id:replace")
 
+        audit.assertTrail(
+            idOf(created),
+            "CREDENTIAL_CREATED",
+            "CREDENTIAL_REGENERATED",
+            "CREDENTIAL_ACTIVATED",
+            "CREDENTIAL_REGENERATED",
+            "CREDENTIAL_DISCARDED",
+            "CREDENTIAL_REPLACED",
+        )
         val records = records(created)
-        val operations = listOf("CREATED", "REGENERATED", "ACTIVATED", "REGENERATED", "DISCARDED", "REPLACED")
-        assertEquals(operations.map { "CREDENTIAL_$it" }, records.map { it["operation"] })
         assertEquals(listOf(change(regenerated, 1, "PENDING", null)), keys(records[1]))
         assertEquals(
             listOf(change(activated, 0, "RETIRED", "ACTIVE"), change(activated, 1, "ACTIVE", "PENDING")),
@@ -97,15 +87,12 @@ class CredentialAuditIntegrationTest(
         post("$CREDENTIALS/$id:disable")
         mvc.delete("$CREDENTIALS/$id") { bearer(SUPER_ADMIN) }.andExpect { status { isNoContent() } }
 
+        audit.assertTrail(idOf(created), "CREDENTIAL_CREATED", "CREDENTIAL_DISABLED", "CREDENTIAL_DELETED")
         val records = records(created)
-        assertEquals(
-            listOf("CREDENTIAL_CREATED", "CREDENTIAL_DISABLED", "CREDENTIAL_DELETED"),
-            records.map { it["operation"] },
-        )
-        assertEquals(audit.json("{}"), audit.json(records[1]["details"]))
-        assertEquals(
-            audit.json("""{"namespaceId": "${namespace.toApiId()}", "name": "deploy", "gitInstance": "github"}"""),
-            audit.json(records[2]["details"]),
+        audit.assertDetails("{}", records[1])
+        audit.assertDetails(
+            """{"namespaceId": "${namespace.toApiId()}", "name": "deploy", "gitInstance": "github"}""",
+            records[2],
         )
         assertEquals(catalog.pathOf(namespace), records[2]["path"])
     }
@@ -122,10 +109,7 @@ class CredentialAuditIntegrationTest(
             .andExpectProblem(409, "KEY_NOT_PENDING")
         mvc.post("$CREDENTIALS/$id:replace") { bearer(alice) }.andExpectForbidden(Action.MANAGE, namespace.toApiId())
 
-        assertEquals(
-            listOf("CREDENTIAL_CREATED", "CREDENTIAL_REGENERATED"),
-            records(created).map { it["operation"] },
-        )
+        audit.assertTrail(idOf(created), "CREDENTIAL_CREATED", "CREDENTIAL_REGENERATED")
     }
 
     private fun create(
@@ -155,8 +139,9 @@ class CredentialAuditIntegrationTest(
 
     private fun keys(record: Map<String, Any?>): List<JsonNode> = audit.json(record["details"])["keys"].toList()
 
-    private fun records(created: ResultActionsDsl): List<Map<String, Any?>> =
-        audit.records(CREDENTIAL_ID.parse(created.json("$.id")).value)
+    private fun records(created: ResultActionsDsl): List<Map<String, Any?>> = audit.records(idOf(created))
+
+    private fun idOf(created: ResultActionsDsl): UUID = CREDENTIAL_ID.parse(created.json("$.id")).value
 
     private companion object {
         const val CREDENTIALS = "/api/v1/admin/credentials"

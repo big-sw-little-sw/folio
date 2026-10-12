@@ -20,9 +20,9 @@ class ModularityTests {
     }
 
     /**
-     * Only the git module decrypts keys, through CredentialKeys (design 8.3, 17). This rule makes sure that no HTTP
-     * layer depends on CredentialKeys directly: no class in a `web` package (routes, pages and compiled templates) and
-     * no controller in another package. The rule does not cover the internal crypto classes of the credential module.
+     * Only the git module decrypts keys, through CredentialKeys. Without this rule, an HTTP route or a page could use a
+     * private key. The rule checks each class in a `web` package (routes, pages and compiled templates) and each
+     * controller in another package. The rule does not cover the internal crypto classes of the credential module.
      */
     @Test
     fun `no HTTP layer calls CredentialKeys`() {

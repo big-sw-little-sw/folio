@@ -211,11 +211,11 @@ audit record.
   the `credential` table. ConfigItems are not a separate condition, because they are always in a ConfigSet.
   - The catalog reads the `credential` table only in this SQL query. Thus the catalog does not depend on the
     `credential` module, and the dependency arrow of section 8 stays as it is.
-  - A credential create takes only the shared form of the tree lock, when `Access` authorizes it (section 8.1). Thus
-    a create and a delete of the Namespace do not overlap. The foreign key from `credential` to `namespace` still
-    guards the delete: if a credential appears after the query, the foreign key stops the delete, and the catalog
-    changes that violation to `NAMESPACE_NOT_EMPTY`. A create that found the Namespace before a delete committed gets
-    `NAMESPACE_NOT_FOUND` from the same foreign key.
+  - A credential create takes only the shared form of the tree lock, when `Namespaces.require` finds and authorizes
+    the Namespace (section 8.1). Thus a create and a delete of the Namespace do not overlap. The foreign key from
+    `credential` to `namespace` still guards the delete: if a credential appears after the query, the foreign key
+    stops the delete, and the catalog changes that violation to `NAMESPACE_NOT_EMPTY`. A create whose insert meets a
+    deleted Namespace gets `NAMESPACE_NOT_FOUND` from the same foreign key.
 - Folio does not cascade a delete. *Reason:* a cascade can delete ConfigSets that consumers use.
 - A delete of a ConfigSet also deletes its Source definition, its rules and its revision history. After the delete,
   consumers get status 404.
@@ -634,10 +634,13 @@ class ConfigSets {
     fun find(id: ConfigSetId): ConfigSet?
 }
 
-/** Namespace lookups for other modules. The credential module uses it for the path of the owner of a credential. */
+/** Namespace lookups for other modules. The credential module uses it for the owner of a credential. */
 class Namespaces {
     /** Finds a Namespace without authorization. */
     fun find(id: NamespaceId): Namespace?
+
+    /** Finds the Namespace (404), then requires the action on it (403 or 401), under one tree state. */
+    fun require(caller: Caller, action: Action, id: NamespaceId): Namespace
 }
 
 /** The ConfigSet with its current path. Consumers keep the ID. */
@@ -678,14 +681,15 @@ sealed interface ResourceId { val value: UUID }
   `credential` and `git`. *Reason:* one name for one policy. A read with the wrong isolation still compiles.
 - **Writes of other modules.** A write of another module, for example a credential change, authorizes in its own
   `READ COMMITTED` transaction. There each statement has its own snapshot, so a catalog commit could fall between the
-  ancestry read and the rules read. Thus `Access` takes the shared form of the tree lock
+  ancestry read and the rules read. Thus `Access` and `Namespaces.require` take the shared form of the tree lock
   (`pg_advisory_xact_lock_shared`) before the ancestry read when the transaction is not read-only. The shared form
   waits for a catalog write to commit, and it blocks the next catalog write until the transaction ends. Thus the two
   reads see one committed tree state.
   - A catalog write already holds the exclusive form. PostgreSQL never blocks a transaction on its own locks, so a
     catalog write that calls `Access` does not wait for itself.
   - A write that also takes the exclusive form, for example through `ConfigSets.create`, must take it before it calls
-    `Access`. Otherwise two such writes can each hold the shared form and wait for the exclusive form of the other.
+    `Access` or `Namespaces.require`. Otherwise two such writes can each hold the shared form and wait for the
+    exclusive form of the other.
 - **Ancestors.** A recursive query on `parent_id` finds the ancestors. Trees are shallow. A closure table makes moves
   more difficult and gives no measurable gain.
 - **Nearest-rule algorithm.** It is a pure function in `catalog.internal`. Unit tests examine it without Spring.
@@ -1727,7 +1731,7 @@ decision here with its reason.
 | A failed sign-in is an error with the code `SIGN_IN_FAILED`. One failure handler logs each cause. | One error style for the UI and the API. Spring logs these failures only at debug levels. | 8.6, 12.3 |
 | A credential stores its Git instance name with the slug rules only. The Git check reports a name that the configuration does not have. | `credential` must not depend on `git`, which owns `folio.git.instances`. A deployment can also remove an instance later. | 11.1 |
 | The catalog finds credentials of a Namespace with SQL on the `credential` table. The foreign key changes a parallel credential create into `NAMESPACE_NOT_EMPTY`. | The catalog does not depend on `credential`, and the delete never removes a credential. | 5.4 |
-| `Namespaces.find` is in the public API of the catalog. | The credential module needs the path of the owner for its pages and audit records. It mirrors `ConfigSets.find`. | 8.1 |
+| `Namespaces.find` and `Namespaces.require` are in the public API of the catalog. | The credential module needs the path of the owner for its pages and audit records. `require` finds and authorizes under one tree state, so a catalog commit cannot fall between the two steps. `find` mirrors `ConfigSets.find`. | 8.1 |
 | `CredentialKeys.withPendingKey` exists next to `withActiveKey`. | The check tests a pending key before the activation (section 10.3). Only the credential module reads key rows. | 8.3, 10.3 |
 | A credential audit record has the path of the Namespace that owns the credential. | A credential has no path of its own. The path shows the owner of the credential. | 14 |
 | A re-encryption run that moves no key writes no audit record. A failed run records the keys that it moved. | Operations that change nothing write no record. Each change has a record. | 11.3, 14 |

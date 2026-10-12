@@ -4,11 +4,8 @@ import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.spec.X509EncodedKeySpec
 import java.util.HexFormat
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
-/** These tests check the OpenSSH form of public keys (design 11.1). */
 class OpenSshPublicKeyTest {
     /**
      * The key is the public key of RFC 8032 section 7.1, test 1. `ssh-keygen -l -f` on the expected line gives the

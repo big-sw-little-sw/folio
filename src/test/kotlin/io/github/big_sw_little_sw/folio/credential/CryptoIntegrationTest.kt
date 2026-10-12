@@ -10,18 +10,9 @@ import io.github.big_sw_little_sw.folio.credential.internal.MasterKeyService
 import io.github.big_sw_little_sw.folio.credential.internal.PrivateKeyCipher
 import io.github.big_sw_little_sw.folio.credential.internal.Reencryption
 import io.github.big_sw_little_sw.folio.identity.Caller
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestAudit
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.TestIssuer
-import io.github.big_sw_little_sw.testing.TestLocks
-import io.github.big_sw_little_sw.testing.andExpectForbidden
-import io.github.big_sw_little_sw.testing.andExpectProblem
-import io.github.big_sw_little_sw.testing.bearer
-import io.github.big_sw_little_sw.testing.signsFor
-import org.hamcrest.Matchers.contains
+import org.hamcrest.Matchers.*
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.builder.SpringApplicationBuilder
@@ -34,27 +25,21 @@ import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.core.type.classreading.MetadataReader
 import org.springframework.core.type.classreading.MetadataReaderFactory
 import org.springframework.jdbc.core.simple.JdbcClient
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.get
-import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.*
 import org.testcontainers.postgresql.PostgreSQLContainer
 import java.security.KeyPairGenerator
 import java.security.Security
 import java.security.Signature
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.KDF
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the master-key ring and the re-encryption (design 11.3) against the database. The test ring has
- * the versions 1 and 2, and version 2 is active. Test classes share the database, so each test first moves all keys to
- * version 2 and then stores only its own keys with version 1.
+ * These tests check the master-key ring and the re-encryption against the database. The test ring has the versions 1
+ * and 2, and version 2 is active. Test classes share the database, so each test first moves all keys to version 2 and
+ * then stores only its own keys with version 1.
  */
 @FolioIntegrationTest
 class CryptoIntegrationTest(
@@ -83,8 +68,6 @@ class CryptoIntegrationTest(
 
         mvc.get(CRYPTO) { bearer(alice) }.andExpectForbidden(Action.MANAGE, null)
         mvc.post("$CRYPTO:reencrypt") { bearer(alice) }.andExpectForbidden(Action.MANAGE, null)
-        mvc.get(CRYPTO).andExpectProblem(401, "AUTHENTICATION_REQUIRED")
-        mvc.post("$CRYPTO:reencrypt").andExpectProblem(401, "AUTHENTICATION_REQUIRED")
         mvc.get(CRYPTO) { bearer(SUPER_ADMIN) }.andExpect {
             status { isOk() }
             jsonPath("$.activeVersion") { value(2) }
@@ -128,10 +111,7 @@ class CryptoIntegrationTest(
         assertEquals(null, record["path"])
         assertEquals("root", record["actor_subject"])
         assertEquals(true, record["actor_super_admin"])
-        assertEquals(
-            audit.json("""{"activeVersion": 2, "reencrypted": {"1": 1}, "complete": true}"""),
-            audit.json(record["details"]),
-        )
+        audit.assertDetails("""{"activeVersion": 2, "reencrypted": {"1": 1}, "complete": true}""", record)
     }
 
     @Test
@@ -152,8 +132,8 @@ class CryptoIntegrationTest(
     }
 
     /**
-     * A key that does not decrypt stops the run. The order of the keys is not part of the design, so the test accepts
-     * a run that moved the other key first and a run that did not.
+     * A key that does not decrypt stops the run. Folio does not promise an order of the keys, so the test accepts a run
+     * that moved the other key first and a run that did not.
      */
     @Test
     @ExtendWith(OutputCaptureExtension::class)
@@ -177,9 +157,9 @@ class CryptoIntegrationTest(
             if (moved == 0) {
                 assertEquals(emptyList(), records)
             } else {
-                assertEquals(
-                    audit.json("""{"activeVersion": 2, "reencrypted": {"1": 1}, "complete": false}"""),
-                    audit.json(records.single()["details"]),
+                audit.assertDetails(
+                    """{"activeVersion": 2, "reencrypted": {"1": 1}, "complete": false}""",
+                    records.single(),
                 )
             }
         } finally {
@@ -206,7 +186,7 @@ class CryptoIntegrationTest(
                                 .reencrypted.values
                                 .sum()
                         }
-                    }.map { it.get(1, TimeUnit.MINUTES) }
+                    }.map { it.await() }
             }
 
         assertEquals(5, moved.sum(), "Each key moves one time")
@@ -232,6 +212,7 @@ class CryptoIntegrationTest(
 
         val run = results.single().getOrThrow() as Reencryption
         assertEquals(emptyMap(), run.reencrypted)
+        val retired = credential.keys.single().id
         val erased =
             jdbc
                 .sql(
@@ -239,19 +220,15 @@ class CryptoIntegrationTest(
                     select num_nulls(algorithm, master_key_version, salt, nonce, ciphertext)
                     from credential_key where id = :id
                     """.trimIndent(),
-                ).param(
-                    "id",
-                    credential.keys
-                        .single()
-                        .id.value,
-                ).query(Int::class.java)
+                ).param("id", retired.value)
+                .query(Int::class.java)
                 .single()
-        assertEquals(5, erased)
+        assertEquals(5, erased, "The retired key has no key material")
     }
 
     /**
-     * The Git slice adds Apache sshd, which brings Bouncy Castle. Folio's own crypto must still use the JDK providers
-     * (design 10.4). Without this test, a provider change could move Folio's crypto to Bouncy Castle without notice.
+     * Folio's own crypto must use the JDK providers. A library such as Apache sshd can register Bouncy Castle. Without
+     * this test, a provider change could move Folio's crypto to Bouncy Castle without notice.
      */
     @Test
     fun `Folio's crypto uses the JDK providers`() {

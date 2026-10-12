@@ -7,20 +7,14 @@ import io.github.big_sw_little_sw.folio.catalog.internal.NamespaceService
 import io.github.big_sw_little_sw.folio.catalog.internal.TreeRepository
 import io.github.big_sw_little_sw.folio.credential.internal.CredentialService
 import io.github.big_sw_little_sw.folio.credential.internal.KeyStatus
-import io.github.big_sw_little_sw.testing.FolioIntegrationTest
-import io.github.big_sw_little_sw.testing.TestAudit
-import io.github.big_sw_little_sw.testing.TestCatalog
+import io.github.big_sw_little_sw.testing.*
 import io.github.big_sw_little_sw.testing.TestCatalog.Companion.SUPER_ADMIN
-import io.github.big_sw_little_sw.testing.TestCredentials
-import io.github.big_sw_little_sw.testing.TestLocks
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.simple.JdbcClient
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /**
- * These tests check the locks of credential writes and the races of design 5.4 and 11.1. Each test holds a lock in a
+ * These tests check the locks of credential writes and their races with catalog writes. Each test holds a lock in a
  * transaction while the writes start, so the writes wait and the result does not depend on timing.
  */
 @FolioIntegrationTest
@@ -64,8 +58,8 @@ class CredentialLockIntegrationTest(
     }
 
     /**
-     * A credential write authorizes at `READ COMMITTED`, so Access takes the shared tree lock (design 8.1). The write
-     * waits for a catalog write that holds the tree lock. [TestLocks] fails the test if the write does not wait.
+     * A credential write authorizes at `READ COMMITTED`, so Access takes the shared tree lock. Thus the write waits for
+     * a catalog write that holds the tree lock. [TestLocks] fails the test if the write does not wait.
      */
     @Test
     fun `a credential write waits for a catalog write`() {
@@ -106,8 +100,9 @@ class CredentialLockIntegrationTest(
     }
 
     /**
-     * The holder deletes the Namespace and does not commit. The create still finds the Namespace, and its insert waits
-     * for the holder at the foreign key. After the commit, the foreign key stops the insert.
+     * The holder deletes the Namespace with plain SQL, so it takes no tree lock, and it does not commit. The create
+     * still finds the Namespace, and its insert waits for the holder at the foreign key. After the commit, the foreign
+     * key stops the insert.
      */
     @Test
     fun `a credential create after a parallel Namespace delete finds no Namespace`() {
